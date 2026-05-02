@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/google/uuid"
 )
 
 // Workspace is the ephemeral local filesystem view a single CC turn operates in.
@@ -14,12 +12,23 @@ type Workspace struct {
 	WorkspaceID string
 	SessionID   string
 
-	TempDir    string // root: /tmp/cc-worker-<uuid>
+	TempDir    string // root: /tmp/cc-broker/sess_<sessionID>
 	ClaudeDir  string // <TempDir>/claude-config — CLAUDE_CONFIG_DIR
 	ProjectDir string // <TempDir>/project       — CLI cwd
 	MemoryDir  string // <ClaudeDir>/projects/ws_<wid>/memory — auto-memory override
 
 	snapshot map[string]FileInfo // captured at Setup, consumed by Teardown
+}
+
+// TempDirBase is the parent under which per-session work directories are
+// created. Tests override it via t.TempDir(); production uses os.TempDir().
+var TempDirBase = ""
+
+func tempDirBase() string {
+	if TempDirBase != "" {
+		return TempDirBase
+	}
+	return os.TempDir()
 }
 
 // Setup creates the temp directory tree and downloads workspace context from
@@ -29,8 +38,13 @@ type Workspace struct {
 // Download errors are non-fatal: a missing or partial workspace tree is expected
 // on first-turn workspaces that start empty.
 func Setup(ctx context.Context, workspaceID, sessionID string, vc *VikingClient) (*Workspace, error) {
-	tempDir, err := os.MkdirTemp("", "cc-worker-"+uuid.NewString()+"-")
-	if err != nil {
+	// Path is deterministic in (sessionID) so Claude CLI's proj_hash lookup
+	// (which is derived from Cwd = ProjectDir) finds the same session jsonl
+	// across turns. Per-session turn serialization is enforced by the
+	// in-memory TurnLock in handler_turns. cc-broker runs replicas: 1 in
+	// production; multi-replica deployments would need a distributed lock.
+	tempDir := filepath.Join(tempDirBase(), "cc-broker", "sess_"+sessionID)
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir temp: %w", err)
 	}
 
