@@ -45,6 +45,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "agentserver.databaseSecretName" . }}
                   key: database-url
+            - name: AGENTSERVER_URL
+              value: "http://{{ .Release.Name }}:{{ .Values.service.port }}"
             {{- if .Values.internal.apiSecret }}
             - name: INTERNAL_API_SECRET
               value: {{ .Values.internal.apiSecret | quote }}
