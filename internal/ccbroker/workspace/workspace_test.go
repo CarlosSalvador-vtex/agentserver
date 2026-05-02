@@ -120,6 +120,10 @@ func writeViking(w http.ResponseWriter, result any) {
 }
 
 func TestSetupAndTeardown(t *testing.T) {
+	old := TempDirBase
+	TempDirBase = t.TempDir()
+	defer func() { TempDirBase = old }()
+
 	fv := newFakeViking()
 	// Pre-populate one file so DownloadTree has something to fetch.
 	fv.tree["viking://resources/workspace_ws1/claude-home/CLAUDE.md"] = "global-claude"
