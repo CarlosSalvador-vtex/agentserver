@@ -66,49 +66,49 @@ type listExecutorsInput struct {
 
 // executorTools returns all 8 executor-related tools, closures over tctx.
 func executorTools(tctx *Context) []agentsdk.McpTool {
-	exec := func(toolName string, args any) (*agentsdk.McpToolResult, error) {
-		return forwardExecute(tctx, toolName, args)
+	exec := func(ctx context.Context, toolName string, args any) (*agentsdk.McpToolResult, error) {
+		return forwardExecute(ctx, tctx, toolName, args)
 	}
 	return []agentsdk.McpTool{
 		agentsdk.Tool[remoteBashInput]("remote_bash",
 			"Execute a shell command on the specified executor.",
 			func(ctx context.Context, in remoteBashInput) (*agentsdk.McpToolResult, error) {
-				return exec("Bash", in)
+				return exec(ctx, "Bash", in)
 			}),
 		agentsdk.Tool[remoteReadInput]("remote_read",
 			"Read a file on the specified executor.",
 			func(ctx context.Context, in remoteReadInput) (*agentsdk.McpToolResult, error) {
-				return exec("Read", in)
+				return exec(ctx, "Read", in)
 			}),
 		agentsdk.Tool[remoteEditInput]("remote_edit",
 			"Edit a file on the specified executor.",
 			func(ctx context.Context, in remoteEditInput) (*agentsdk.McpToolResult, error) {
-				return exec("Edit", in)
+				return exec(ctx, "Edit", in)
 			}),
 		agentsdk.Tool[remoteWriteInput]("remote_write",
 			"Write content to a file on the specified executor.",
 			func(ctx context.Context, in remoteWriteInput) (*agentsdk.McpToolResult, error) {
-				return exec("Write", in)
+				return exec(ctx, "Write", in)
 			}),
 		agentsdk.Tool[remoteGlobInput]("remote_glob",
 			"Find files matching a glob pattern on the specified executor.",
 			func(ctx context.Context, in remoteGlobInput) (*agentsdk.McpToolResult, error) {
-				return exec("Glob", in)
+				return exec(ctx, "Glob", in)
 			}),
 		agentsdk.Tool[remoteGrepInput]("remote_grep",
 			"Search for a regex pattern in files on the specified executor.",
 			func(ctx context.Context, in remoteGrepInput) (*agentsdk.McpToolResult, error) {
-				return exec("Grep", in)
+				return exec(ctx, "Grep", in)
 			}),
 		agentsdk.Tool[remoteLSInput]("remote_ls",
 			"List directory contents on the specified executor.",
 			func(ctx context.Context, in remoteLSInput) (*agentsdk.McpToolResult, error) {
-				return exec("LS", in)
+				return exec(ctx, "LS", in)
 			}),
 		agentsdk.Tool[listExecutorsInput]("list_executors",
 			"List available executors in this workspace with their capabilities.",
 			func(ctx context.Context, in listExecutorsInput) (*agentsdk.McpToolResult, error) {
-				return listExecutors(tctx)
+				return listExecutors(ctx, tctx)
 			}),
 	}
 }
@@ -116,7 +116,7 @@ func executorTools(tctx *Context) []agentsdk.McpTool {
 // forwardExecute routes a remote_* tool call to executor-registry POST /api/execute.
 // args must be a struct whose JSON representation contains an "executor_id" field;
 // that field is stripped before forwarding in the "arguments" payload.
-func forwardExecute(tctx *Context, toolName string, args any) (*agentsdk.McpToolResult, error) {
+func forwardExecute(ctx context.Context, tctx *Context, toolName string, args any) (*agentsdk.McpToolResult, error) {
 	// Marshal the typed input so we can extract executor_id and strip it.
 	rawArgs, err := json.Marshal(args)
 	if err != nil {
@@ -153,7 +153,7 @@ func forwardExecute(tctx *Context, toolName string, args any) (*agentsdk.McpTool
 		return errResult(fmt.Errorf("marshal execute request: %w", err)), nil
 	}
 
-	req, err := http.NewRequest(http.MethodPost, tctx.ExecutorRegistryURL+"/api/execute", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tctx.ExecutorRegistryURL+"/api/execute", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build execute request: %w", err)
 	}
@@ -174,7 +174,7 @@ func forwardExecute(tctx *Context, toolName string, args any) (*agentsdk.McpTool
 }
 
 // listExecutors queries executor-registry GET /api/executors?workspace_id=<wid>.
-func listExecutors(tctx *Context) (*agentsdk.McpToolResult, error) {
+func listExecutors(ctx context.Context, tctx *Context) (*agentsdk.McpToolResult, error) {
 	u, err := url.Parse(tctx.ExecutorRegistryURL + "/api/executors")
 	if err != nil {
 		return nil, fmt.Errorf("parse executor-registry URL: %w", err)
@@ -183,7 +183,7 @@ func listExecutors(tctx *Context) (*agentsdk.McpToolResult, error) {
 	q.Set("workspace_id", tctx.WorkspaceID)
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build list-executors request: %w", err)
 	}
