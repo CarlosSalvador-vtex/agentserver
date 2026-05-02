@@ -180,6 +180,18 @@ func (db *DB) UpdateIMChannelSettings(channelID string, requireMention bool) err
 	return err
 }
 
+// UpdateIMChannelRoutingMode updates the routing_mode column for a channel.
+// Caller is expected to validate `mode` before calling (valid values:
+// "nanoclaw", "stateless_cc"). Unknown values are accepted by the DB but
+// will cause forwardMessage to fall through to the default nanoclaw branch.
+func (db *DB) UpdateIMChannelRoutingMode(channelID, mode string) error {
+	_, err := db.Exec(
+		`UPDATE workspace_im_channels SET routing_mode = $1 WHERE id = $2`,
+		mode, channelID,
+	)
+	return err
+}
+
 // UpsertChannelMeta inserts or updates a channel-specific metadata entry.
 func (db *DB) UpsertChannelMeta(channelID, userID, key, value string) error {
 	_, err := db.Exec(
