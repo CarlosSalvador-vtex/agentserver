@@ -8,11 +8,21 @@ import (
 	"os"
 	"time"
 
+	agentsdk "github.com/agentserver/claude-agent-sdk-go"
 	"github.com/google/uuid"
 
 	"github.com/agentserver/agentserver/internal/ccbroker/runner"
 	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
+)
+
+// Test seams. Do not reassign in production.
+var (
+	workspaceSetup    = workspace.Setup
+	workspaceTeardown = workspace.Teardown
+	runnerRun         = func(ctx context.Context, ws *workspace.Workspace, sessionID, userMessage string, cfg runner.Config, mcp *agentsdk.McpSdkServer) (<-chan agentsdk.SDKMessage, error) {
+		return runner.Run(ctx, ws, sessionID, userMessage, cfg, mcp)
+	}
 )
 
 // ProcessTurnRequest is the external API request body for POST /api/turns.
@@ -96,7 +106,7 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 
 	// Set up the per-turn workspace (download OpenViking tree, snapshot ClaudeDir).
 	vc := workspace.NewVikingClient(s.config.OpenVikingURL, s.config.OpenVikingAPIKey)
-	ws, err := workspace.Setup(r.Context(), req.WorkspaceID, req.SessionID, vc)
+	ws, err := workspaceSetup(r.Context(), req.WorkspaceID, req.SessionID, vc)
 	if err != nil {
 		s.logger.Error("workspace setup failed", "session_id", req.SessionID, "error", err)
 		writeError(w, http.StatusInternalServerError, "workspace setup failed")
@@ -132,10 +142,10 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 
 	// Start the SDK session. Returns a channel of SDKMessages that closes
 	// when the CC subprocess exits, ctx is cancelled, or the SDK errors.
-	msgCh, err := runner.Run(r.Context(), ws, req.SessionID, req.UserMessage, runCfg, mcp)
+	msgCh, err := runnerRun(r.Context(), ws, req.SessionID, req.UserMessage, runCfg, mcp)
 	if err != nil {
 		s.logger.Error("runner.Run failed", "session_id", req.SessionID, "error", err)
-		go workspace.Teardown(context.Background(), ws, vc) //nolint:errcheck
+		go workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
 		writeError(w, http.StatusInternalServerError, "failed to start SDK session")
 		return
 	}
@@ -143,7 +153,7 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 	// Check flusher BEFORE setting SSE headers.
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		go workspace.Teardown(context.Background(), ws, vc) //nolint:errcheck
+		go workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
@@ -164,7 +174,7 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer workspace.Teardown(context.Background(), ws, vc) //nolint:errcheck
+		defer workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
 		for sdkMsg := range msgCh {
 			evt, convErr := runner.ToEventPayload(sdkMsg)
 			if convErr != nil {
