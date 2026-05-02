@@ -448,6 +448,7 @@ export interface IMChannel {
   bot_id: string
   user_id: string
   require_mention: boolean
+  routing_mode: string
   bound_at: string
 }
 
@@ -457,7 +458,11 @@ export async function listWorkspaceIMChannels(workspaceId: string): Promise<{ ch
   return res.json()
 }
 
-export async function updateWorkspaceIMChannel(workspaceId: string, channelId: string, settings: { require_mention?: boolean }): Promise<void> {
+export async function updateWorkspaceIMChannel(
+  workspaceId: string,
+  channelId: string,
+  settings: { require_mention?: boolean; routing_mode?: 'nanoclaw' | 'stateless_cc' },
+): Promise<void> {
   const res = await fetch(`/api/workspaces/${workspaceId}/im/channels/${channelId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
