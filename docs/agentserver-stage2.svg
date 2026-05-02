@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 970" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+    </marker>
+    <style>
+      .title { font-size: 44px; font-weight: 700; fill: #0f172a; }
+      .subtitle { font-size: 22px; fill: #64748b; font-style: italic; }
+      .box { fill: #ffffff; stroke: #475569; stroke-width: 1.5; rx: 8; }
+      .boxNew { fill: #ecfdf5; stroke: #16a34a; stroke-width: 2; rx: 8; }
+      .boxClient { fill: #eff6ff; stroke: #2563eb; stroke-width: 1.5; rx: 8; }
+      .boxControl { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.5; rx: 8; }
+      .boxData { fill: #f3e8ff; stroke: #9333ea; stroke-width: 1.5; rx: 8; }
+      .boxExt { fill: #f1f5f9; stroke: #64748b; stroke-width: 1.5; stroke-dasharray: 5,3; rx: 8; }
+      .boxLabel { font-size: 22px; font-weight: 600; fill: #0f172a; text-anchor: middle; }
+      .boxLabelSmall { font-size: 18px; fill: #475569; text-anchor: middle; }
+      .arrow { stroke: #475569; stroke-width: 1.5; fill: none; }
+      .arrowGreen { stroke: #16a34a; stroke-width: 2; fill: none; }
+      .arrowLabel { font-size: 17px; fill: #64748b; text-anchor: middle; }
+      .arrowLabelGreen { font-size: 17px; fill: #16a34a; text-anchor: middle; font-weight: 600; }
+      .badge { fill: #16a34a; rx: 4; }
+      .badgeText { font-size: 14px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+      .legend { font-size: 17px; fill: #475569; }
+    </style>
+  </defs>
+
+  <!-- Header -->
+  <text x="750" y="50" class="title" text-anchor="middle">Stage 2 · The Emergence of OpenClaw</text>
+  <text x="750" y="80" class="subtitle" text-anchor="middle">Sandbox becomes a persistent persona · IM channels (WeChat / TG) · multi-backend (opencode / OpenClaw / NanoClaw)</text>
+
+  <!-- Legend -->
+  <g transform="translate(40, 90)">
+    <rect x="0" y="0" width="14" height="14" class="boxClient"/><text x="22" y="11" class="legend">Client</text>
+    <rect x="80" y="0" width="14" height="14" class="boxControl"/><text x="102" y="11" class="legend">Control</text>
+    <rect x="170" y="0" width="14" height="14" class="box"/><text x="192" y="11" class="legend">Service</text>
+    <rect x="255" y="0" width="14" height="14" class="boxData"/><text x="277" y="11" class="legend">Data</text>
+    <rect x="335" y="0" width="14" height="14" class="boxExt"/><text x="357" y="11" class="legend">External</text>
+    <rect x="425" y="0" width="14" height="14" class="boxNew"/><text x="447" y="11" class="legend">New in Stage 2</text>
+  </g>
+
+  <!-- ===== Top row: Clients ===== -->
+  <rect x="180" y="140" width="240" height="65" class="boxClient"/>
+  <text x="300" y="170" class="boxLabel">Browser (Web UI)</text>
+  <text x="300" y="190" class="boxLabelSmall">+ rename · traces · workspaces</text>
+
+  <rect x="1060" y="140" width="280" height="75" class="boxNew"/>
+  <text x="1200" y="173" class="boxLabel">IM Users</text>
+  <text x="1200" y="198" class="boxLabelSmall">WeChat · Telegram · Matrix</text>
+
+  <!-- ===== Mid row: Services ===== -->
+  <rect x="120" y="290" width="280" height="100" class="boxControl"/>
+  <text x="260" y="320" class="boxLabel">cli-server (control plane)</text>
+  <text x="260" y="342" class="boxLabelSmall">+ workspaces · members</text>
+  <text x="260" y="360" class="boxLabelSmall">+ modelserver tokens</text>
+  <text x="260" y="378" class="boxLabelSmall">+ pause / resume sandbox</text>
+
+  <rect x="500" y="290" width="280" height="100" class="box"/>
+  <text x="640" y="320" class="boxLabel">Subdomain Proxy</text>
+  <text x="640" y="342" class="boxLabelSmall">{sid}.{host} routing</text>
+
+  <rect x="900" y="290" width="380" height="120" class="boxNew"/>
+  <text x="1090" y="324" class="boxLabel">IM Bridge</text>
+  <text x="1090" y="350" class="boxLabelSmall">WeChat polling · TG / Matrix</text>
+  <text x="1090" y="372" class="boxLabelSmall">per-sandbox session routing</text>
+  <text x="1090" y="394" class="boxLabelSmall">credentials persisted across pause</text>
+
+  <!-- ===== Bottom: PostgreSQL (left) + Sandbox (center) + LLMs (right) ===== -->
+  <rect x="100" y="490" width="320" height="120" class="boxData"/>
+  <text x="260" y="520" class="boxLabel">PostgreSQL</text>
+  <text x="260" y="542" class="boxLabelSmall">+ nanoclaw_bridge_secret</text>
+  <text x="260" y="560" class="boxLabelSmall">+ workspace IM credentials</text>
+  <text x="260" y="578" class="boxLabelSmall">+ workspace_llm_configs</text>
+  <text x="260" y="596" class="boxLabelSmall">+ rename / metadata</text>
+
+  <!-- Sandbox Pods (stacked cards = many personas) -->
+  <rect x="520" y="490" width="640" height="350" class="box" stroke-dasharray="6,3" stroke-width="2" opacity="0.35"/>
+  <rect x="510" y="480" width="640" height="350" class="box" stroke-dasharray="6,3" stroke-width="2" opacity="0.65"/>
+  <rect x="500" y="470" width="640" height="350" class="box" stroke-dasharray="6,3" stroke-width="2"/>
+  <text x="820" y="505" class="boxLabel">Sandbox Pods  (long-lived personas · ×N)</text>
+
+  <rect x="525" y="520" width="190" height="80" class="box"/>
+  <text x="620" y="552" class="boxLabel">opencode</text>
+  <text x="620" y="578" class="boxLabelSmall">(Stage 1)</text>
+
+  <rect x="725" y="520" width="190" height="80" class="boxNew"/>
+  <text x="820" y="558" class="boxLabel">OpenClaw</text>
+  <text x="820" y="584" class="boxLabelSmall">IM-friendly</text>
+
+  <rect x="925" y="520" width="190" height="80" class="boxNew"/>
+  <text x="1020" y="558" class="boxLabel">NanoClaw</text>
+  <text x="1020" y="584" class="boxLabelSmall">light fork</text>
+
+  <text x="820" y="630" class="boxLabelSmall" font-style="italic">★ agent loop still HERE — but now reachable from IM ★</text>
+
+  <!-- LLM Proxy + ModelServer inside sandbox container -->
+  <rect x="525" y="650" width="590" height="135" class="boxNew"/>
+  <text x="820" y="685" class="boxLabel">LLM Proxy + ModelServer</text>
+  <text x="820" y="712" class="boxLabelSmall">CustomModels for OpenClaw</text>
+  <text x="820" y="734" class="boxLabelSmall">token injection · workspace-scoped LLM config</text>
+  <text x="820" y="758" class="boxLabelSmall">routes Anthropic / custom providers</text>
+
+  <!-- External LLMs -->
+  <rect x="1180" y="685" width="280" height="80" class="boxExt"/>
+  <text x="1320" y="717" class="boxLabel">Anthropic /</text>
+  <text x="1320" y="745" class="boxLabel">Custom LLMs</text>
+
+  <!-- ============== Arrows (all orthogonal) ============== -->
+
+  <!-- Browser → cli-server (down + left) -->
+  <path d="M 260,205 V 250 H 260 V 290" class="arrow" marker-end="url(#arrow)"/>
+  <text x="290" y="245" class="arrowLabel">REST API</text>
+
+  <!-- Browser → Subdomain Proxy (down + right) -->
+  <path d="M 360,205 V 250 H 640 V 290" class="arrow" marker-end="url(#arrow)"/>
+  <text x="500" y="245" class="arrowLabel">subdomain {sid}</text>
+
+  <!-- IM Users → IM Bridge (straight down) -->
+  <path d="M 1200,215 V 290" class="arrowGreen" marker-end="url(#arrowGreen)"/>
+  <text x="1250" y="258" class="arrowLabelGreen">IM messages</text>
+
+  <!-- cli-server → PostgreSQL (straight down) -->
+  <path d="M 260,390 V 490" class="arrow" marker-end="url(#arrow)"/>
+  <text x="290" y="445" class="arrowLabel">read/write</text>
+
+  <!-- cli-server → Sandbox (right + down) — create pod -->
+  <path d="M 400,360 H 460 V 470 H 500" class="arrow" marker-end="url(#arrow)" stroke-dasharray="3,3"/>
+  <text x="430" y="420" class="arrowLabel">K8s API</text>
+  <text x="430" y="436" class="arrowLabel">create pod</text>
+
+  <!-- Subdomain Proxy → opencode (straight down into sandbox) -->
+  <path d="M 640,390 V 520" class="arrow" marker-end="url(#arrow)"/>
+  <text x="670" y="455" class="arrowLabel">HTTP proxy</text>
+
+  <!-- IM Bridge → Sandbox (down + left into NanoClaw / OpenClaw) -->
+  <path d="M 1090,410 V 450 H 1020 V 520" class="arrowGreen" marker-end="url(#arrowGreen)"/>
+  <text x="1050" y="485" class="arrowLabelGreen">IM ingress</text>
+
+  <!-- agent → LLM Proxy (vertical inside sandbox) -->
+  <path d="M 820,600 V 650" class="arrow" marker-end="url(#arrow)"/>
+
+  <!-- LLM Proxy → External LLMs (horizontal right) -->
+  <path d="M 1115,720 H 1180" class="arrow" marker-end="url(#arrow)"/>
+
+  <!-- Footer -->
+  <text x="750" y="940" font-size="16" fill="#475569" text-anchor="middle" font-style="italic">
+    Sandbox is no longer just an IDE — it has an IM identity. The agent loop still lives in-pod, but the world can now reach in through chat.
+  </text>
+</svg>
