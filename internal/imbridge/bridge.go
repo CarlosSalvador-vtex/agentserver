@@ -62,6 +62,7 @@ type Bridge struct {
 	pollers          map[string]context.CancelFunc // key: channelID
 	registeredGroups map[string]string             // key: "sandboxID:chatJID" → cached settings hash
 	channelMention   map[string]bool               // key: channelID → require_mention setting
+	channelRouting   map[string]string             // key: channelID → routing_mode (runtime override of binding)
 	typingSessions   map[string]func()             // key: "channelID:userID" → cancel func
 	mu               sync.Mutex
 }
@@ -85,6 +86,7 @@ func NewBridge(db BridgeDB, resolver SandboxResolver, exec ExecCommander, provid
 		pollers:          make(map[string]context.CancelFunc),
 		registeredGroups: make(map[string]string),
 		channelMention:   make(map[string]bool),
+		channelRouting:   make(map[string]string),
 		typingSessions:   make(map[string]func()),
 	}
 }
@@ -113,6 +115,11 @@ func (b *Bridge) StartPoller(binding BridgeBinding) {
 	if cancel, ok := b.pollers[key]; ok {
 		cancel()
 	}
+
+	// Seed the in-memory routing map so getChannelRoutingMode returns
+	// the value that forwardMessage would use by default. Later calls
+	// to SetChannelRoutingMode override this seeded value.
+	b.channelRouting[key] = binding.RoutingMode
 
 	ctx, cancel := context.WithCancel(context.Background())
 	b.pollers[key] = cancel
@@ -204,6 +211,26 @@ func (b *Bridge) SetChannelRequireMention(channelID string, requireMention bool)
 func (b *Bridge) getChannelRequireMention(channelID string) bool {
 	b.mu.Lock()
 	v := b.channelMention[channelID]
+	b.mu.Unlock()
+	return v
+}
+
+// SetChannelRoutingMode updates the in-memory routing_mode for a channel.
+// The value takes precedence over the routing_mode captured in
+// BridgeBinding at StartPoller time, so a configuration change applied
+// via this setter is visible on the next inbound message.
+func (b *Bridge) SetChannelRoutingMode(channelID, mode string) {
+	b.mu.Lock()
+	b.channelRouting[channelID] = mode
+	b.mu.Unlock()
+}
+
+// getChannelRoutingMode reads the in-memory routing_mode. Returns ""
+// if the channel has no override — callers fall back to
+// BridgeBinding.RoutingMode in that case.
+func (b *Bridge) getChannelRoutingMode(channelID string) string {
+	b.mu.Lock()
+	v := b.channelRouting[channelID]
 	b.mu.Unlock()
 	return v
 }
@@ -317,7 +344,14 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 // "stateless_cc" forwards to the agentserver HTTP API; all other values
 // (including empty, for backward compatibility) forward to NanoClaw.
 func (b *Bridge) forwardMessage(ctx context.Context, binding BridgeBinding, msg InboundMessage) (bool, error) {
-	switch binding.RoutingMode {
+	// In-memory routing mode (set via SetChannelRoutingMode) wins over
+	// the routing_mode captured at StartPoller time. Empty map value
+	// means no override — fall through to binding.RoutingMode.
+	mode := b.getChannelRoutingMode(binding.ChannelID)
+	if mode == "" {
+		mode = binding.RoutingMode
+	}
+	switch mode {
 	case "stateless_cc":
 		return b.forwardToAgentserver(ctx, binding, msg)
 	default: // "nanoclaw" or empty (backward compatible)

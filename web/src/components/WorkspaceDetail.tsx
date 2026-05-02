@@ -738,6 +738,22 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <select
+                      value={ch.routing_mode || 'nanoclaw'}
+                      onChange={async (e) => {
+                        try {
+                          await updateWorkspaceIMChannel(workspaceId, ch.id, {
+                            routing_mode: e.target.value as 'nanoclaw' | 'stateless_cc',
+                          })
+                          loadChannels()
+                        } catch {}
+                      }}
+                      className="rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[11px] text-[var(--foreground)]"
+                      title="Routing mode: nanoclaw = legacy NanoClaw sandbox; stateless_cc = new stateless Claude Code broker (Beta)"
+                    >
+                      <option value="nanoclaw">nanoclaw</option>
+                      <option value="stateless_cc">stateless_cc (Beta)</option>
+                    </select>
                     <label className="flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)] cursor-pointer" title="Only reply when @mentioned in group chats">
                       <input
                         type="checkbox"
