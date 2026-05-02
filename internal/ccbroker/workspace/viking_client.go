@@ -1,4 +1,4 @@
-package ccbroker
+package workspace
 
 import (
 	"bytes"
