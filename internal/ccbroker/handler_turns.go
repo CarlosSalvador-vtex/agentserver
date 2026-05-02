@@ -5,24 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
-	agentsdk "github.com/agentserver/claude-agent-sdk-go"
 	"github.com/google/uuid"
-
-	"github.com/agentserver/agentserver/internal/ccbroker/runner"
-	"github.com/agentserver/agentserver/internal/ccbroker/tools"
-	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
-)
-
-// Test seams. Do not reassign in production.
-var (
-	workspaceSetup    = workspace.Setup
-	workspaceTeardown = workspace.Teardown
-	runnerRun         = func(ctx context.Context, ws *workspace.Workspace, sessionID, userMessage string, cfg runner.Config, mcp *agentsdk.McpSdkServer) (<-chan agentsdk.SDKMessage, error) {
-		return runner.Run(ctx, ws, sessionID, userMessage, cfg, mcp)
-	}
 )
 
 // ProcessTurnRequest is the external API request body for POST /api/turns.
@@ -39,9 +24,9 @@ type ProcessTurnRequest struct {
 }
 
 // handleProcessTurn handles POST /api/turns. It acquires the turn lock for
-// the session, ensures the session exists, inserts the user message, runs
-// the SDK session in-process, and streams SSE events back to the caller
-// until the SDK stream ends or the client disconnects.
+// the session, ensures the session exists, inserts the user message, spawns
+// a CC worker, and streams SSE events back to the caller until the worker
+// exits or the client disconnects.
 func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 	var req ProcessTurnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -104,57 +89,19 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set up the per-turn workspace (download OpenViking tree, snapshot ClaudeDir).
-	vc := workspace.NewVikingClient(s.config.OpenVikingURL, s.config.OpenVikingAPIKey)
-	ws, err := workspaceSetup(r.Context(), req.WorkspaceID, req.SessionID, vc)
+	// Spawn CC worker.
+	worker, err := s.SpawnWorker(r.Context(), req.SessionID, req.WorkspaceID, req.IMChannelID, req.IMUserID)
 	if err != nil {
-		s.logger.Error("workspace setup failed", "session_id", req.SessionID, "error", err)
-		writeError(w, http.StatusInternalServerError, "workspace setup failed")
-		return
-	}
-
-	// Build the in-process MCP server with this turn's identity + dependencies.
-	tctx := &tools.Context{
-		SessionID:           req.SessionID,
-		WorkspaceID:         req.WorkspaceID,
-		IMChannelID:         req.IMChannelID,
-		IMUserID:            req.IMUserID,
-		ExecutorRegistryURL: s.config.ExecutorRegistryURL,
-		AgentserverURL:      s.config.AgentserverURL,
-		IMBridgeURL:         s.config.IMBridgeURL,
-		InternalAPISecret:   s.config.IMBridgeSecret,
-		Workspace:           ws,
-		Viking:              vc,
-		HTTP:                http.DefaultClient,
-	}
-	mcp := tools.BuildMcpServer(tctx)
-
-	// Build runner config from process env.
-	runCfg := runner.Config{
-		SystemPrompt:             "", // CC default; override later if we add a workspace prompt
-		MaxTurns:                 0,  // unlimited; rely on auto-compact
-		AnthropicAPIKey:          os.Getenv("ANTHROPIC_API_KEY"),
-		AnthropicAuthToken:       os.Getenv("ANTHROPIC_AUTH_TOKEN"),
-		AnthropicBaseURL:         os.Getenv("ANTHROPIC_BASE_URL"),
-		DisableFileCheckpointing: true,
-		AutoCompactWindow:        165000,
-	}
-
-	// Start the SDK session. Returns a channel of SDKMessages that closes
-	// when the CC subprocess exits, ctx is cancelled, or the SDK errors.
-	msgCh, err := runnerRun(r.Context(), ws, req.SessionID, req.UserMessage, runCfg, mcp)
-	if err != nil {
-		s.logger.Error("runner.Run failed", "session_id", req.SessionID, "error", err)
-		go workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
-		writeError(w, http.StatusInternalServerError, "failed to start SDK session")
+		s.logger.Error("spawn worker failed", "session_id", req.SessionID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to spawn worker")
 		return
 	}
 
 	// Check flusher BEFORE setting SSE headers.
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		go workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		go s.CleanupWorker(context.Background(), worker)
 		return
 	}
 
@@ -164,44 +111,15 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Subscribe to session SSE events (the pump goroutine below broadcasts here).
+	// Subscribe to session SSE events.
 	sub := s.sse.Subscribe(req.SessionID)
 	defer s.sse.Unsubscribe(req.SessionID, sub)
 
-	// Pump SDKMessages → DB + SSE broadcast. Closes `done` when the SDK channel
-	// drains so the for-select loop below can flush the SSE subscription and
-	// emit the "done" sentinel.
+	// Wait for CC process to exit in a background goroutine.
 	done := make(chan struct{})
 	go func() {
-		defer close(done)
-		defer workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
-		for sdkMsg := range msgCh {
-			evt, convErr := runner.ToEventPayload(sdkMsg)
-			if convErr != nil {
-				s.logger.Warn("ToEventPayload failed", "session_id", req.SessionID, "error", convErr)
-				continue
-			}
-			eventID := uuid.NewString()
-			var seqNum int64
-			if !evt.Ephemeral {
-				inserted, insertErr := s.store.InsertEvents(context.Background(), req.SessionID, epoch, []EventInput{
-					{EventID: eventID, Payload: evt.Payload, Ephemeral: false},
-				})
-				if insertErr != nil {
-					s.logger.Warn("InsertEvents failed", "session_id", req.SessionID, "error", insertErr)
-				} else if len(inserted) > 0 {
-					seqNum = inserted[0].SeqNum
-				}
-			}
-			s.sse.Publish(req.SessionID, &StreamClientEvent{
-				EventID:     eventID,
-				SequenceNum: seqNum,
-				EventType:   "client_event",
-				Source:      "worker",
-				Payload:     evt.Payload,
-				CreatedAt:   time.Now().Format(time.RFC3339Nano),
-			})
-		}
+		worker.Process.Wait() //nolint:errcheck
+		close(done)
 	}()
 
 	keepalive := time.NewTicker(15 * time.Second)
@@ -210,9 +128,9 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
-			// Client disconnected. runner.Run's internal goroutine already
-			// watches ctx and closes the SDK; teardown happens via the pump
-			// goroutine's defer.
+			// Client disconnected. Kill the CC process and clean up in background.
+			worker.Process.Process.Kill() //nolint:errcheck
+			go s.CleanupWorker(context.Background(), worker)
 			return
 
 		case evt := <-sub.Ch:
@@ -221,11 +139,12 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 
 		case <-sub.Done():
-			// Subscriber was closed (e.g. channel overflow).
+			// Subscriber was closed (e.g. channel overflow). Clean up.
+			go s.CleanupWorker(context.Background(), worker)
 			return
 
 		case <-done:
-			// SDK stream ended. Drain remaining buffered events.
+			// CC process exited. Drain remaining buffered events.
 			for {
 				select {
 				case evt := <-sub.Ch:
@@ -240,6 +159,8 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 			// Send done sentinel.
 			fmt.Fprintf(w, "data: {\"event_type\":\"done\"}\n\n")
 			flusher.Flush()
+			// Clean up in background (r.Context may be cancelled).
+			go s.CleanupWorker(context.Background(), worker)
 			return
 
 		case <-keepalive.C:
