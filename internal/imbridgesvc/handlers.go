@@ -909,7 +909,8 @@ func (s *Server) handleUpdateWorkspaceIMChannel(w http.ResponseWriter, r *http.R
 	}
 
 	var req struct {
-		RequireMention *bool `json:"require_mention"`
+		RequireMention *bool   `json:"require_mention"`
+		RoutingMode    *string `json:"routing_mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -922,6 +923,19 @@ func (s *Server) handleUpdateWorkspaceIMChannel(w http.ResponseWriter, r *http.R
 			return
 		}
 		s.bridge.SetChannelRequireMention(channelID, *req.RequireMention)
+	}
+
+	if req.RoutingMode != nil {
+		mode := *req.RoutingMode
+		if mode != "nanoclaw" && mode != "stateless_cc" {
+			http.Error(w, "invalid routing_mode", http.StatusBadRequest)
+			return
+		}
+		if err := s.db.UpdateIMChannelRoutingMode(channelID, mode); err != nil {
+			http.Error(w, "failed to update channel", http.StatusInternalServerError)
+			return
+		}
+		s.bridge.SetChannelRoutingMode(channelID, mode)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
