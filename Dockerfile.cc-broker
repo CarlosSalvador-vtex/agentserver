@@ -6,9 +6,11 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o cc-broker ./cmd/cc-broker
 
-# Runtime image. cc-broker execs the `claude` CLI per turn (SpawnWorker),
-# so the Claude Code native binary must be on PATH. Nothing else is needed
-# — workers route all file / bash ops through executor-registry tunnels.
+# Runtime image. cc-broker execs the `claude` CLI per turn via the
+# claude-agent-sdk-go subprocess transport. The Claude CLI refuses to
+# accept --permission-mode bypassPermissions or --dangerously-skip-permissions
+# when running as root/sudo (a hardcoded security check), so this image
+# runs as a non-root user (uid 1000).
 FROM debian:trixie-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
@@ -16,7 +18,11 @@ RUN apt-get update && \
     cp /root/.local/bin/claude /usr/local/bin/claude && \
     rm -rf /root/.local/bin/claude && \
     apt-get purge -y curl && apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -g 1000 cc && \
+    useradd -u 1000 -g cc -m -d /home/cc -s /bin/bash cc
 COPY --from=builder /app/cc-broker /usr/local/bin/cc-broker
+USER 1000
+WORKDIR /home/cc
 EXPOSE 8085
 ENTRYPOINT ["cc-broker"]
