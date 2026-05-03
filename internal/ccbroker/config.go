@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -13,8 +14,13 @@ type Config struct {
 	LogLevel            slog.Level
 	ExecutorRegistryURL string
 	AgentserverURL      string
-	OpenVikingURL       string
-	OpenVikingAPIKey    string
+	S3Endpoint          string
+	S3Region            string
+	S3Bucket            string
+	S3AccessKeyID       string
+	S3SecretAccessKey   string
+	S3UseSSL            bool
+	S3PathStyle         bool
 	IMBridgeURL         string
 	IMBridgeSecret      string
 }
@@ -30,8 +36,21 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 	cfg.ExecutorRegistryURL = envOr("CCBROKER_EXECUTOR_REGISTRY_URL", "http://localhost:8084")
 	cfg.AgentserverURL = envOr("CCBROKER_AGENTSERVER_URL", "http://localhost:8080")
-	cfg.OpenVikingURL = envOr("CCBROKER_OPENVIKING_URL", "http://localhost:1933")
-	cfg.OpenVikingAPIKey = os.Getenv("CCBROKER_OPENVIKING_API_KEY")
+
+	cfg.S3Endpoint = os.Getenv("CCBROKER_S3_ENDPOINT")
+	cfg.S3Region = os.Getenv("CCBROKER_S3_REGION")
+	cfg.S3Bucket = os.Getenv("CCBROKER_S3_BUCKET")
+	cfg.S3AccessKeyID = os.Getenv("CCBROKER_S3_ACCESS_KEY_ID")
+	cfg.S3SecretAccessKey = os.Getenv("CCBROKER_S3_SECRET_ACCESS_KEY")
+	cfg.S3UseSSL = envBool("CCBROKER_S3_USE_SSL", true)
+	cfg.S3PathStyle = envBool("CCBROKER_S3_PATH_STYLE", false)
+	if cfg.S3Endpoint == "" {
+		return cfg, fmt.Errorf("CCBROKER_S3_ENDPOINT is required")
+	}
+	if cfg.S3Bucket == "" {
+		return cfg, fmt.Errorf("CCBROKER_S3_BUCKET is required")
+	}
+
 	cfg.IMBridgeURL = os.Getenv("CCBROKER_IMBRIDGE_URL")
 	cfg.IMBridgeSecret = os.Getenv("INTERNAL_API_SECRET")
 	if v := os.Getenv("CCBROKER_LOG_LEVEL"); v != "" {
@@ -52,4 +71,16 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func envBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
