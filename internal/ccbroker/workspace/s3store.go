@@ -264,65 +264,6 @@ func writeTarball(srcDir string, tw *tar.Writer, excludeRel func(rel string) boo
 	})
 }
 
-// DownloadFile fetches the object at key and writes it verbatim to destPath
-// (creating parent directories). Returns ErrObjectNotFound if the object
-// does not exist; the caller can ignore that to mean "no prior state".
-func (s *S3Store) DownloadFile(ctx context.Context, key, destPath string) error {
-	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: &s.bucket,
-		Key:    &key,
-	})
-	if err != nil {
-		var nsk *s3types.NoSuchKey
-		if errors.As(err, &nsk) {
-			return ErrObjectNotFound
-		}
-		return fmt.Errorf("s3: get object %s: %w", key, err)
-	}
-	defer out.Body.Close()
-
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return fmt.Errorf("s3: mkdir parent of %s: %w", destPath, err)
-	}
-	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("s3: create %s: %w", destPath, err)
-	}
-	if _, err := io.Copy(f, out.Body); err != nil {
-		_ = f.Close()
-		return fmt.Errorf("s3: copy %s: %w", destPath, err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("s3: close %s: %w", destPath, err)
-	}
-	return nil
-}
-
-// UploadFile reads srcPath in full and PUTs it verbatim at key. ContentLength
-// is set so the SDK issues a single signed PUT.
-func (s *S3Store) UploadFile(ctx context.Context, srcPath, key string) error {
-	data, err := os.ReadFile(srcPath)
-	if err != nil {
-		return fmt.Errorf("s3: read %s: %w", srcPath, err)
-	}
-	body := bytes.NewReader(data)
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        &s.bucket,
-		Key:           &key,
-		Body:          body,
-		ContentLength: aws.Int64(int64(body.Len())),
-	})
-	if err != nil {
-		return fmt.Errorf("s3: put object %s: %w", key, err)
-	}
-	return nil
-}
-
-// ErrObjectNotFound is returned by DownloadFile when the requested key does
-// not exist. Sentinel so callers can distinguish missing-but-OK from a real
-// transport / auth failure.
-var ErrObjectNotFound = errors.New("s3: object not found")
-
 // ErrPreconditionFailed is returned by UploadTarGz when an If-Match or
 // If-None-Match precondition fails (HTTP 412). Optimistic-lock callers
 // distinguish this from a transport error and decide whether to drop

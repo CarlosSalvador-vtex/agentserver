@@ -46,12 +46,17 @@ func claudeHomeKey(workspaceID string) string {
 	return fmt.Sprintf("workspaces/%s/claude-home.tar.gz", workspaceID)
 }
 
-// sessionJsonlKey is the deterministic S3 object key for a single session's
-// conversation jsonl. One key per (workspace, session) pair so concurrent
-// sessions in the same workspace cannot overwrite each other's transcript
-// via the shared claude-home tarball.
-func sessionJsonlKey(workspaceID, sessionID string) string {
-	return fmt.Sprintf("workspaces/%s/sessions/%s.jsonl", workspaceID, sessionID)
+// sessionTarballKey is the deterministic S3 object key for a single session's
+// state — the entire projects/<projHash>/ subtree packaged as tar.gz. One key
+// per (workspace, session) pair so concurrent sessions in the same workspace
+// cannot overwrite each other via the shared claude-home tarball.
+//
+// The subtree currently contains only the conversation jsonl, but storing the
+// whole directory protects against future Claude CLI additions (metadata
+// files, checkpoints, etc.) silently disappearing because they fall in the
+// claude-home tarball's exclude window.
+func sessionTarballKey(workspaceID, sessionID string) string {
+	return fmt.Sprintf("workspaces/%s/sessions/%s.tar.gz", workspaceID, sessionID)
 }
 
 // projHashDir returns the directory name Claude CLI derives from cwd when
@@ -66,17 +71,16 @@ func projHashDir(cwd string) string {
 	return strings.NewReplacer("/", "-", "_", "-").Replace(cwd)
 }
 
-// sessionJsonlLocalPath is the on-disk location of the session jsonl that
-// Claude CLI's --resume flag will look for, given this workspace's CWD and
-// session ID.
-func sessionJsonlLocalPath(ws *Workspace) string {
-	uuid := strings.TrimPrefix(ws.SessionID, "cse_")
-	return filepath.Join(ws.ClaudeDir, "projects", projHashDir(ws.ProjectDir), uuid+".jsonl")
+// sessionSubtreeLocalDir is the on-disk directory Claude CLI uses for this
+// session's project state (jsonl + any future per-session files). It maps
+// 1:1 to sessionTarballKey on the S3 side.
+func sessionSubtreeLocalDir(ws *Workspace) string {
+	return filepath.Join(ws.ClaudeDir, "projects", projHashDir(ws.ProjectDir))
 }
 
 // sessionSubtreeRel is the rel-path (relative to ClaudeDir) of the
 // per-session subtree that should be omitted from the claude-home tarball
-// because it lives under sessionJsonlKey instead.
+// because it lives under sessionTarballKey instead.
 func sessionSubtreeRel(ws *Workspace) string {
 	return "projects/" + projHashDir(ws.ProjectDir)
 }
@@ -122,16 +126,24 @@ func Setup(ctx context.Context, workspaceID, sessionID string, store *S3Store) (
 	}
 	ws.claudeHomeETag = etag
 
-	// Per-session jsonl is downloaded AFTER claude-home so it overrides any
-	// stale copy that was still present in the tarball (a leftover from
-	// pre-split layout). 404 means a brand-new session — the CLI will create
-	// the file when --session-id runs.
-	if err := store.DownloadFile(ctx, sessionJsonlKey(workspaceID, sessionID), sessionJsonlLocalPath(ws)); err != nil && !errors.Is(err, ErrObjectNotFound) {
+	// Per-session subtree is downloaded AFTER claude-home so it overrides
+	// any stale copy that was still present in the tarball.
+	if _, err := store.DownloadTarGz(ctx, sessionTarballKey(workspaceID, sessionID), sessionSubtreeLocalDir(ws)); err != nil {
 		_ = os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("download session jsonl for %s/%s: %w", workspaceID, sessionID, err)
+		return nil, fmt.Errorf("download session subtree for %s/%s: %w", workspaceID, sessionID, err)
 	}
 
 	return ws, nil
+}
+
+// subtreeHasFiles reports whether dir exists and contains at least one entry.
+// Used by Teardown to decide whether there's anything worth uploading.
+func subtreeHasFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return len(entries) > 0
 }
 
 // Teardown uploads the per-session jsonl, then packages ClaudeDir as a tar.gz
@@ -145,13 +157,11 @@ func Teardown(ctx context.Context, ws *Workspace, store *S3Store) error {
 	}
 	defer func() { _ = os.RemoveAll(ws.TempDir) }()
 
-	jsonlPath := sessionJsonlLocalPath(ws)
-	if _, err := os.Stat(jsonlPath); err == nil {
-		if err := store.UploadFile(ctx, jsonlPath, sessionJsonlKey(ws.WorkspaceID, ws.SessionID)); err != nil {
-			fmt.Fprintf(os.Stderr, "workspace.Teardown: upload session jsonl: %v\n", err)
+	subtreeDir := sessionSubtreeLocalDir(ws)
+	if subtreeHasFiles(subtreeDir) {
+		if err := store.UploadTarGz(ctx, subtreeDir, sessionTarballKey(ws.WorkspaceID, ws.SessionID), nil, UploadOpts{}); err != nil {
+			fmt.Fprintf(os.Stderr, "workspace.Teardown: upload session subtree: %v\n", err)
 		}
-	} else if !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "workspace.Teardown: stat session jsonl: %v\n", err)
 	}
 
 	// Exclude THIS session's subtree from the claude-home tarball — it's
