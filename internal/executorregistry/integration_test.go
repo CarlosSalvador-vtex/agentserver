@@ -208,7 +208,9 @@ func TestRegisterPersistsOwnerUserID(t *testing.T) {
 	var reg struct {
 		ExecutorID string `json:"executor_id"`
 	}
-	json.Unmarshal(rr.Body.Bytes(), &reg)
+	if err := json.Unmarshal(rr.Body.Bytes(), &reg); err != nil {
+		t.Fatalf("decode register response: %v", err)
+	}
 
 	info, err := srv.store.GetExecutor(context.Background(), reg.ExecutorID)
 	if err != nil || info == nil {
