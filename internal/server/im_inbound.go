@@ -95,9 +95,19 @@ func (s *Server) processWithCCBroker(ctx context.Context, session *db.AgentSessi
 	if idx := strings.Index(toUserID, "@"); idx > 0 {
 		toUserID = toUserID[:idx]
 	}
+	// Always reply through the channel the message *came in on*, not whatever
+	// the session record happens to have stored. When a workspace re-binds an
+	// IM bot (e.g. the original bot's WeChat session expired and a fresh bot
+	// was registered for the same chat_jid), session resolution by external_id
+	// returns the existing session with its stale IMChannelID — replying there
+	// hits a deleted/stale channel and the user never sees the message.
+	// Persist the freshest channel so other consumers (downstream tasks,
+	// audits) also see the up-to-date binding.
 	channelID := msg.ChannelID
-	if session != nil && session.IMChannelID != nil && *session.IMChannelID != "" {
-		channelID = *session.IMChannelID
+	if session != nil && (session.IMChannelID == nil || *session.IMChannelID != channelID) {
+		if err := s.DB.SetSessionIMChannel(ctx, session.ID, channelID); err != nil {
+			log.Printf("im_inbound: failed to refresh im_channel_id for session %s: %v", session.ID, err)
+		}
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
