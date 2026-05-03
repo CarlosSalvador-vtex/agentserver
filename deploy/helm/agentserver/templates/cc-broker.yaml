@@ -1,4 +1,5 @@
 {{- if .Values.ccbroker.enabled }}
+{{- $_ := required "ccbroker.s3.existingSecret is required when ccbroker.enabled is true (k8s secret with keys: access_key_id, secret_access_key)" .Values.ccbroker.s3.existingSecret }}
 {{- $existingSecret := (lookup "v1" "Secret" .Release.Namespace (printf "%s-ccbroker-secret" .Release.Name)) }}
 apiVersion: v1
 kind: Secret
@@ -90,26 +91,26 @@ spec:
               value: "http://{{ .Release.Name }}:{{ .Values.service.port }}"
             - name: CCBROKER_IMBRIDGE_URL
               value: "http://{{ .Release.Name }}-imbridge:{{ .Values.imbridge.port }}"
-            {{/* Prefer the explicit ccbroker.openviking.url; otherwise, if
-                 the OpenViking subchart is enabled in this release, point at
-                 its in-cluster service DNS. `dig` keeps this nil-safe when
-                 an operator omits the nested `ccbroker.openviking` or
-                 top-level `openviking` blocks from their values override. */}}
-            {{- $ovURL := (dig "openviking" "url" "" .Values.ccbroker) }}
-            {{- $ovEnabled := (dig "enabled" false .Values.openviking) }}
-            {{- $ovPort := (dig "service" "port" 1933 .Values.openviking) }}
-            {{- if and (not $ovURL) $ovEnabled }}
-            {{- $ovURL = printf "http://%s-openviking:%v" .Release.Name (int $ovPort) }}
-            {{- end }}
-            {{- if $ovURL }}
-            - name: CCBROKER_OPENVIKING_URL
-              value: {{ $ovURL | quote }}
-            {{- end }}
-            {{- $ovAPIKey := (dig "openviking" "apiKey" "" .Values.ccbroker) }}
-            {{- if $ovAPIKey }}
-            - name: CCBROKER_OPENVIKING_API_KEY
-              value: {{ $ovAPIKey | quote }}
-            {{- end }}
+            - name: CCBROKER_S3_ENDPOINT
+              value: {{ .Values.ccbroker.s3.endpoint | quote }}
+            - name: CCBROKER_S3_REGION
+              value: {{ .Values.ccbroker.s3.region | quote }}
+            - name: CCBROKER_S3_BUCKET
+              value: {{ .Values.ccbroker.s3.bucket | quote }}
+            - name: CCBROKER_S3_USE_SSL
+              value: {{ .Values.ccbroker.s3.useSSL | quote }}
+            - name: CCBROKER_S3_PATH_STYLE
+              value: {{ .Values.ccbroker.s3.pathStyle | quote }}
+            - name: CCBROKER_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ccbroker.s3.existingSecret }}
+                  key: access_key_id
+            - name: CCBROKER_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ccbroker.s3.existingSecret }}
+                  key: secret_access_key
             {{- if .Values.ccbroker.logLevel }}
             - name: CCBROKER_LOG_LEVEL
               value: {{ .Values.ccbroker.logLevel | quote }}
