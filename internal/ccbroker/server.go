@@ -1,6 +1,7 @@
 package ccbroker
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -8,25 +9,44 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 )
+
+// storer abstracts the database operations needed by the Server. The concrete
+// implementation is *Store (backed by Postgres); tests inject a fakeStore.
+type storer interface {
+	GetSession(ctx context.Context, id string) (*Session, error)
+	CreateSession(ctx context.Context, id, workspaceID, title, source string, externalID *string) error
+	GetSessionEpoch(ctx context.Context, sessionID string) (int, error)
+	InsertEvents(ctx context.Context, sessionID string, epoch int, events []EventInput) ([]InsertedEvent, error)
+}
 
 type Server struct {
 	config   Config
-	store    *Store
+	store    storer
 	sse      *SSEBroker
 	turnLock *TurnLock
 	logger   *slog.Logger
+	gate     *tools.Gate // permission gate, initialized in NewServer
 }
 
 func NewServer(cfg Config, store *Store) *Server {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
-	return &Server{
+	s := &Server{
 		config:   cfg,
 		store:    store,
 		sse:      NewSSEBroker(),
 		turnLock: NewTurnLock(),
 		logger:   logger,
 	}
+	s.gate = tools.NewGate(func(sid string, e tools.Event) {
+		// emit-to-SSE wiring — for Phase 1 Task 7, leave as a noop logger.
+		// Task 12 will wire this to the SSE broadcast path.
+		s.logger.Debug("permission event (no SSE wiring yet)",
+			"session_id", sid, "type", e.Type, "pid", e.PermissionID)
+	})
+	return s
 }
 
 func (s *Server) Routes() http.Handler {

@@ -31,6 +31,16 @@ type Config struct {
 	AnthropicBaseURL         string
 	DisableFileCheckpointing bool
 	AutoCompactWindow        int
+
+	// Phase 1 Task 7: TUI metadata threading.
+	SessionID           string
+	TurnID              string
+	ChannelType         string
+	CreatorUserID       string
+	PermissionMode      string
+	Model               string
+	PreferredExecutorID string
+	TurnKind            string
 }
 
 // Spec is the SDK-agnostic projection of "everything we are about to pass to

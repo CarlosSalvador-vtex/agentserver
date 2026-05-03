@@ -25,17 +25,40 @@ var (
 	}
 )
 
+// TurnMetadata carries optional per-turn metadata sent by TUI / API callers.
+// IM inbound turns omit this field entirely; defaults apply (ChannelType="im",
+// PermissionMode="bypass").
+type TurnMetadata struct {
+	ChannelType         string `json:"channel_type,omitempty"`
+	CreatorUserID       string `json:"creator_user_id,omitempty"`
+	PermissionMode      string `json:"permission_mode,omitempty"`
+	Model               string `json:"model,omitempty"`
+	PreferredExecutorID string `json:"preferred_executor_id,omitempty"`
+	TurnKind            string `json:"turn_kind,omitempty"` // "user" | "compaction"
+}
+
 // ProcessTurnRequest is the external API request body for POST /api/turns.
 //
 // IMChannelID and IMUserID are optional. When set (for turns originated by an
 // IM inbound) the cc-broker ToolRouter can route send_* MCP tool calls back
 // through imbridge to the originating IM channel / user.
+//
+// Metadata is optional. When absent (legacy IM turns), defaults apply.
 type ProcessTurnRequest struct {
-	SessionID   string `json:"session_id"`
-	WorkspaceID string `json:"workspace_id"`
-	UserMessage string `json:"user_message"`
-	IMChannelID string `json:"im_channel_id,omitempty"`
-	IMUserID    string `json:"im_user_id,omitempty"`
+	SessionID   string       `json:"session_id"`
+	WorkspaceID string       `json:"workspace_id"`
+	UserMessage string       `json:"user_message"`
+	IMChannelID string       `json:"im_channel_id,omitempty"`
+	IMUserID    string       `json:"im_user_id,omitempty"`
+	Metadata    TurnMetadata `json:"metadata,omitempty"`
+}
+
+// defaultStr returns v if non-empty, otherwise def.
+func defaultStr(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 // handleProcessTurn handles POST /api/turns. It acquires the turn lock for
@@ -52,6 +75,10 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "session_id, workspace_id, and user_message are required")
 		return
 	}
+
+	// Generate a unique ID for this turn. Used by the permission gate and for
+	// tracing across logs.
+	turnID := "trn_" + uuid.NewString()
 
 	// Acquire turn lock so only one turn runs per session at a time.
 	s.turnLock.Acquire(req.SessionID)
@@ -126,10 +153,19 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		Workspace:           ws,
 		Viking:              vc,
 		HTTP:                http.DefaultClient,
+
+		// Phase 1 Task 7: TUI metadata threading.
+		ChannelType:            defaultStr(req.Metadata.ChannelType, "im"),
+		CreatorUserID:          req.Metadata.CreatorUserID,
+		PermissionMode:         defaultStr(req.Metadata.PermissionMode, "bypass"),
+		PreferredExecutorID:    req.Metadata.PreferredExecutorID,
+		Gate:                   s.gate,
+		AgentserverInternalURL: "", // wired in Task 13; leave empty for now
+		CurrentTurnID:          turnID,
 	}
 	mcp := tools.BuildMcpServer(tctx)
 
-	// Build runner config from process env.
+	// Build runner config from process env + turn metadata.
 	runCfg := runner.Config{
 		SystemPrompt:             "", // CC default; override later if we add a workspace prompt
 		MaxTurns:                 0,  // unlimited; rely on auto-compact
@@ -138,6 +174,16 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		AnthropicBaseURL:         os.Getenv("ANTHROPIC_BASE_URL"),
 		DisableFileCheckpointing: true,
 		AutoCompactWindow:        165000,
+
+		// Phase 1 Task 7: TUI metadata threading.
+		SessionID:           req.SessionID,
+		TurnID:              turnID,
+		ChannelType:         tctx.ChannelType,
+		CreatorUserID:       tctx.CreatorUserID,
+		PermissionMode:      tctx.PermissionMode,
+		Model:               req.Metadata.Model,
+		PreferredExecutorID: tctx.PreferredExecutorID,
+		TurnKind:            req.Metadata.TurnKind,
 	}
 
 	// Start the SDK session. Returns a channel of SDKMessages that closes
