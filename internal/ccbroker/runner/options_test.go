@@ -1,8 +1,10 @@
 package runner
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
 )
 
@@ -96,5 +98,56 @@ func TestBuildSpec_PrefersAPIKeyWhenBothSet(t *testing.T) {
 	}
 	if spec.Env["ANTHROPIC_AUTH_TOKEN"] != "tok-2" {
 		t.Errorf("AUTH_TOKEN should still be forwarded so CLI picks whichever it prefers")
+	}
+}
+
+func TestBuildSpec_AppliesModel(t *testing.T) {
+	ws := &workspace.Workspace{ProjectDir: "/tmp", ClaudeDir: "/tmp", MemoryDir: "/tmp"}
+	cfg := Config{Model: "claude-opus-4-7"}
+	spec := BuildSpec(ws, "cse_test", cfg, false)
+	if spec.Model != "claude-opus-4-7" {
+		t.Errorf("Model=%q want claude-opus-4-7", spec.Model)
+	}
+	opts := spec.ToOptions()
+	if len(opts) == 0 {
+		t.Fatal("no options")
+	}
+	// Verify the count increased by 1 (the WithModel call).
+	cfg2 := Config{} // no model
+	spec2 := BuildSpec(ws, "cse_test2", cfg2, false)
+	opts2 := spec2.ToOptions()
+	if len(opts) != len(opts2)+1 {
+		t.Errorf("WithModel did not add an option: with-model=%d without=%d", len(opts), len(opts2))
+	}
+}
+
+func TestBuildSpec_AppendsSystemPromptFromMetadata(t *testing.T) {
+	ws := &workspace.Workspace{ProjectDir: "/tmp", ClaudeDir: "/tmp", MemoryDir: "/tmp"}
+	cfg := Config{
+		SystemPrompt:        "BASE_PROMPT",
+		ChannelType:         "tui",
+		PreferredExecutorID: "exe_a",
+		Executors: []tools.ExecutorInfo{
+			{ExecutorID: "exe_a", DisplayName: "Laptop", Type: "local_agent"},
+		},
+	}
+	spec := BuildSpec(ws, "cse_test", cfg, false)
+	if !strings.HasPrefix(spec.SystemPrompt, "BASE_PROMPT") {
+		t.Errorf("base prompt not preserved at front: %s", spec.SystemPrompt)
+	}
+	if !strings.Contains(spec.SystemPrompt, "PREFERRED FOR THIS SESSION") {
+		t.Errorf("preferred marker missing: %s", spec.SystemPrompt)
+	}
+	if !strings.Contains(spec.SystemPrompt, "interactive terminal client") {
+		t.Errorf("TUI hint missing: %s", spec.SystemPrompt)
+	}
+}
+
+func TestBuildSpec_NoMetadata_PreservesBaseSystemPrompt(t *testing.T) {
+	ws := &workspace.Workspace{ProjectDir: "/tmp", ClaudeDir: "/tmp", MemoryDir: "/tmp"}
+	cfg := Config{SystemPrompt: "JUST_BASE"}
+	spec := BuildSpec(ws, "cse_test", cfg, false)
+	if spec.SystemPrompt != "JUST_BASE" {
+		t.Errorf("base prompt should pass through unchanged when no metadata: %q", spec.SystemPrompt)
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	agentsdk "github.com/agentserver/claude-agent-sdk-go"
 
+	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
 )
 
@@ -41,6 +42,9 @@ type Config struct {
 	Model               string
 	PreferredExecutorID string
 	TurnKind            string
+
+	// Phase 1 Task 9: executor list for system prompt augmentation.
+	Executors []tools.ExecutorInfo
 }
 
 // Spec is the SDK-agnostic projection of "everything we are about to pass to
@@ -65,6 +69,7 @@ type Spec struct {
 	AllowDangerouslySkipPermissions bool
 	MaxTurns                        int
 	McpServer                       *agentsdk.McpSdkServer
+	Model                           string
 }
 
 // BuildSpec composes a Spec from workspace + sessionID + config. Pure.
@@ -91,13 +96,28 @@ func BuildSpec(ws *workspace.Workspace, sessionID string, cfg Config, sessionExi
 	if cfg.AutoCompactWindow > 0 {
 		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.Itoa(cfg.AutoCompactWindow)
 	}
+	sysPrompt := cfg.SystemPrompt
+	if cfg.ChannelType != "" || cfg.PreferredExecutorID != "" || len(cfg.Executors) > 0 {
+		appended := tools.BuildSystemPrompt(tools.PromptInput{
+			ChannelType:         cfg.ChannelType,
+			PreferredExecutorID: cfg.PreferredExecutorID,
+			Executors:           cfg.Executors,
+		})
+		if sysPrompt != "" {
+			sysPrompt = sysPrompt + "\n\n" + appended
+		} else {
+			sysPrompt = appended
+		}
+	}
+
 	return Spec{
 		SessionUUID:   cliResumeID(sessionID),
 		SessionExists: sessionExists,
 		Cwd:           ws.ProjectDir,
-		Env:          env,
-		SystemPrompt: cfg.SystemPrompt,
-		AllowedTools: []string{"WebSearch", "WebFetch", "mcp__cc-broker__*"},
+		Env:           env,
+		SystemPrompt:  sysPrompt,
+		Model:         cfg.Model,
+		AllowedTools:  []string{"WebSearch", "WebFetch", "mcp__cc-broker__*"},
 		DisallowedTools: []string{
 			"Bash", "Read", "Edit", "Write", "Glob", "Grep", "LS",
 			"Task", "BashOutput", "KillShell", "NotebookEdit",
@@ -139,6 +159,9 @@ func (s Spec) ToOptions() []agentsdk.QueryOption {
 	}
 	if s.MaxTurns > 0 {
 		opts = append(opts, agentsdk.WithMaxTurns(s.MaxTurns))
+	}
+	if s.Model != "" {
+		opts = append(opts, agentsdk.WithModel(s.Model))
 	}
 	if s.McpServer != nil {
 		opts = append(opts, agentsdk.WithMcpServers(map[string]agentsdk.McpServerConfig{
