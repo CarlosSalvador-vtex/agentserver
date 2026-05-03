@@ -174,6 +174,19 @@ func (s *Server) Router() http.Handler {
 	// Internal API for LLM proxy token validation (no cookie auth).
 	r.Post("/internal/validate-proxy-token", s.handleValidateProxyToken)
 
+	// Internal API for cc-broker to obtain a workspace proxy token.
+	// Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
+	r.Post("/internal/workspace-token", func(w http.ResponseWriter, r *http.Request) {
+		secret := os.Getenv("INTERNAL_API_SECRET")
+		if secret != "" {
+			if r.Header.Get("X-Internal-Secret") != secret {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		s.handleWorkspaceProxyToken(w, r)
+	})
+
 	// Internal API for ModelServer token retrieval (no cookie auth).
 	r.Get("/internal/workspaces/{id}/modelserver-token", s.handleInternalModelserverToken)
 

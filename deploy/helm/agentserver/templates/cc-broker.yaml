@@ -117,26 +117,13 @@ spec:
             - name: INTERNAL_API_SECRET
               value: {{ .Values.internal.apiSecret | quote }}
             {{- end }}
-            # Anthropic credentials come from the shared agentserver secret so
-            # there is a single source of truth (`models.anthropicApiKey`).
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secret
-                  key: anthropic-api-key
-                  optional: true
-            - name: ANTHROPIC_BASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secret
-                  key: anthropic-base-url
-                  optional: true
-            - name: ANTHROPIC_AUTH_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secret
-                  key: anthropic-auth-token
-                  optional: true
+            # cc-broker fetches a per-workspace proxy token from agentserver
+            # at turn time and injects it into the spawned Claude CLI as
+            # ANTHROPIC_AUTH_TOKEN. CC then routes LLM traffic through
+            # llmproxy. No operator-managed Anthropic credentials are
+            # required on the cc-broker pod itself.
+            - name: CCBROKER_LLMPROXY_URL
+              value: "http://{{ .Release.Name }}-llmproxy.{{ .Release.Namespace }}.svc:{{ .Values.llmproxy.port }}"
           livenessProbe:
             httpGet:
               path: /healthz

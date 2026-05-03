@@ -36,13 +36,30 @@ func (db *DB) CreateSandbox(id, workspaceID, name, sandboxType, sandboxName, ope
 	if len(metadata) == 0 {
 		metadata = json.RawMessage("{}")
 	}
-	_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(
 		`INSERT INTO sandboxes (id, workspace_id, name, type, status, sandbox_name, proxy_token, opencode_token, openclaw_token, short_id, last_activity_at, cpu, memory, idle_timeout, metadata)
 		 VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8, $9, NOW(), $10, $11, $12, $13)`,
 		id, workspaceID, name, sandboxType, sandboxName, proxyToken, nullIfEmpty(opencodeToken), nullIfEmpty(openclawToken), nullIfEmpty(shortID), cpu, memory, idleTimeout, metadata,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("create sandbox: %w", err)
+	}
+	if proxyToken != "" {
+		if _, err := tx.Exec(
+			`INSERT INTO proxy_tokens (token, token_type, sandbox_id, workspace_id)
+			 VALUES ($1, 'sandbox', $2, $3) ON CONFLICT (token) DO NOTHING`,
+			proxyToken, id, workspaceID,
+		); err != nil {
+			return fmt.Errorf("create sandbox proxy token: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sandbox tx: %w", err)
 	}
 	return nil
 }
@@ -257,13 +274,30 @@ func nullIfEmpty(s string) interface{} {
 
 // CreateLocalSandbox inserts a local agent sandbox with is_local=true.
 func (db *DB) CreateLocalSandbox(id, workspaceID, name, sandboxType, opencodeToken, proxyToken, tunnelToken, shortID string) error {
-	_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(
 		`INSERT INTO sandboxes (id, workspace_id, name, type, status, is_local, opencode_token, proxy_token, tunnel_token, short_id, last_activity_at, last_heartbeat_at)
 		 VALUES ($1, $2, $3, $4, 'running', TRUE, $5, $6, $7, $8, NOW(), NOW())`,
 		id, workspaceID, name, sandboxType, opencodeToken, proxyToken, tunnelToken, nullIfEmpty(shortID),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("create local sandbox: %w", err)
+	}
+	if proxyToken != "" {
+		if _, err := tx.Exec(
+			`INSERT INTO proxy_tokens (token, token_type, sandbox_id, workspace_id)
+			 VALUES ($1, 'sandbox', $2, $3) ON CONFLICT (token) DO NOTHING`,
+			proxyToken, id, workspaceID,
+		); err != nil {
+			return fmt.Errorf("create local sandbox proxy token: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit local sandbox tx: %w", err)
 	}
 	return nil
 }

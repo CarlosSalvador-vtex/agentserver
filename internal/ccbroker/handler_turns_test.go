@@ -154,8 +154,11 @@ func (f *fakeStore) InsertEvents(_ context.Context, _ string, _ int, events []Ev
 func newFakeServer(t *testing.T) *Server {
 	t.Helper()
 	s := &Server{
-		config:       Config{},
-		store:        newFakeStore(),
+		config: Config{},
+		store:  newFakeStore(),
+		wstoken: func(_ context.Context, _ string) (string, error) {
+			return "test-workspace-token", nil
+		},
 		sse:          NewSSEBroker(),
 		turnLock:     NewTurnLock(),
 		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
