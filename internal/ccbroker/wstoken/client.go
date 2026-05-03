@@ -15,6 +15,12 @@ import (
 	"time"
 )
 
+// CacheTTL bounds how long a fetched token is reused before re-validating
+// against agentserver. Short enough that a token rotation / workspace
+// deletion is picked up within a few minutes; long enough that steady-
+// state turn dispatch never hits the network for token lookup.
+const CacheTTL = 5 * time.Minute
+
 // Client acquires and caches workspace proxy tokens from
 // agentserver:/internal/workspace-token.
 type Client struct {
@@ -23,7 +29,12 @@ type Client struct {
 	httpClient     *http.Client
 
 	mu    sync.RWMutex
-	cache map[string]string // workspaceID → token
+	cache map[string]cacheEntry // workspaceID → token + freshness
+}
+
+type cacheEntry struct {
+	token   string
+	fetched time.Time
 }
 
 func New(agentserverURL, internalSecret string) *Client {
@@ -31,18 +42,19 @@ func New(agentserverURL, internalSecret string) *Client {
 		agentserverURL: agentserverURL,
 		internalSecret: internalSecret,
 		httpClient:     &http.Client{Timeout: 10 * time.Second},
-		cache:          make(map[string]string),
+		cache:          make(map[string]cacheEntry),
 	}
 }
 
 // GetOrCreate returns the workspace's proxy token, fetching it from
-// agentserver on first request and caching the result. The agentserver
-// endpoint is itself idempotent so concurrent first-time fetches converge.
+// agentserver on first request (or after CacheTTL has elapsed) and caching
+// the result. The agentserver endpoint is itself idempotent so concurrent
+// first-time fetches converge.
 func (c *Client) GetOrCreate(ctx context.Context, workspaceID string) (string, error) {
 	c.mu.RLock()
-	if tok, ok := c.cache[workspaceID]; ok {
+	if e, ok := c.cache[workspaceID]; ok && time.Since(e.fetched) < CacheTTL {
 		c.mu.RUnlock()
-		return tok, nil
+		return e.token, nil
 	}
 	c.mu.RUnlock()
 
@@ -52,9 +64,19 @@ func (c *Client) GetOrCreate(ctx context.Context, workspaceID string) (string, e
 	}
 
 	c.mu.Lock()
-	c.cache[workspaceID] = tok
+	c.cache[workspaceID] = cacheEntry{token: tok, fetched: time.Now()}
 	c.mu.Unlock()
 	return tok, nil
+}
+
+// Invalidate drops the cached token for a workspace, forcing the next
+// GetOrCreate to fetch fresh. Call this when an upstream returned 401 for
+// the cached value (e.g., the workspace was deleted and its token row went
+// with it). Safe to call for absent workspaces.
+func (c *Client) Invalidate(workspaceID string) {
+	c.mu.Lock()
+	delete(c.cache, workspaceID)
+	c.mu.Unlock()
 }
 
 func (c *Client) fetch(ctx context.Context, workspaceID string) (string, error) {
