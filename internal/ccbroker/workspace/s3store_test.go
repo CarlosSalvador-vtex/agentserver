@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,7 @@ type fakeS3 struct {
 	bucket  string
 	objects map[string][]byte // key → content (pre-loaded responses)
 	uploads map[string][]byte // key → content (captured PUTs)
+	etags   map[string]string // key → ETag served on GET / required on If-Match
 	failPUT bool              // if true, PUT returns 500 (used by Teardown failure tests)
 }
 
@@ -31,7 +33,16 @@ func newFakeS3(bucket string) *fakeS3 {
 		bucket:  bucket,
 		objects: make(map[string][]byte),
 		uploads: make(map[string][]byte),
+		etags:   make(map[string]string),
 	}
+}
+
+// putObject stages an object for GET responses and assigns it an ETag.
+// Use instead of writing to fake.objects directly when a test needs to
+// exercise If-Match precondition behavior.
+func (f *fakeS3) putObject(key string, data []byte, etag string) {
+	f.objects[key] = data
+	f.etags[key] = etag
 }
 
 func (f *fakeS3) handler() http.Handler {
@@ -50,6 +61,9 @@ func (f *fakeS3) handler() http.Handler {
 				_, _ = w.Write([]byte(`<?xml version="1.0"?><Error><Code>NoSuchKey</Code></Error>`))
 				return
 			}
+			if etag, hasETag := f.etags[path]; hasETag {
+				w.Header().Set("ETag", `"`+etag+`"`)
+			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(data)
 		case http.MethodPut:
@@ -57,8 +71,27 @@ func (f *fakeS3) handler() http.Handler {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+			// Honor If-Match / If-None-Match — required for the optimistic
+			// lock tests. A real S3 returns 412 on mismatch.
+			ifMatch := strings.Trim(r.Header.Get("If-Match"), `"`)
+			ifNoneMatch := r.Header.Get("If-None-Match")
+			currentETag := f.etags[path]
+			_, exists := f.objects[path]
+			if ifMatch != "" && ifMatch != currentETag {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
+			if ifNoneMatch == "*" && exists {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
 			body, _ := io.ReadAll(r.Body)
 			f.uploads[path] = body
+			// Mirror into objects so subsequent GETs / preconditions reflect
+			// the latest state. ETag is content-derived so optimistic-lock
+			// tests can chain PUT → GET → PUT cleanly.
+			f.objects[path] = body
+			f.etags[path] = fmt.Sprintf("etag-%x", len(body))
 			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -114,7 +147,7 @@ func TestDownloadTarGz_HappyPath(t *testing.T) {
 	defer srv.Close()
 
 	dest := t.TempDir()
-	if err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest); err != nil {
+	if _, err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest); err != nil {
 		t.Fatalf("DownloadTarGz: %v", err)
 	}
 
@@ -135,7 +168,7 @@ func TestDownloadTarGz_NotFoundIsEmpty(t *testing.T) {
 	defer srv.Close()
 
 	dest := t.TempDir()
-	if err := store.DownloadTarGz(context.Background(), "workspaces/missing/claude-home.tar.gz", dest); err != nil {
+	if _, err := store.DownloadTarGz(context.Background(), "workspaces/missing/claude-home.tar.gz", dest); err != nil {
 		t.Fatalf("DownloadTarGz on missing key: want nil, got %v", err)
 	}
 	// destDir should remain empty
@@ -157,7 +190,7 @@ func TestDownloadTarGz_CorruptObjectReportsClearError(t *testing.T) {
 	defer srv.Close()
 
 	dest := t.TempDir()
-	err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest)
+	_, err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest)
 	if err == nil {
 		t.Fatal("DownloadTarGz on corrupt object: want error, got nil")
 	}
@@ -180,7 +213,7 @@ func TestDownloadTarGz_RejectsPathTraversal(t *testing.T) {
 	dest := t.TempDir()
 	parent := filepath.Dir(dest)
 
-	if err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest); err != nil {
+	if _, err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest); err != nil {
 		t.Fatalf("DownloadTarGz: %v", err)
 	}
 
@@ -214,7 +247,7 @@ func TestUploadTarGz_RoundTrip(t *testing.T) {
 	}
 
 	key := "workspaces/ws1/claude-home.tar.gz"
-	if err := store.UploadTarGz(context.Background(), src, key, nil); err != nil {
+	if err := store.UploadTarGz(context.Background(), src, key, nil, UploadOpts{}); err != nil {
 		t.Fatalf("UploadTarGz: %v", err)
 	}
 
@@ -227,7 +260,7 @@ func TestUploadTarGz_RoundTrip(t *testing.T) {
 	fake.objects[key] = uploaded
 
 	dest := t.TempDir()
-	if err := store.DownloadTarGz(context.Background(), key, dest); err != nil {
+	if _, err := store.DownloadTarGz(context.Background(), key, dest); err != nil {
 		t.Fatalf("DownloadTarGz: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(dest, "CLAUDE.md"))
@@ -262,7 +295,7 @@ func TestUploadTarGz_SkipsSymlinks(t *testing.T) {
 	}
 
 	key := "workspaces/ws1/claude-home.tar.gz"
-	if err := store.UploadTarGz(context.Background(), src, key, nil); err != nil {
+	if err := store.UploadTarGz(context.Background(), src, key, nil, UploadOpts{}); err != nil {
 		t.Fatalf("UploadTarGz: %v", err)
 	}
 
