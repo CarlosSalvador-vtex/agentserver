@@ -63,6 +63,15 @@ func NewExecutorClient(sess *ExecutorSession, workDir string) *ExecutorClient {
 	}
 }
 
+// currentWorkDir returns the runtime cwd if SetRuntimeCwd has been called
+// on this executor's session JSON; otherwise the startup workDir.
+func (c *ExecutorClient) currentWorkDir() string {
+	if cwd := LoadRuntimeCwd(c.session.ExecutorID); cwd != "" {
+		return cwd
+	}
+	return c.workDir
+}
+
 // Run maintains a persistent tunnel to executor-registry and reconnects
 // with exponential backoff on disconnection. If the registry reports the
 // session as stale (unauthorized / not found) the saved credentials are
@@ -221,7 +230,7 @@ func (c *ExecutorClient) handleStream(ctx context.Context, stream net.Conn) {
 	// Clear the read deadline: tool execution has its own timeout.
 	_ = stream.SetReadDeadline(time.Time{})
 
-	resp := c.executor.Execute(ctx, execReq)
+	resp := executortools.New(c.currentWorkDir()).Execute(ctx, execReq)
 	respBody, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("marshal tool response: %v", err)

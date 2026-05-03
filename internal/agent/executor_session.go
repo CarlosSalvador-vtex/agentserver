@@ -23,6 +23,7 @@ type ExecutorSession struct {
 	RegistryToken string    `json:"registry_token"`
 	ServerURL     string    `json:"server_url"`
 	CreatedAt     time.Time `json:"created_at"`
+	RuntimeCwd    string    `json:"runtime_cwd,omitempty"` // TUI may set via /cd
 }
 
 // executorSessionsDir returns the directory where executor sessions are stored.
@@ -174,4 +175,67 @@ func LoadOrRegisterExecutor(opts ExecutorOpts) (*ExecutorSession, error) {
 		fmt.Fprintf(os.Stderr, "warning: failed to save executor session: %v\n", err)
 	}
 	return sess, nil
+}
+
+// SetRuntimeCwd reads the saved session JSON, updates the RuntimeCwd field,
+// and writes it back atomically. Other fields are preserved.
+func SetRuntimeCwd(executorID, cwd string) error {
+	dir, err := executorSessionsDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, executorID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var sess ExecutorSession
+	if err := json.Unmarshal(data, &sess); err != nil {
+		return err
+	}
+	sess.RuntimeCwd = cwd
+	out, err := json.MarshalIndent(&sess, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// LoadRuntimeCwd reads only the runtime_cwd field. Returns "" if file missing
+// or field absent.
+func LoadRuntimeCwd(executorID string) string {
+	dir, err := executorSessionsDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, executorID+".json"))
+	if err != nil {
+		return ""
+	}
+	var s struct {
+		RuntimeCwd string `json:"runtime_cwd"`
+	}
+	_ = json.Unmarshal(data, &s)
+	return s.RuntimeCwd
+}
+
+// LoadSessionByID loads a saved ExecutorSession by id. Returns nil if absent.
+func LoadSessionByID(executorID string) (*ExecutorSession, error) {
+	dir, err := executorSessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, executorID+".json"))
+	if err != nil {
+		return nil, err
+	}
+	var s ExecutorSession
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }

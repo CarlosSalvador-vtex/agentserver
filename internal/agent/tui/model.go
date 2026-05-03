@@ -493,6 +493,4 @@ func (m *Model) View() string {
 	return RenderView(m)
 }
 
-// writeRuntimeCwd is implemented in T16. Stubbed here for T12 to compile.
-func writeRuntimeCwd(executorID, cwd string) error { return nil }
 
