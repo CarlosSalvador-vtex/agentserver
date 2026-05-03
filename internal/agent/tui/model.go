@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -36,6 +37,19 @@ type ModelConfig struct {
 	InitialModel string
 	Resume       string
 	Continue     bool
+
+	// OnLoggedIn fires when AuthState transitions to LoggedIn. Used to
+	// start ExecutorClient + register executor (lazily, post-login).
+	// nil if caller doesn't need this signal.
+	OnLoggedIn func()
+
+	// OnSessionReady fires whenever the model's sessionID becomes known
+	// or changes (Resume on Init, NewSessionReplyMsg, InboundAcceptedMsg
+	// for first-prompt-creates-session, ResumeRequestedMsg). Used to start
+	// / restart the SSE consumer goroutine. May be called multiple times;
+	// implementations should cancel any previous consumer before starting
+	// a new one.
+	OnSessionReady func(sessionID string)
 }
 
 type Model struct {
@@ -110,6 +124,12 @@ func (m *Model) Init() tea.Cmd {
 		m.SetAuthState(m.auth.State())
 	}
 	if m.authState == AuthLoggedIn {
+		// Already logged in at startup — fire OnLoggedIn so tui_run.go can
+		// start the executor. (AuthStateChangedMsg won't fire because state
+		// didn't "change"; it was already LoggedIn.)
+		if m.cfg.OnLoggedIn != nil {
+			m.cfg.OnLoggedIn()
+		}
 		cmds = append(cmds, m.startSessionCmds()...)
 	}
 	return tea.Batch(cmds...)
@@ -119,6 +139,9 @@ func (m *Model) startSessionCmds() []tea.Cmd {
 	var out []tea.Cmd
 	if m.cfg.Resume != "" {
 		m.sessionID = m.cfg.Resume
+		if m.cfg.OnSessionReady != nil {
+			m.cfg.OnSessionReady(m.sessionID)
+		}
 		out = append(out, m.attachAndSubscribe(m.sessionID))
 	} else if m.cfg.Continue {
 		out = append(out, m.continueLatestCmd())
@@ -177,10 +200,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if a, ok := msg.(AuthStateChangedMsg); ok {
 		m.SetAuthState(a.State)
-		if a.State == AuthLoggedIn && m.mode == ModeAwaitLogin {
-			m.mode = ModeNormal
-			m.activePanel = nil
-			return m, tea.Batch(m.startSessionCmds()...)
+		if a.State == AuthLoggedIn {
+			if m.cfg.OnLoggedIn != nil {
+				m.cfg.OnLoggedIn()
+			}
+			if m.mode == ModeAwaitLogin {
+				m.mode = ModeNormal
+				m.activePanel = nil
+				return m, tea.Batch(m.startSessionCmds()...)
+			}
 		}
 		return m, nil
 	}
@@ -242,21 +270,63 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.statusTickCmd()
 	case AttachReplyMsg:
 		if v.Err == nil && v.Resp != nil {
-			// SSE subscription would be started here in production.
-			// For T12 we just leave it; T14's RunTUI assembles the SSE goroutine.
+			// OnSessionReady was already called in startSessionCmds for the
+			// Resume path. For dynamic attach (take-control/observe), the
+			// sessionID is unchanged so no restart is needed.
 		}
 		return m, nil
 	case NewSessionReplyMsg:
 		if v.Err == nil && v.SessionID != "" {
 			m.sessionID = v.SessionID
+			if m.cfg.OnSessionReady != nil {
+				m.cfg.OnSessionReady(v.SessionID)
+			}
 		}
 		return m, nil
 	case InboundAcceptedMsg:
 		m.turnID = v.TurnID
 		m.statusTurn = "running"
+		if v.SessionID != "" && v.SessionID != m.sessionID {
+			// First prompt created a session implicitly.
+			m.sessionID = v.SessionID
+			if m.cfg.OnSessionReady != nil {
+				m.cfg.OnSessionReady(v.SessionID)
+			}
+		}
 		return m, nil
 	case InboundRejectedMsg:
 		// Render an error in timeline so user sees it.
+		return m, nil
+	case SendAnswerMsg:
+		// For now just log via timeline; agentserver doesn't yet have a
+		// /answers endpoint. v1.x adds the real wire path.
+		m.timeline.Append(SSEEvent{
+			Type: "ask_user_answered",
+			Data: []byte(fmt.Sprintf(`{"qid":%q,"selected":%s}`, v.QID, mustJSONList(v.Selected))),
+		})
+		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
+		m.viewport.GotoBottom()
+		return m, nil
+	case LogoutDoneMsg:
+		if v.Err != nil {
+			m.timeline.Append(SSEEvent{
+				Type: "logout_error",
+				Data: []byte(fmt.Sprintf(`{"error":%q}`, v.Err.Error())),
+			})
+			m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
+			m.viewport.GotoBottom()
+		}
+		// SetAuthState was already called inside Logout → callback fired.
+		return m, nil
+	case LoginPollDoneMsg:
+		if v.Err != nil {
+			m.timeline.Append(SSEEvent{
+				Type: "login_failed",
+				Data: []byte(fmt.Sprintf(`{"error":%q}`, v.Err.Error())),
+			})
+			m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
+			m.viewport.GotoBottom()
+		}
 		return m, nil
 	}
 
@@ -493,4 +563,9 @@ func (m *Model) View() string {
 	return RenderView(m)
 }
 
-
+// mustJSONList marshals a []string to a JSON array string. Never fails for
+// plain string slices.
+func mustJSONList(ss []string) string {
+	b, _ := json.Marshal(ss)
+	return string(b)
+}

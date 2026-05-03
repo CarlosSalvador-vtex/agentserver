@@ -3,6 +3,7 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -119,6 +120,58 @@ func TestModel_AuthStateChanged_LoggedIn_ClearsLoginPanel(t *testing.T) {
 	}
 	if m.activePanel != nil {
 		t.Errorf("activePanel should be cleared")
+	}
+}
+
+func TestModel_OnLoggedIn_FiresOnAuthTransition(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedOut)
+	var fired bool
+	m.cfg.OnLoggedIn = func() { fired = true }
+	m.Update(AuthStateChangedMsg{State: AuthLoggedIn})
+	if !fired {
+		t.Error("OnLoggedIn should fire on transition to LoggedIn")
+	}
+}
+
+func TestModel_OnSessionReady_FiresOnInboundAccepted(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	var got string
+	m.cfg.OnSessionReady = func(sid string) { got = sid }
+	m.Update(InboundAcceptedMsg{SessionID: "cse_new", TurnID: "trn_x"})
+	if got != "cse_new" {
+		t.Errorf("OnSessionReady got %q want cse_new", got)
+	}
+}
+
+func TestModel_SendAnswerMsg_AppendsToTimeline(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	before := m.timeline.Len()
+	m.Update(SendAnswerMsg{QID: "q1", Selected: []string{"foo"}})
+	if m.timeline.Len() != before+1 {
+		t.Errorf("timeline len did not grow: before=%d after=%d", before, m.timeline.Len())
+	}
+}
+
+func TestModel_LogoutDoneMsg_NoError_NoTimelineEntry(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	before := m.timeline.Len()
+	m.Update(LogoutDoneMsg{Err: nil})
+	if m.timeline.Len() != before {
+		t.Errorf("logout success should NOT add timeline entry; before=%d after=%d", before, m.timeline.Len())
+	}
+}
+
+func TestModel_LogoutDoneMsg_WithError_AppendsErrorEntry(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	before := m.timeline.Len()
+	m.Update(LogoutDoneMsg{Err: errors.New("boom")})
+	if m.timeline.Len() != before+1 {
+		t.Errorf("logout error should add timeline entry")
 	}
 }
 
