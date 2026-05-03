@@ -177,6 +177,9 @@ func (s *Server) Router() http.Handler {
 	// Internal API for ModelServer token retrieval (no cookie auth).
 	r.Get("/internal/workspaces/{id}/modelserver-token", s.handleInternalModelserverToken)
 
+	// Internal callback from cc-broker when a turn finishes (T19).
+	r.Post("/internal/sessions/{sid}/turn-finished", s.handleTurnFinished)
+
 	// IM bridge routes: proxy to standalone imbridge service when configured.
 	if s.IMBridgeURL != "" {
 		imbridgeProxy := newReverseProxy(s.IMBridgeURL)
@@ -381,6 +384,11 @@ func (s *Server) Router() http.Handler {
 
 		// TUI control commands (model, permission, compact, cost, agents)
 		r.Post("/api/agent-sessions/{sid}/control", s.handleAgentSessionControl)
+
+		// TUI proxy handlers (T18)
+		r.Post("/api/agent-sessions/{sid}/turns/{tid}/cancel", s.handleCancelTurn)
+		r.Post("/api/agent-sessions/{sid}/permissions/{pid}", s.handlePermissionDecision)
+		r.Get("/api/executors/{id}/status", s.handleExecutorStatus)
 
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {
