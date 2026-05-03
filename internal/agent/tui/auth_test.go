@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -115,7 +116,7 @@ func TestAuth_Logout_ClearsCreds(t *testing.T) {
 	if ac.State() != AuthLoggedOut {
 		t.Errorf("state=%v want LoggedOut", ac.State())
 	}
-	if _, err := agent.LoadCredentials(p); err == nil {
-		t.Errorf("expected creds file removed")
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Errorf("expected creds file removed; stat err = %v", err)
 	}
 }

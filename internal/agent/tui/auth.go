@@ -151,7 +151,7 @@ func (a *AuthController) refresh(ctx context.Context) (string, error) {
 		a.mu.Lock()
 		a.creds = nil
 		a.mu.Unlock()
-		_ = clearCredentials(a.cfg.CredentialsPath)
+		_ = os.Remove(a.cfg.CredentialsPath)
 		a.setState(AuthLoggedOut)
 		return "", err
 	}
@@ -246,7 +246,7 @@ func (a *AuthController) Logout() error {
 	a.mu.Lock()
 	a.creds = nil
 	a.mu.Unlock()
-	if err := clearCredentials(a.cfg.CredentialsPath); err != nil {
+	if err := os.Remove(a.cfg.CredentialsPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	a.setState(AuthLoggedOut)
@@ -256,14 +256,6 @@ func (a *AuthController) Logout() error {
 // clearCredentials writes empty bytes to path, making it unreadable as JSON.
 // We overwrite rather than remove so that LoadCredentials returns a parse
 // error (the test in auth_test.go asserts err != nil after Logout).
-func clearCredentials(path string) error {
-	err := os.WriteFile(path, []byte{}, 0600)
-	if err != nil && os.IsNotExist(err) {
-		return nil
-	}
-	return err
-}
-
 // refreshDirect performs the OAuth refresh_token exchange directly, returning
 // new Credentials on success. This is used instead of agent.EnsureValidToken
 // because that function hardcodes DefaultCredentialsPath() and does not accept
