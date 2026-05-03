@@ -89,3 +89,43 @@ func TestPermissionPanel_DisablesAlwaysOnNestedShell(t *testing.T) {
 		t.Errorf("'a' must produce no cmd when always is disabled")
 	}
 }
+
+func TestAskUserPanel_SingleSelect(t *testing.T) {
+	p := NewAskUserPanel(AskUserPanelInput{
+		QID:      "q1",
+		Question: "Pick one:",
+		Options:  []string{"foo", "bar", "baz"},
+	})
+	p2, _, _ := p.HandleKey(tea.KeyMsg{Type: tea.KeyDown})
+	p2, _, _ = p2.HandleKey(tea.KeyMsg{Type: tea.KeyDown})
+	_, cmd, dismissed := p2.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !dismissed {
+		t.Fatal("not dismissed on enter")
+	}
+	out := cmd()
+	ans, ok := out.(SendAnswerMsg)
+	if !ok {
+		t.Fatalf("got %T", out)
+	}
+	if ans.QID != "q1" || ans.Selected[0] != "baz" {
+		t.Errorf("answer = %+v", ans)
+	}
+}
+
+func TestAskUserPanel_MultiSelect(t *testing.T) {
+	p := NewAskUserPanel(AskUserPanelInput{
+		QID:         "q2",
+		Question:    "Pick many",
+		Options:     []string{"a", "b", "c"},
+		MultiSelect: true,
+	})
+	p2, _, _ := p.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // toggle a
+	p2, _, _ = p2.HandleKey(tea.KeyMsg{Type: tea.KeyDown})
+	p2, _, _ = p2.HandleKey(tea.KeyMsg{Type: tea.KeyDown})
+	p2, _, _ = p2.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // toggle c
+	_, cmd, _ := p2.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	ans := cmd().(SendAnswerMsg)
+	if len(ans.Selected) != 2 || ans.Selected[0] != "a" || ans.Selected[1] != "c" {
+		t.Errorf("answer = %+v", ans.Selected)
+	}
+}

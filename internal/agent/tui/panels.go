@@ -126,3 +126,92 @@ func briefRaw(raw json.RawMessage, max int) string {
 	}
 	return s
 }
+
+// ---- AskUser Panel ----
+
+type AskUserPanelInput struct {
+	QID         string
+	Question    string
+	Options     []string
+	MultiSelect bool
+}
+
+// SendAnswerMsg is emitted by the ask_user panel when the user submits.
+// The Model converts this into a Bus.PostAnswer call (endpoint TBD in
+// agent-side; for now the Model can just log it).
+type SendAnswerMsg struct {
+	QID      string
+	Selected []string
+}
+
+type askUserPanel struct {
+	in     AskUserPanelInput
+	cursor int
+	picked map[int]bool
+}
+
+func NewAskUserPanel(in AskUserPanelInput) Panel {
+	return &askUserPanel{in: in, picked: map[int]bool{}}
+}
+
+func (p *askUserPanel) ID() string { return p.in.QID }
+
+func (p *askUserPanel) View(width int) string {
+	var sb strings.Builder
+	sb.WriteString(StylePanelTitle.Render(p.in.Question))
+	sb.WriteByte('\n')
+	for i, opt := range p.in.Options {
+		marker := "  "
+		if i == p.cursor {
+			marker = "▸ "
+		}
+		check := ""
+		if p.in.MultiSelect {
+			if p.picked[i] {
+				check = "[x] "
+			} else {
+				check = "[ ] "
+			}
+		}
+		sb.WriteString(fmt.Sprintf("%s%s%s\n", marker, check, opt))
+	}
+	if p.in.MultiSelect {
+		sb.WriteString(StyleHint.Render("space toggle · enter submit · esc cancel"))
+	} else {
+		sb.WriteString(StyleHint.Render("enter submit · esc cancel"))
+	}
+	return StyleBorder.Render(sb.String())
+}
+
+func (p *askUserPanel) HandleKey(msg tea.KeyMsg) (Panel, tea.Cmd, bool) {
+	switch {
+	case msg.Type == tea.KeyDown:
+		if p.cursor < len(p.in.Options)-1 {
+			p.cursor++
+		}
+	case msg.Type == tea.KeyUp:
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	case keyIs(msg, " ") && p.in.MultiSelect:
+		p.picked[p.cursor] = !p.picked[p.cursor]
+	case msg.Type == tea.KeyEnter:
+		var sel []string
+		if p.in.MultiSelect {
+			for i, opt := range p.in.Options {
+				if p.picked[i] {
+					sel = append(sel, opt)
+				}
+			}
+		} else {
+			sel = []string{p.in.Options[p.cursor]}
+		}
+		qid := p.in.QID
+		return p, func() tea.Msg {
+			return SendAnswerMsg{QID: qid, Selected: sel}
+		}, true
+	case msg.Type == tea.KeyEsc:
+		return p, nil, true
+	}
+	return p, nil, false
+}
