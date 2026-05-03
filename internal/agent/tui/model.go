@@ -367,8 +367,15 @@ func (m *Model) runLocalCommand(name, args string) (tea.Model, tea.Cmd) {
 	case "help":
 		return m, nil // v1 stub; later task adds a help panel
 	case "attach":
-		// T15 (file picker) wires the actual attachment logic.
-		return m, nil
+		if args == "" {
+			return m, nil
+		}
+		a, err := AttachFromPath(args)
+		if err != nil {
+			return m, func() tea.Msg { return FatalErrorMsg{Err: err} }
+		}
+		m.pendingAttachments = append(m.pendingAttachments, a)
+		return m, func() tea.Msg { return AttachmentPickedMsg{Attachment: a} }
 	}
 	return m, nil
 }
