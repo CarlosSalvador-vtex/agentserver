@@ -74,6 +74,10 @@ type Server struct {
 	// Claude Code sessions (e.g. "http://cc-broker:8090").
 	CCBrokerURL string
 
+	// ExecutorRegistryURL is the base URL of the executor-registry service
+	// (e.g. "http://executor-registry:8091"). Used by the /control agents command.
+	ExecutorRegistryURL string
+
 	// Credential proxy
 	EncryptionKey    []byte // AES-256 key for credential_bindings auth_blob
 	CredproxyPublicURL string // URL sandboxes use to reach credentialproxy
@@ -374,6 +378,9 @@ func (s *Server) Router() http.Handler {
 
 		// TUI SSE event stream (live events + replay)
 		r.Get("/api/agent-sessions/{sid}/events", s.handleTUIEventStream)
+
+		// TUI control commands (model, permission, compact, cost, agents)
+		r.Post("/api/agent-sessions/{sid}/control", s.handleAgentSessionControl)
 
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {
