@@ -124,7 +124,26 @@ func TestProjHashDir_MatchesObservedClaudeCLILayout(t *testing.T) {
 	}
 }
 
-func TestSetupAndTeardown_PerSessionJsonlRoundTrip(t *testing.T) {
+// writeSessionFile drops a file at <subtree>/<name> for a given workspace,
+// matching the layout Claude CLI uses during a turn.
+func writeSessionFile(t *testing.T, ws *Workspace, name, content string) {
+	t.Helper()
+	subtree := sessionSubtreeLocalDir(ws)
+	if err := os.MkdirAll(subtree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subtree, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// jsonlName is the per-turn jsonl filename Claude CLI writes under the
+// per-session subtree directory.
+func jsonlName(ws *Workspace) string {
+	return strings.TrimPrefix(ws.SessionID, "cse_") + ".jsonl"
+}
+
+func TestSetupAndTeardown_PerSessionSubtreeRoundTrip(t *testing.T) {
 	old := TempDirBase
 	TempDirBase = t.TempDir()
 	defer func() { TempDirBase = old }()
@@ -139,58 +158,62 @@ func TestSetupAndTeardown_PerSessionJsonlRoundTrip(t *testing.T) {
 		t.Fatalf("Setup: %v", err)
 	}
 
-	// Simulate Claude CLI writing a session jsonl during the turn.
-	jsonlPath := sessionJsonlLocalPath(ws)
-	if err := os.MkdirAll(filepath.Dir(jsonlPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(jsonlPath, []byte("turn1-line\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Simulate Claude CLI writing the conversation jsonl + a hypothetical
+	// auxiliary file under the per-session subtree during the turn.
+	writeSessionFile(t, ws, jsonlName(ws), "turn1-line\n")
+	writeSessionFile(t, ws, "metadata.json", `{"v":1}`)
 
 	if err := Teardown(ctx, ws, store); err != nil {
 		t.Fatalf("Teardown: %v", err)
 	}
 
-	// Per-session jsonl must have been uploaded under its own key.
-	jsonlKey := sessionJsonlKey("ws1", "cse_abc")
-	uploadedJsonl, ok := fake.uploads[jsonlKey]
+	// Per-session subtree must have been uploaded as a tarball under its
+	// own key — including the auxiliary file, not just the jsonl.
+	tarballKey := sessionTarballKey("ws1", "cse_abc")
+	uploadedTarball, ok := fake.uploads[tarballKey]
 	if !ok {
-		t.Fatalf("expected jsonl upload at %s; uploads=%v", jsonlKey, keysOf(fake.uploads))
+		t.Fatalf("expected per-session tarball upload at %s; uploads=%v", tarballKey, keysOf(fake.uploads))
 	}
-	if string(uploadedJsonl) != "turn1-line\n" {
-		t.Fatalf("jsonl content mismatch: %q", uploadedJsonl)
+	if !hasTarFileContent(t, uploadedTarball, jsonlName(ws), "turn1-line\n") {
+		t.Fatalf("uploaded tarball missing jsonl content")
+	}
+	if !hasTarFileContent(t, uploadedTarball, "metadata.json", `{"v":1}`) {
+		t.Fatalf("uploaded tarball missing metadata.json — auxiliary file dropped (this is the regression we're guarding against)")
 	}
 
 	// claude-home tarball must NOT contain the per-session subtree.
-	tarBytes, ok := fake.uploads[claudeHomeKey("ws1")]
+	claudeHomeBytes, ok := fake.uploads[claudeHomeKey("ws1")]
 	if !ok {
 		t.Fatalf("expected claude-home upload; uploads=%v", keysOf(fake.uploads))
 	}
-	if hasTarEntry(t, tarBytes, sessionSubtreeRel(ws)+"/") {
+	if hasTarEntry(t, claudeHomeBytes, sessionSubtreeRel(ws)+"/") {
 		t.Fatalf("claude-home tarball must not include session subtree %s", sessionSubtreeRel(ws))
 	}
 
-	// Round-trip: stage uploads as objects, fresh Setup must reconstruct
-	// the jsonl from the per-session key.
-	fake.putObject(claudeHomeKey("ws1"), tarBytes, "etag-after-t1")
-	fake.objects[jsonlKey] = uploadedJsonl
+	// Round-trip: stage uploads as fetchable objects, fresh Setup must
+	// reconstruct both files from the per-session tarball.
+	fake.putObject(claudeHomeKey("ws1"), claudeHomeBytes, "etag-after-t1")
+	fake.objects[tarballKey] = uploadedTarball
 
 	ws2, err := Setup(ctx, "ws1", "cse_abc", store)
 	if err != nil {
 		t.Fatalf("Setup #2: %v", err)
 	}
 	defer Teardown(ctx, ws2, store)
-	got, err := os.ReadFile(sessionJsonlLocalPath(ws2))
-	if err != nil || string(got) != "turn1-line\n" {
-		t.Fatalf("post-roundtrip jsonl: got=%q err=%v", got, err)
+	gotJsonl, err := os.ReadFile(filepath.Join(sessionSubtreeLocalDir(ws2), jsonlName(ws2)))
+	if err != nil || string(gotJsonl) != "turn1-line\n" {
+		t.Fatalf("post-roundtrip jsonl: got=%q err=%v", gotJsonl, err)
+	}
+	gotMeta, err := os.ReadFile(filepath.Join(sessionSubtreeLocalDir(ws2), "metadata.json"))
+	if err != nil || string(gotMeta) != `{"v":1}` {
+		t.Fatalf("post-roundtrip metadata.json: got=%q err=%v", gotMeta, err)
 	}
 }
 
 func TestTeardown_TwoSessionsDoNotOverwriteEachOther(t *testing.T) {
 	// Workspace W has two concurrent sessions A and B. Each writes its own
 	// jsonl. Whichever Teardown runs second must not destroy the other's
-	// jsonl. With per-session keys, each lives in its own object.
+	// jsonl. With per-session tarball keys, each lives in its own object.
 	old := TempDirBase
 	TempDirBase = t.TempDir()
 	defer func() { TempDirBase = old }()
@@ -209,18 +232,8 @@ func TestTeardown_TwoSessionsDoNotOverwriteEachOther(t *testing.T) {
 		t.Fatalf("Setup B: %v", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(sessionJsonlLocalPath(wsA)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(sessionJsonlLocalPath(wsA), []byte("A-data\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(sessionJsonlLocalPath(wsB)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(sessionJsonlLocalPath(wsB), []byte("B-data\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSessionFile(t, wsA, jsonlName(wsA), "A-data\n")
+	writeSessionFile(t, wsB, jsonlName(wsB), "B-data\n")
 
 	// A finishes first, then B.
 	if err := Teardown(ctx, wsA, store); err != nil {
@@ -230,12 +243,12 @@ func TestTeardown_TwoSessionsDoNotOverwriteEachOther(t *testing.T) {
 		t.Fatalf("Teardown B: %v", err)
 	}
 
-	// Both jsonls present at distinct keys.
-	if string(fake.uploads[sessionJsonlKey("wsX", "cse_A")]) != "A-data\n" {
-		t.Fatalf("A jsonl missing or wrong: uploads=%v", keysOf(fake.uploads))
+	// Both per-session tarballs present at distinct keys with distinct content.
+	if !hasTarFileContent(t, fake.uploads[sessionTarballKey("wsX", "cse_A")], jsonlName(wsA), "A-data\n") {
+		t.Fatalf("A's tarball missing or wrong content; uploads=%v", keysOf(fake.uploads))
 	}
-	if string(fake.uploads[sessionJsonlKey("wsX", "cse_B")]) != "B-data\n" {
-		t.Fatalf("B jsonl missing or wrong: uploads=%v", keysOf(fake.uploads))
+	if !hasTarFileContent(t, fake.uploads[sessionTarballKey("wsX", "cse_B")], jsonlName(wsB), "B-data\n") {
+		t.Fatalf("B's tarball missing or wrong content; uploads=%v", keysOf(fake.uploads))
 	}
 }
 
