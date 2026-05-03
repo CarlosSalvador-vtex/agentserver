@@ -214,7 +214,7 @@ func TestUploadTarGz_RoundTrip(t *testing.T) {
 	}
 
 	key := "workspaces/ws1/claude-home.tar.gz"
-	if err := store.UploadTarGz(context.Background(), src, key); err != nil {
+	if err := store.UploadTarGz(context.Background(), src, key, nil); err != nil {
 		t.Fatalf("UploadTarGz: %v", err)
 	}
 
@@ -262,7 +262,7 @@ func TestUploadTarGz_SkipsSymlinks(t *testing.T) {
 	}
 
 	key := "workspaces/ws1/claude-home.tar.gz"
-	if err := store.UploadTarGz(context.Background(), src, key); err != nil {
+	if err := store.UploadTarGz(context.Background(), src, key, nil); err != nil {
 		t.Fatalf("UploadTarGz: %v", err)
 	}
 
