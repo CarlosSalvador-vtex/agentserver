@@ -12,7 +12,9 @@ ALTER TABLE agent_sessions
   ADD COLUMN IF NOT EXISTS responder_attached_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS active_turn_id         TEXT;
 
-UPDATE agent_sessions SET creator_user_id = 'unknown' WHERE creator_user_id IS NULL;
+-- Note: legacy IM-flow rows are intentionally left with creator_user_id NULL.
+-- See spec §4.11 for rationale (avoids 'unknown' sentinel that conflates
+-- "owner unknown" with a plausible real user id).
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_channel_external
   ON agent_sessions (workspace_id, channel_type, external_id);
