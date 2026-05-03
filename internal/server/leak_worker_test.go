@@ -107,6 +107,45 @@ func TestLeakWorker_PreservesActiveTurnIfCCBrokerStillReports(t *testing.T) {
 	}
 }
 
+func TestLeakWorker_PreservesActiveTurnOnCCBrokerFailure(t *testing.T) {
+	// cc-broker URL points to a port nothing is listening on (connection refused).
+	s, cleanup := newTestServerForLeak(t, "http://127.0.0.1:1")
+	defer cleanup()
+
+	sid := "cse_pres_ccfail_" + t.Name()
+	if err := s.DB.CreateAgentSessionTUI(context.Background(), db.CreateTUISessionParams{
+		ID:             sid,
+		WorkspaceID:    "ws_test",
+		ExternalID:     "tui:exe_a:leak_fail",
+		CreatorUserID:  "u_test",
+		PermissionMode: "ask",
+	}); err != nil {
+		t.Fatalf("CreateAgentSessionTUI: %v", err)
+	}
+	t.Cleanup(func() { s.DB.Exec(`DELETE FROM agent_sessions WHERE id=$1`, sid) })
+
+	if _, err := s.DB.ClaimActiveTurn(context.Background(), sid, "trn_alive"); err != nil {
+		t.Fatalf("ClaimActiveTurn: %v", err)
+	}
+	// Backdate updated_at so the turn appears stale.
+	s.DB.Exec(`UPDATE agent_sessions SET updated_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, sid)
+
+	lw := NewLeakWorker(s, LeakWorkerConfig{
+		StaleTurnAfter: 5 * time.Minute,
+		ResponderTTL:   90 * time.Second,
+	})
+	lw.RunOnce(context.Background())
+
+	// The active turn must NOT have been cleared because cc-broker was unreachable.
+	cur, err := s.DB.GetActiveTurn(context.Background(), sid)
+	if err != nil {
+		t.Fatalf("GetActiveTurn: %v", err)
+	}
+	if cur != "trn_alive" {
+		t.Errorf("active turn cleared on cc-broker failure; got %q want trn_alive", cur)
+	}
+}
+
 func TestLeakWorker_ClearsStaleResponder(t *testing.T) {
 	s, cleanup := newTestServerForLeak(t, "")
 	defer cleanup()

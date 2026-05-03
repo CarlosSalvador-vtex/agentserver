@@ -72,14 +72,18 @@ func (l *LeakWorker) cleanStaleActiveTurns(ctx context.Context) {
 			l.s.CCBrokerURL+"/api/sessions/"+p.SessionID+"/turns/active", nil)
 		resp, err := http.DefaultClient.Do(rq)
 		if err != nil {
-			log.Printf("leak: cc-broker query session=%s: %v", p.SessionID, err)
-			continue
+			log.Printf("leak: cc-broker query failed sid=%s: %v (preserving active turn)", p.SessionID, err)
+			continue // skip cleanup; assume turn is still alive
 		}
 		var respBody struct {
 			TurnID *string `json:"turn_id"`
 		}
-		json.NewDecoder(resp.Body).Decode(&respBody)
+		decErr := json.NewDecoder(resp.Body).Decode(&respBody)
 		resp.Body.Close()
+		if decErr != nil {
+			log.Printf("leak: decode cc-broker response failed sid=%s: %v (preserving active turn)", p.SessionID, decErr)
+			continue
+		}
 		if respBody.TurnID == nil || *respBody.TurnID != p.TurnID {
 			_ = l.s.DB.ClearActiveTurn(ctx, p.SessionID, p.TurnID)
 			log.Printf("leak: cleared stale active_turn_id session=%s turn=%s",
