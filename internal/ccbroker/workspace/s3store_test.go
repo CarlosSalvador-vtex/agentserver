@@ -126,3 +126,23 @@ func TestDownloadTarGz_HappyPath(t *testing.T) {
 		t.Fatalf("session.jsonl mismatch: got=%q err=%v", got, err)
 	}
 }
+
+func TestDownloadTarGz_NotFoundIsEmpty(t *testing.T) {
+	fake := newFakeS3("ccbroker")
+	// no objects pre-loaded → every GET returns 404
+	store, srv := newTestStore(t, fake)
+	defer srv.Close()
+
+	dest := t.TempDir()
+	if err := store.DownloadTarGz(context.Background(), "workspaces/missing/claude-home.tar.gz", dest); err != nil {
+		t.Fatalf("DownloadTarGz on missing key: want nil, got %v", err)
+	}
+	// destDir should remain empty
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("destDir should be empty, got %d entries", len(entries))
+	}
+}
