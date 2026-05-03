@@ -21,7 +21,7 @@ import (
 // validation → session ensure → user-event insert → SDK pump → SSE done.
 //
 // The runner is faked to emit a scripted SDK message sequence; workspace
-// Setup/Teardown are stubbed so no OpenViking calls happen and no real
+// Setup/Teardown are stubbed so no S3 calls happen and no real
 // temp dir is created.
 //
 // NOTE: This test is currently t.Skip()ped because Server requires a real

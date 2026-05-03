@@ -111,7 +111,7 @@ func (s Spec) ToOptions() []agentsdk.QueryOption {
 	if s.SessionUUID != "" {
 		// --session-id rejects already-existing IDs; --resume rejects missing
 		// ones. They are exclusive: pick exactly one based on whether the
-		// session jsonl was present after Setup downloaded from OpenViking.
+		// session jsonl was present after Setup downloaded from S3.
 		if s.SessionExists {
 			opts = append(opts, agentsdk.WithResume(s.SessionUUID))
 		} else {
