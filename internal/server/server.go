@@ -367,6 +367,11 @@ func (s *Server) Router() http.Handler {
 		// TUI inbound (user-authenticated prompt submission for TUI sessions)
 		r.Post("/api/workspaces/{wid}/tui/inbound", s.handleTUIInbound)
 
+		// Agent-session management (TUI: create, attach, list)
+		r.Post("/api/agent-sessions", s.handleCreateAgentSession)
+		r.Post("/api/agent-sessions/{sid}/attach", s.handleAttachAgentSession)
+		r.Get("/api/agent-sessions", s.handleListAgentSessions)
+
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)
