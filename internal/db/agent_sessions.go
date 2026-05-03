@@ -463,10 +463,14 @@ func (db *DB) ClaimActiveTurn(ctx context.Context, sessionID, turnID string) (bo
 }
 
 // GetActiveTurn returns the current active_turn_id for a session, or "" if none.
+// A missing session is treated the same as no active turn (no error returned).
 func (db *DB) GetActiveTurn(ctx context.Context, sessionID string) (string, error) {
 	var s sql.NullString
 	err := db.QueryRowContext(ctx,
 		`SELECT active_turn_id FROM agent_sessions WHERE id = $1`, sessionID).Scan(&s)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -488,36 +492,56 @@ type AttachResult struct {
 }
 
 // AttachResponder sets permission_responder (and optionally preferred_executor_id) for a session.
-// Returns the previous values before the update.
+// Returns the previous values before the update. Uses a single CTE-based statement to avoid
+// a SELECT-then-UPDATE race when two callers attach concurrently.
 func (db *DB) AttachResponder(ctx context.Context, sessionID, executorID string, becomePreferred bool) (AttachResult, error) {
 	var prev AttachResult
 	var prevResp, prevPref sql.NullString
-	err := db.QueryRowContext(ctx, `
-		SELECT COALESCE(permission_responder, ''), COALESCE(preferred_executor_id, '')
-		  FROM agent_sessions WHERE id = $1`, sessionID).Scan(&prevResp, &prevPref)
+
+	var query string
+	if becomePreferred {
+		query = `
+            WITH prev AS (
+                SELECT permission_responder, preferred_executor_id
+                  FROM agent_sessions
+                 WHERE id = $2
+                 FOR UPDATE
+            )
+            UPDATE agent_sessions s
+               SET permission_responder    = $1,
+                   preferred_executor_id   = $1,
+                   responder_attached_at   = NOW(),
+                   updated_at              = NOW()
+              FROM prev
+             WHERE s.id = $2
+         RETURNING COALESCE(prev.permission_responder, ''), COALESCE(prev.preferred_executor_id, '')`
+	} else {
+		query = `
+            WITH prev AS (
+                SELECT permission_responder, preferred_executor_id
+                  FROM agent_sessions
+                 WHERE id = $2
+                 FOR UPDATE
+            )
+            UPDATE agent_sessions s
+               SET permission_responder    = $1,
+                   responder_attached_at   = NOW(),
+                   updated_at              = NOW()
+              FROM prev
+             WHERE s.id = $2
+         RETURNING COALESCE(prev.permission_responder, ''), COALESCE(prev.preferred_executor_id, '')`
+	}
+
+	err := db.QueryRowContext(ctx, query, executorID, sessionID).Scan(&prevResp, &prevPref)
+	if err == sql.ErrNoRows {
+		return prev, nil
+	}
 	if err != nil {
 		return prev, err
 	}
 	prev.PreviousResponder = prevResp.String
 	prev.PreviousPreferred = prevPref.String
-
-	if becomePreferred {
-		_, err = db.ExecContext(ctx, `
-			UPDATE agent_sessions
-			   SET permission_responder = $1,
-			       preferred_executor_id = $1,
-			       responder_attached_at = NOW(),
-			       updated_at = NOW()
-			 WHERE id = $2`, executorID, sessionID)
-	} else {
-		_, err = db.ExecContext(ctx, `
-			UPDATE agent_sessions
-			   SET permission_responder = $1,
-			       responder_attached_at = NOW(),
-			       updated_at = NOW()
-			 WHERE id = $2`, executorID, sessionID)
-	}
-	return prev, err
+	return prev, nil
 }
 
 // ClearResponder clears permission_responder and responder_attached_at for a session.

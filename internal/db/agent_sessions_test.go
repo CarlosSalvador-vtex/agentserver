@@ -142,18 +142,19 @@ func TestListSessionsByChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) < 2 {
-		t.Fatalf("got %d sessions, want >=2", len(list))
-	}
-	// Most recent should be cse_lbc2 (created second)
-	found := false
+
+	// Filter to just the sessions this test created (cleanup in case of past runs)
+	ours := []SessionListItem{}
 	for _, item := range list {
-		if item.ID == "cse_lbc2_"+t.Name() {
-			found = true
-			break
+		if item.ID == "cse_lbc1_"+t.Name() || item.ID == "cse_lbc2_"+t.Name() {
+			ours = append(ours, item)
 		}
 	}
-	if !found {
-		t.Errorf("recent session not in list: %+v", list)
+	if len(ours) != 2 {
+		t.Fatalf("expected exactly 2 of our sessions in result, got %d (full list: %v)", len(ours), list)
+	}
+	// Most recent (second created) should appear first when filtered preserving order
+	if ours[0].ID != "cse_lbc2_"+t.Name() {
+		t.Errorf("first of our sessions should be cse_lbc2 (most recent), got %q", ours[0].ID)
 	}
 }
