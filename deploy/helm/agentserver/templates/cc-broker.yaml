@@ -1,4 +1,5 @@
 {{- if .Values.ccbroker.enabled }}
+{{- $_ := required "ccbroker.s3.existingSecret is required when ccbroker.enabled is true (k8s secret with keys: access_key_id, secret_access_key)" .Values.ccbroker.s3.existingSecret }}
 {{- $existingSecret := (lookup "v1" "Secret" .Release.Namespace (printf "%s-ccbroker-secret" .Release.Name)) }}
 apiVersion: v1
 kind: Secret
@@ -100,7 +101,6 @@ spec:
               value: {{ .Values.ccbroker.s3.useSSL | quote }}
             - name: CCBROKER_S3_PATH_STYLE
               value: {{ .Values.ccbroker.s3.pathStyle | quote }}
-            {{- if .Values.ccbroker.s3.existingSecret }}
             - name: CCBROKER_S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -111,7 +111,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.ccbroker.s3.existingSecret }}
                   key: secret_access_key
-            {{- end }}
             {{- if .Values.ccbroker.logLevel }}
             - name: CCBROKER_LOG_LEVEL
               value: {{ .Values.ccbroker.logLevel | quote }}
