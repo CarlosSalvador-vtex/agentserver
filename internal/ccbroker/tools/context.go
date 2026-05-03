@@ -19,4 +19,13 @@ type Context struct {
 	InternalAPISecret   string
 	Workspace           *workspace.Workspace // for workspace_* tools
 	HTTP                *http.Client         // shared HTTP client
+
+	// TUI / permission gate (added in Phase 1 Task 5)
+	ChannelType            string // "im" | "tui"
+	CreatorUserID          string // for cross-user check
+	PermissionMode         string // "ask" | "bypass"
+	PreferredExecutorID    string // optional; injected into system prompt
+	Gate                   *Gate  // reference to per-broker singleton
+	AgentserverInternalURL string // for turn-finished callback
+	CurrentTurnID          string // set per turn by handler_turns
 }

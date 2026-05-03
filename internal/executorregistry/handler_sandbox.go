@@ -36,13 +36,14 @@ func (s *Server) handleRegisterSandbox(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	executor := Executor{
-		ID:          req.SandboxID,
-		WorkspaceID: req.WorkspaceID,
-		Name:        req.Name,
-		Type:        "sandbox",
-		Status:      "online",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:                req.SandboxID,
+		WorkspaceID:       req.WorkspaceID,
+		Name:              req.Name,
+		Type:              "sandbox",
+		Status:            "online",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+		SharedToWorkspace: true, // sandbox executors are workspace resources
 	}
 
 	if err := s.store.CreateExecutor(r.Context(), executor, "", ""); err != nil {

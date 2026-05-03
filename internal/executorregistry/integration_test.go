@@ -2,6 +2,7 @@ package executorregistry
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -190,6 +191,82 @@ func TestRegisterSandbox(t *testing.T) {
 	if executors[0].Capabilities.Description != wantDescription {
 		t.Errorf("capabilities.description: got %q, want %q",
 			executors[0].Capabilities.Description, wantDescription)
+	}
+}
+
+func TestRegisterPersistsOwnerUserID(t *testing.T) {
+	srv := setupTestServer(t)
+	body := map[string]string{
+		"name":          "test-exec",
+		"workspace_id":  "ws_test",
+		"owner_user_id": "u_alice",
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/executors/register", body, "")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status %d", rr.Code)
+	}
+	var reg struct {
+		ExecutorID string `json:"executor_id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &reg); err != nil {
+		t.Fatalf("decode register response: %v", err)
+	}
+
+	info, err := srv.store.GetExecutor(context.Background(), reg.ExecutorID)
+	if err != nil || info == nil {
+		t.Fatalf("GetExecutor: %v %v", info, err)
+	}
+	if info.OwnerUserID != "u_alice" {
+		t.Errorf("owner_user_id=%q want u_alice", info.OwnerUserID)
+	}
+	if info.SharedToWorkspace {
+		t.Errorf("shared_to_workspace=true want false (default)")
+	}
+}
+
+func TestRegisterSandboxIsSharedToWorkspace(t *testing.T) {
+	srv := setupTestServer(t)
+	body := registerSandboxRequest{
+		SandboxID:   "sbx_test_001",
+		WorkspaceID: "ws_test_shared",
+		Name:        "test sandbox",
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/executors/sandbox", body, "")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body)
+	}
+	info, err := srv.store.GetExecutor(context.Background(), "sbx_test_001")
+	if err != nil || info == nil {
+		t.Fatalf("GetExecutor: %v %v", info, err)
+	}
+	if !info.SharedToWorkspace {
+		t.Errorf("sandbox should be shared_to_workspace=true, got false")
+	}
+	if info.OwnerUserID != "unknown" {
+		t.Errorf("sandbox owner should be 'unknown', got %q", info.OwnerUserID)
+	}
+}
+
+func TestRegisterAgentIsNotSharedToWorkspace(t *testing.T) {
+	srv := setupTestServer(t)
+	body := map[string]string{
+		"name":          "test-agent",
+		"workspace_id":  "ws_test_notshared",
+		"owner_user_id": "u_alice",
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/executors/register", body, "")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status %d", rr.Code)
+	}
+	var reg struct {
+		ExecutorID string `json:"executor_id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &reg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	info, _ := srv.store.GetExecutor(context.Background(), reg.ExecutorID)
+	if info.SharedToWorkspace {
+		t.Errorf("local-agent executor should NOT be shared_to_workspace, got true")
 	}
 }
 

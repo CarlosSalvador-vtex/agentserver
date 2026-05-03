@@ -22,6 +22,10 @@ type Config struct {
 	S3PathStyle         bool
 	IMBridgeURL         string
 	IMBridgeSecret      string
+
+	// Phase 1 Task 13: turn-finished callback to agentserver.
+	AgentserverInternalURL string // env: AGENTSERVER_INTERNAL_URL
+	InternalAPISecret      string // env: INTERNAL_API_SECRET
 }
 
 func LoadConfigFromEnv() (Config, error) {
@@ -51,6 +55,8 @@ func LoadConfigFromEnv() (Config, error) {
 
 	cfg.IMBridgeURL = os.Getenv("CCBROKER_IMBRIDGE_URL")
 	cfg.IMBridgeSecret = os.Getenv("INTERNAL_API_SECRET")
+	cfg.AgentserverInternalURL = os.Getenv("AGENTSERVER_INTERNAL_URL")
+	cfg.InternalAPISecret = os.Getenv("INTERNAL_API_SECRET")
 	if v := os.Getenv("CCBROKER_LOG_LEVEL"); v != "" {
 		switch strings.ToLower(v) {
 		case "debug":

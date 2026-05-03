@@ -74,6 +74,10 @@ type Server struct {
 	// Claude Code sessions (e.g. "http://cc-broker:8090").
 	CCBrokerURL string
 
+	// ExecutorRegistryURL is the base URL of the executor-registry service
+	// (e.g. "http://executor-registry:8091"). Used by the /control agents command.
+	ExecutorRegistryURL string
+
 	// Credential proxy
 	EncryptionKey    []byte // AES-256 key for credential_bindings auth_blob
 	CredproxyPublicURL string // URL sandboxes use to reach credentialproxy
@@ -172,6 +176,9 @@ func (s *Server) Router() http.Handler {
 
 	// Internal API for ModelServer token retrieval (no cookie auth).
 	r.Get("/internal/workspaces/{id}/modelserver-token", s.handleInternalModelserverToken)
+
+	// Internal callback from cc-broker when a turn finishes (T19).
+	r.Post("/internal/sessions/{sid}/turn-finished", s.handleTurnFinished)
 
 	// IM bridge routes: proxy to standalone imbridge service when configured.
 	if s.IMBridgeURL != "" {
@@ -363,6 +370,25 @@ func (s *Server) Router() http.Handler {
 
 		// Agent interaction audit trail
 		r.Get("/api/workspaces/{wid}/agent-interactions", s.handleListInteractions)
+
+		// TUI inbound (user-authenticated prompt submission for TUI sessions)
+		r.Post("/api/workspaces/{wid}/tui/inbound", s.handleTUIInbound)
+
+		// Agent-session management (TUI: create, attach, list)
+		r.Post("/api/agent-sessions", s.handleCreateAgentSession)
+		r.Post("/api/agent-sessions/{sid}/attach", s.handleAttachAgentSession)
+		r.Get("/api/agent-sessions", s.handleListAgentSessions)
+
+		// TUI SSE event stream (live events + replay)
+		r.Get("/api/agent-sessions/{sid}/events", s.handleTUIEventStream)
+
+		// TUI control commands (model, permission, compact, cost, agents)
+		r.Post("/api/agent-sessions/{sid}/control", s.handleAgentSessionControl)
+
+		// TUI proxy handlers (T18)
+		r.Post("/api/agent-sessions/{sid}/turns/{tid}/cancel", s.handleCancelTurn)
+		r.Post("/api/agent-sessions/{sid}/permissions/{pid}", s.handlePermissionDecision)
+		r.Get("/api/executors/{id}/status", s.handleExecutorStatus)
 
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {

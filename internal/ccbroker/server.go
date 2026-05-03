@@ -1,25 +1,43 @@
 package ccbroker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
+	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
 )
 
+// storer abstracts the database operations needed by the Server. The concrete
+// implementation is *Store (backed by Postgres); tests inject a fakeStore.
+type storer interface {
+	GetSession(ctx context.Context, id string) (*Session, error)
+	CreateSession(ctx context.Context, id, workspaceID, title, source string, externalID *string) error
+	GetSessionEpoch(ctx context.Context, sessionID string) (int, error)
+	InsertEvents(ctx context.Context, sessionID string, epoch int, events []EventInput) ([]InsertedEvent, error)
+}
+
 type Server struct {
 	config   Config
-	store    *Store
+	store    storer
 	s3       *workspace.S3Store
 	sse      *SSEBroker
 	turnLock *TurnLock
 	logger   *slog.Logger
+	gate     *tools.Gate // permission gate, initialized in NewServer
+
+	// Task 12: TUI control endpoints
+	activeTurns  *activeTurnRegistry
+	compactQueue *compactQueue
 }
 
 func NewServer(cfg Config, store *Store) (*Server, error) {
@@ -35,14 +53,32 @@ func NewServer(cfg Config, store *Store) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init s3 store: %w", err)
 	}
-	return &Server{
-		config:   cfg,
-		store:    store,
-		s3:       s3,
-		sse:      NewSSEBroker(),
-		turnLock: NewTurnLock(),
-		logger:   logger,
-	}, nil
+	s := &Server{
+		config:       cfg,
+		store:        store,
+		s3:           s3,
+		sse:          NewSSEBroker(),
+		turnLock:     NewTurnLock(),
+		logger:       logger,
+		activeTurns:  newActiveTurnRegistry(),
+		compactQueue: newCompactQueue(),
+	}
+	s.gate = tools.NewGate(func(sid string, e tools.Event) {
+		payload, err := json.Marshal(e)
+		if err != nil {
+			s.logger.Warn("permission event marshal failed",
+				"session_id", sid, "type", e.Type, "err", err)
+			return
+		}
+		s.sse.Publish(sid, &StreamClientEvent{
+			EventID:   "evt_" + uuid.NewString(),
+			EventType: e.Type,
+			Source:    "gate",
+			Payload:   payload,
+			CreatedAt: time.Now().Format(time.RFC3339Nano),
+		})
+	})
+	return s, nil
 }
 
 func (s *Server) Routes() http.Handler {
@@ -57,6 +93,12 @@ func (s *Server) Routes() http.Handler {
 
 	r.Post("/api/turns", s.handleProcessTurn)
 	r.Post("/v1/sessions", s.handleCreateSession)
+
+	// Task 12: TUI control endpoints
+	r.Post("/api/sessions/{sid}/turns/{tid}/cancel",       s.handleCancelTurn)
+	r.Post("/api/sessions/{sid}/permissions/{pid}/decide", s.handleDecidePermission)
+	r.Post("/api/sessions/{sid}/compact",                  s.handleCompactNow)
+	r.Get("/api/sessions/{sid}/turns/active",              s.handleGetActiveTurn)
 
 	return r
 }
