@@ -372,6 +372,9 @@ func (s *Server) Router() http.Handler {
 		r.Post("/api/agent-sessions/{sid}/attach", s.handleAttachAgentSession)
 		r.Get("/api/agent-sessions", s.handleListAgentSessions)
 
+		// TUI SSE event stream (live events + replay)
+		r.Get("/api/agent-sessions/{sid}/events", s.handleTUIEventStream)
+
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)

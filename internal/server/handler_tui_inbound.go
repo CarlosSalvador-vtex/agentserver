@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,12 +9,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/agentserver/agentserver/internal/auth"
+	"github.com/agentserver/agentserver/internal/bridge"
 	"github.com/agentserver/agentserver/internal/db"
 )
 
@@ -175,13 +178,57 @@ func (s *Server) callCCBrokerForTUI(ctx context.Context, sid, turnID, wid, userI
 		return
 	}
 	defer resp.Body.Close()
-	// T16 will replace this with an SSE pump that forwards to s.BridgeHandler.SSE.
-	// For T14, just drain so cc-broker's writes complete.
-	_, _ = io.Copy(io.Discard, resp.Body)
-	// cc-broker calls our /internal/turn-finished endpoint (T19) which will
-	// ClearActiveTurn. Don't clear here too (would be redundant; the leak
-	// worker handles missed callbacks). But for v1 safety in T14 (no T19 yet),
-	// clear after drain to avoid stale active_turn_id.
+
+	// Stream and bridge SSE events from cc-broker → agent_session_events + SSE broker.
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	var (
+		eventType string
+		dataBuf   bytes.Buffer
+	)
+	flushEvent := func() {
+		if eventType == "" && dataBuf.Len() == 0 {
+			return
+		}
+		payload := append([]byte(nil), dataBuf.Bytes()...)
+		inserted, _ := s.DB.InsertAgentSessionEvents(sid, []db.AgentSessionEvent{
+			{EventID: uuid.NewString(), EventType: eventType, Source: "ccbroker", Payload: payload},
+		})
+		var seq int64
+		if len(inserted) > 0 {
+			seq = inserted[0].SeqNum
+		}
+		if s.BridgeHandler != nil && s.BridgeHandler.SSE != nil {
+			s.BridgeHandler.SSE.Publish(sid, &bridge.StreamClientEvent{
+				SequenceNum: seq,
+				EventType:   eventType,
+				Source:      "ccbroker",
+				Payload:     payload,
+			})
+		}
+		eventType = ""
+		dataBuf.Reset()
+	}
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case line == "":
+			flushEvent()
+		case strings.HasPrefix(line, ":"):
+			// comment / keepalive — ignore
+		case strings.HasPrefix(line, "event: "):
+			eventType = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			if dataBuf.Len() > 0 {
+				dataBuf.WriteByte('\n')
+			}
+			dataBuf.WriteString(strings.TrimPrefix(line, "data: "))
+		}
+	}
+	flushEvent() // flush trailing event if any (no terminating blank line)
+
+	// Safety net: clear active_turn_id even if cc-broker's /turn-finished
+	// callback is missed. The CAS guard means a fresh turn won't be clobbered.
 	_ = s.DB.ClearActiveTurn(ctx, sid, turnID)
 }
 

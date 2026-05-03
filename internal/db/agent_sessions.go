@@ -196,6 +196,39 @@ func (db *DB) InsertAgentSessionEvents(sessionID string, events []AgentSessionEv
 	return inserted, nil
 }
 
+// GetAgentSessionEventsTail returns the most recent N events for the session,
+// in chronological order. Used by the TUI SSE endpoint when ?tail=N is set.
+func (db *DB) GetAgentSessionEventsTail(sessionID string, n int) ([]AgentSessionEvent, error) {
+	if n <= 0 || n > 1000 {
+		n = 200
+	}
+	rows, err := db.Query(`
+		SELECT id, session_id, event_id, event_type, source, epoch, payload, ephemeral, created_at
+		  FROM agent_session_events
+		 WHERE session_id = $1
+		 ORDER BY id DESC LIMIT $2`, sessionID, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rev []AgentSessionEvent
+	for rows.Next() {
+		var e AgentSessionEvent
+		if err := rows.Scan(&e.ID, &e.SessionID, &e.EventID, &e.EventType, &e.Source, &e.Epoch, &e.Payload, &e.Ephemeral, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		rev = append(rev, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Reverse to chronological order.
+	for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+		rev[i], rev[j] = rev[j], rev[i]
+	}
+	return rev, nil
+}
+
 // GetAgentSessionEventsSince returns events with sequence_num > sinceSeqNum.
 func (db *DB) GetAgentSessionEventsSince(sessionID string, sinceSeqNum int64, limit int) ([]AgentSessionEvent, error) {
 	rows, err := db.Query(
