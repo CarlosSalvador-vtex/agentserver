@@ -260,3 +260,44 @@ func TestMakeRuleKey_BashHeadIsTwoTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestGate_CrossUser_AllowsWhenSharedToWorkspace(t *testing.T) {
+	g, _ := captureNotifier()
+	err := g.Check(context.Background(), CheckRequest{
+		SessionID:                 "s1",
+		TurnID:                    "t1",
+		Tool:                      "remote_bash",
+		ExecutorID:                "exe_a",
+		Args:                      json.RawMessage(`{"command":"ls"}`),
+		PermissionMode:            "bypass",
+		SessionCreatorUserID:      "u_alice",
+		ExecutorOwnerUserID:       "u_bob",
+		ExecutorSharedToWorkspace: true,
+		Timeout:                   100 * time.Millisecond,
+	})
+	if err != nil {
+		t.Errorf("shared sandbox should allow cross-user: %v", err)
+	}
+}
+
+func TestGate_CrossUser_DeniesEvenWhenOwnerEmpty(t *testing.T) {
+	// Defense in depth: empty ExecutorOwnerUserID against a real session
+	// creator must still trigger denial. (The store layer normally projects
+	// NULL → 'unknown' so this case shouldn't occur in production, but the
+	// gate must not silently allow it if a future caller forgets to populate.)
+	g, _ := captureNotifier()
+	err := g.Check(context.Background(), CheckRequest{
+		SessionID:            "s1",
+		TurnID:               "t1",
+		Tool:                 "remote_bash",
+		ExecutorID:           "exe_a",
+		Args:                 json.RawMessage(`{}`),
+		PermissionMode:       "ask",
+		SessionCreatorUserID: "u_alice",
+		ExecutorOwnerUserID:  "", // simulates caller-side bug
+		Timeout:              100 * time.Millisecond,
+	})
+	if err != ErrCrossUserDenied {
+		t.Errorf("err=%v want ErrCrossUserDenied", err)
+	}
+}

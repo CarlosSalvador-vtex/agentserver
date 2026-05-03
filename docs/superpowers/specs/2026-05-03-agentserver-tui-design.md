@@ -1541,7 +1541,14 @@ type Decision struct {
 
 func (g *Gate) Check(ctx context.Context, req CheckRequest) error {
     // 1. cross-user 硬校验
-    if req.ExecutorOwnerUserID != req.SessionCreatorUserID && !req.ExecutorSharedToWorkspace {
+    //
+    // SessionCreatorUserID == "" means a legacy IM session (no authenticated
+    // workspace user). IM flow is exempt — those sessions can invoke any
+    // executor in their workspace. ExecutorOwnerUserID is NOT guarded by
+    // != "" — under the Restrictive policy the store layer COALESCEs NULL →
+    // 'unknown', so an empty string means a caller bug and must still deny.
+    if req.SessionCreatorUserID != "" &&
+        req.ExecutorOwnerUserID != req.SessionCreatorUserID && !req.ExecutorSharedToWorkspace {
         return ErrCrossUserDenied
     }
 

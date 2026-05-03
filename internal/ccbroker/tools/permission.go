@@ -81,8 +81,17 @@ func NewGate(notify Notifier) *Gate {
 }
 
 func (g *Gate) Check(ctx context.Context, req CheckRequest) error {
-	// 1. cross-user
-	if req.ExecutorOwnerUserID != "" && req.SessionCreatorUserID != "" &&
+	// 1. cross-user.
+	//
+	// SessionCreatorUserID == "" means a legacy IM session (no authenticated
+	// workspace user attached). IM flow is exempt — those sessions can invoke
+	// any executor in their workspace.
+	//
+	// ExecutorOwnerUserID is NOT guarded by != "": under the Restrictive
+	// policy (spec §4.11, §6.4) the store layer COALESCEs NULL → 'unknown',
+	// so an empty string here means a caller-side bug, and should still
+	// trigger denial against any real SessionCreatorUserID. Defense in depth.
+	if req.SessionCreatorUserID != "" &&
 		req.ExecutorOwnerUserID != req.SessionCreatorUserID && !req.ExecutorSharedToWorkspace {
 		return ErrCrossUserDenied
 	}
