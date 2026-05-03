@@ -705,7 +705,12 @@ ALTER TABLE agent_sessions
   ADD COLUMN IF NOT EXISTS responder_attached_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS active_turn_id         TEXT;
 
-UPDATE agent_sessions SET creator_user_id = 'unknown' WHERE creator_user_id IS NULL;
+-- Note: legacy IM-flow rows are intentionally left with creator_user_id NULL.
+-- The cross-user permission check (cc-broker §6.4) treats empty/NULL as
+-- "owner unknown, no cross-user check applicable" — legacy IM rows never
+-- reach the TUI inbound path so the field is irrelevant for them. Using
+-- a 'unknown' sentinel would conflate "we don't know" with a plausible
+-- real user id; leaving NULL preserves the distinction.
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_channel_external
   ON agent_sessions (workspace_id, channel_type, external_id);
@@ -722,7 +727,10 @@ ALTER TABLE executors
   ADD COLUMN IF NOT EXISTS owner_user_id          TEXT,
   ADD COLUMN IF NOT EXISTS shared_to_workspace    BOOLEAN NOT NULL DEFAULT FALSE;
 
-UPDATE executors SET owner_user_id = 'unknown' WHERE owner_user_id IS NULL;
+-- Same reasoning as agent_sessions.creator_user_id: leave legacy executors
+-- with owner_user_id NULL. cc-broker's gate.Check treats empty as "unknown
+-- owner; cross-user check skipped". Sentinel string would create false
+-- equality with a real user id "unknown".
 
 CREATE INDEX IF NOT EXISTS idx_executors_owner ON executors(owner_user_id);
 ```

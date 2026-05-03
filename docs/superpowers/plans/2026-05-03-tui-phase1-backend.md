@@ -70,7 +70,9 @@ ALTER TABLE agent_sessions
   ADD COLUMN IF NOT EXISTS responder_attached_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS active_turn_id         TEXT;
 
-UPDATE agent_sessions SET creator_user_id = 'unknown' WHERE creator_user_id IS NULL;
+-- Note: legacy IM-flow rows are intentionally left with creator_user_id NULL.
+-- See spec §4.11 for rationale (avoids 'unknown' sentinel that conflates
+-- "owner unknown" with a plausible real user id).
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_channel_external
   ON agent_sessions (workspace_id, channel_type, external_id);
@@ -84,7 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_sessions_active_turn
 
 Run: `psql $DATABASE_URL -f internal/db/migrations/021_tui_session_fields.sql`
 Then: `psql $DATABASE_URL -c "\\d agent_sessions"`
-Expected: 8 new columns visible; existing rows have `channel_type='im'`, `creator_user_id='unknown'`, `permission_mode='bypass'`.
+Expected: 8 new columns visible; existing rows have `channel_type='im'`, `permission_mode='bypass'`, `creator_user_id` remains NULL (intentionally — see comment in migration).
 
 - [ ] **Step 3: Verify migration is loaded by db.New** — `internal/db/db.go` uses `embed.FS` over `migrations/*.sql`; new file is auto-discovered.
 
@@ -116,7 +118,9 @@ ALTER TABLE executors
   ADD COLUMN IF NOT EXISTS owner_user_id          TEXT,
   ADD COLUMN IF NOT EXISTS shared_to_workspace    BOOLEAN NOT NULL DEFAULT FALSE;
 
-UPDATE executors SET owner_user_id = 'unknown' WHERE owner_user_id IS NULL;
+-- Same reasoning as agent_sessions.creator_user_id: legacy executors keep
+-- owner_user_id NULL. cc-broker treats empty/NULL as "owner unknown, skip
+-- cross-user check" (§6.4).
 
 CREATE INDEX IF NOT EXISTS idx_executors_owner ON executors(owner_user_id);
 ```
