@@ -15,12 +15,12 @@ import (
 
 // handleGeminiProxy proxies Gemini API requests, recording token usage and trace data.
 func (s *Server) handleGeminiProxy(w http.ResponseWriter, r *http.Request) {
-	// 1. Validate proxy token.
-	// The go-genai SDK sends credentials via x-goog-api-key, but clients
-	// may also use x-api-key (consistent with the Anthropic proxy flow).
+	// 1. Validate proxy token. Accept x-goog-api-key (go-genai SDK), x-api-key
+	// (sandbox-style), or Authorization: Bearer (workspace-style from
+	// cc-broker). The token itself is opaque.
 	proxyToken := r.Header.Get("x-goog-api-key")
 	if proxyToken == "" {
-		proxyToken = r.Header.Get("x-api-key")
+		proxyToken = extractProxyToken(r.Header)
 	}
 	if proxyToken == "" {
 		http.Error(w, "missing api key", http.StatusUnauthorized)
@@ -37,7 +37,9 @@ func (s *Server) handleGeminiProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid api key", http.StatusUnauthorized)
 		return
 	}
-	if sbx.Status != "running" && sbx.Status != "creating" {
+	// Sandbox-scoped tokens are only authoritative while the sandbox is alive.
+	// Workspace-scoped tokens have no lifecycle gating.
+	if sbx.TokenType == "sandbox" && sbx.Status != "running" && sbx.Status != "creating" {
 		http.Error(w, "sandbox not active", http.StatusForbidden)
 		return
 	}
@@ -87,13 +89,13 @@ func (s *Server) handleGeminiProxy(w http.ResponseWriter, r *http.Request) {
 	logger := s.logger.With(
 		"trace_id", traceID,
 		"request_id", requestID,
-		"sandbox_id", sbx.ID,
+		"sandbox_id", sbx.SandboxID,
 		"workspace_id", sbx.WorkspaceID,
 	)
 
 	// 6. Persist trace (only for generate endpoints).
 	if isGenerateEndpoint && s.store != nil {
-		if _, err := s.store.GetOrCreateTrace(traceID, sbx.ID, sbx.WorkspaceID, source); err != nil {
+		if _, err := s.store.GetOrCreateTrace(traceID, sbx.SandboxID, sbx.WorkspaceID, source); err != nil {
 			logger.Error("failed to create trace", "error", err)
 		}
 	}
@@ -158,7 +160,7 @@ func (s *Server) handleGeminiProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 // interceptGeminiNonStreaming reads the full response body, extracts usage, and records it.
-func (s *Server) interceptGeminiNonStreaming(resp *http.Response, sbx *SandboxInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
+func (s *Server) interceptGeminiNonStreaming(resp *http.Response, sbx *TokenInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil
 	}
@@ -184,7 +186,7 @@ func (s *Server) interceptGeminiNonStreaming(resp *http.Response, sbx *SandboxIn
 }
 
 // interceptGeminiStreaming wraps the response body with a Gemini stream interceptor.
-func (s *Server) interceptGeminiStreaming(resp *http.Response, sbx *SandboxInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
+func (s *Server) interceptGeminiStreaming(resp *http.Response, sbx *TokenInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil
 	}
@@ -197,7 +199,7 @@ func (s *Server) interceptGeminiStreaming(resp *http.Response, sbx *SandboxInfo,
 }
 
 // recordGeminiUsage persists a Gemini usage record and logs it.
-func (s *Server) recordGeminiUsage(sbx *SandboxInfo, traceID, requestID, model string, usage GeminiUsageMetadata, streaming bool, duration, ttft int64, logger *slog.Logger) {
+func (s *Server) recordGeminiUsage(sbx *TokenInfo, traceID, requestID, model string, usage GeminiUsageMetadata, streaming bool, duration, ttft int64, logger *slog.Logger) {
 	logger.Info("gemini request completed",
 		"model", model,
 		"input_tokens", usage.PromptTokenCount,
@@ -215,7 +217,7 @@ func (s *Server) recordGeminiUsage(sbx *SandboxInfo, traceID, requestID, model s
 	u := TokenUsage{
 		ID:                   requestID,
 		TraceID:              traceID,
-		SandboxID:            sbx.ID,
+		SandboxID:            sbx.SandboxID,
 		WorkspaceID:          sbx.WorkspaceID,
 		Provider:             "gemini",
 		Model:                model,

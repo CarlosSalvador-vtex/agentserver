@@ -85,13 +85,13 @@ func (s *Server) handleAnthropicProxy(w http.ResponseWriter, r *http.Request) {
 	logger := s.logger.With(
 		"trace_id", traceID,
 		"request_id", requestID,
-		"sandbox_id", sbx.ID,
+		"sandbox_id", sbx.SandboxID,
 		"workspace_id", sbx.WorkspaceID,
 	)
 
 	// 4. Persist trace (only for messages endpoint).
 	if isMessagesEndpoint && s.store != nil {
-		if _, err := s.store.GetOrCreateTrace(traceID, sbx.ID, sbx.WorkspaceID, source); err != nil {
+		if _, err := s.store.GetOrCreateTrace(traceID, sbx.SandboxID, sbx.WorkspaceID, source); err != nil {
 			logger.Error("failed to create trace", "error", err)
 		}
 	}
@@ -163,7 +163,7 @@ func (s *Server) handleAnthropicProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 // interceptNonStreaming reads the full response body, extracts usage, and records it.
-func (s *Server) interceptNonStreaming(resp *http.Response, sbx *SandboxInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
+func (s *Server) interceptNonStreaming(resp *http.Response, sbx *TokenInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil
 	}
@@ -189,7 +189,7 @@ func (s *Server) interceptNonStreaming(resp *http.Response, sbx *SandboxInfo, tr
 }
 
 // interceptStreaming wraps the response body with a stream interceptor.
-func (s *Server) interceptStreaming(resp *http.Response, sbx *SandboxInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
+func (s *Server) interceptStreaming(resp *http.Response, sbx *TokenInfo, traceID, requestID string, logger *slog.Logger, startTime time.Time) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil
 	}
@@ -202,7 +202,7 @@ func (s *Server) interceptStreaming(resp *http.Response, sbx *SandboxInfo, trace
 }
 
 // recordUsage persists a usage record and logs it.
-func (s *Server) recordUsage(sbx *SandboxInfo, traceID, requestID, model, msgID string, usage anthropic.Usage, streaming bool, duration, ttft int64, logger *slog.Logger) {
+func (s *Server) recordUsage(sbx *TokenInfo, traceID, requestID, model, msgID string, usage anthropic.Usage, streaming bool, duration, ttft int64, logger *slog.Logger) {
 	logger.Info("anthropic request completed",
 		"model", model,
 		"message_id", msgID,
@@ -222,7 +222,7 @@ func (s *Server) recordUsage(sbx *SandboxInfo, traceID, requestID, model, msgID 
 	u := TokenUsage{
 		ID:                       requestID,
 		TraceID:                  traceID,
-		SandboxID:                sbx.ID,
+		SandboxID:                sbx.SandboxID,
 		WorkspaceID:              sbx.WorkspaceID,
 		Provider:                 "anthropic", // TODO: track provider as "modelserver" for MS-forwarded requests
 		Model:                    model,

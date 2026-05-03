@@ -14,8 +14,8 @@ func (s *Store) GetOrCreateTrace(traceID, sandboxID, workspaceID, source string)
 		`INSERT INTO traces (id, sandbox_id, workspace_id, source)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
-		 RETURNING id, sandbox_id, workspace_id, source, created_at, updated_at`,
-		traceID, sandboxID, workspaceID, source,
+		 RETURNING id, COALESCE(sandbox_id, ''), workspace_id, source, created_at, updated_at`,
+		traceID, nullIfEmpty(sandboxID), workspaceID, source,
 	).Scan(&t.ID, &t.SandboxID, &t.WorkspaceID, &t.Source, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("upsert trace: %w", err)
@@ -39,7 +39,7 @@ func (s *Store) RecordUsage(u TokenUsage) error {
 			input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
 			streaming, duration, ttft, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		u.ID, nullIfEmpty(u.TraceID), u.SandboxID, u.WorkspaceID, u.Provider, u.Model,
+		u.ID, nullIfEmpty(u.TraceID), nullIfEmpty(u.SandboxID), u.WorkspaceID, u.Provider, u.Model,
 		nullIfEmpty(u.MessageID), u.InputTokens, u.OutputTokens,
 		u.CacheCreationInputTokens, u.CacheReadInputTokens,
 		u.Streaming, u.Duration, u.TTFT, u.CreatedAt,
@@ -151,7 +151,7 @@ func (s *Store) QueryTraces(opts QueryOpts) ([]TraceWithStats, int64, error) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT t.id, t.sandbox_id, t.workspace_id, t.source, t.created_at, t.updated_at,
+		SELECT t.id, COALESCE(t.sandbox_id, ''), t.workspace_id, t.source, t.created_at, t.updated_at,
 			COALESCE(COUNT(u.id), 0),
 			COALESCE(SUM(u.input_tokens), 0),
 			COALESCE(SUM(u.output_tokens), 0),
@@ -190,7 +190,7 @@ func (s *Store) QueryTraces(opts QueryOpts) ([]TraceWithStats, int64, error) {
 func (s *Store) GetTraceDetail(traceID string) (*Trace, []TokenUsage, error) {
 	t := &Trace{}
 	err := s.db.QueryRow(
-		`SELECT id, sandbox_id, workspace_id, source, created_at, updated_at FROM traces WHERE id = $1`,
+		`SELECT id, COALESCE(sandbox_id, ''), workspace_id, source, created_at, updated_at FROM traces WHERE id = $1`,
 		traceID,
 	).Scan(&t.ID, &t.SandboxID, &t.WorkspaceID, &t.Source, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -201,7 +201,7 @@ func (s *Store) GetTraceDetail(traceID string) (*Trace, []TokenUsage, error) {
 	}
 
 	rows, err := s.db.Query(
-		`SELECT id, COALESCE(trace_id, ''), sandbox_id, workspace_id, provider, model,
+		`SELECT id, COALESCE(trace_id, ''), COALESCE(sandbox_id, ''), workspace_id, provider, model,
 			COALESCE(message_id, ''), input_tokens, output_tokens,
 			cache_creation_input_tokens, cache_read_input_tokens,
 			streaming, duration, ttft, created_at

@@ -15,6 +15,7 @@ import (
 
 	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
+	"github.com/agentserver/agentserver/internal/ccbroker/wstoken"
 )
 
 // storer abstracts the database operations needed by the Server. The concrete
@@ -27,9 +28,13 @@ type storer interface {
 }
 
 type Server struct {
-	config   Config
-	store    storer
-	s3       *workspace.S3Store
+	config Config
+	store  storer
+	s3     *workspace.S3Store
+	// wstoken returns the workspace's proxy token (cached or freshly fetched
+	// from agentserver). Function-typed so tests can stub it without
+	// standing up an HTTP fake.
+	wstoken  func(ctx context.Context, workspaceID string) (string, error)
 	sse      *SSEBroker
 	turnLock *TurnLock
 	logger   *slog.Logger
@@ -53,10 +58,12 @@ func NewServer(cfg Config, store *Store) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init s3 store: %w", err)
 	}
+	wstokenClient := wstoken.New(cfg.AgentserverURL, cfg.IMBridgeSecret)
 	s := &Server{
 		config:       cfg,
 		store:        store,
 		s3:           s3,
+		wstoken:      wstokenClient.GetOrCreate,
 		sse:          NewSSEBroker(),
 		turnLock:     NewTurnLock(),
 		logger:       logger,

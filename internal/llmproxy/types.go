@@ -2,9 +2,18 @@ package llmproxy
 
 import "time"
 
-// SandboxInfo is returned by the agentserver token validation API.
-type SandboxInfo struct {
-	ID                     string `json:"sandbox_id"`
+// TokenInfo is returned by the agentserver token validation API. It covers
+// both sandbox-scoped tokens (issued at sandbox creation) and workspace-
+// scoped tokens (issued by cc-broker for turn workers).
+//
+// For TokenType == "sandbox": SandboxID is set; Status reflects the live
+// sandbox status and must be 'running' or 'creating'.
+//
+// For TokenType == "workspace": SandboxID is empty; Status is always
+// "active" — workspace tokens have no lifecycle gating.
+type TokenInfo struct {
+	TokenType              string `json:"token_type"`
+	SandboxID              string `json:"sandbox_id,omitempty"`
 	WorkspaceID            string `json:"workspace_id"`
 	Status                 string `json:"status"`
 	ModelserverUpstreamURL string `json:"modelserver_upstream_url,omitempty"`

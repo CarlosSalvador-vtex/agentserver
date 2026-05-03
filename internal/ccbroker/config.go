@@ -26,6 +26,11 @@ type Config struct {
 	// Phase 1 Task 13: turn-finished callback to agentserver.
 	AgentserverInternalURL string // env: AGENTSERVER_INTERNAL_URL
 	InternalAPISecret      string // env: INTERNAL_API_SECRET
+
+	// LLM proxy URL: cc-broker injects this as ANTHROPIC_BASE_URL on the
+	// spawned Claude CLI so LLM traffic is authenticated against llmproxy
+	// using the per-workspace proxy token (not directly to upstream).
+	LLMProxyURL string // env: CCBROKER_LLMPROXY_URL
 }
 
 func LoadConfigFromEnv() (Config, error) {
@@ -57,6 +62,10 @@ func LoadConfigFromEnv() (Config, error) {
 	cfg.IMBridgeSecret = os.Getenv("INTERNAL_API_SECRET")
 	cfg.AgentserverInternalURL = os.Getenv("AGENTSERVER_INTERNAL_URL")
 	cfg.InternalAPISecret = os.Getenv("INTERNAL_API_SECRET")
+	cfg.LLMProxyURL = os.Getenv("CCBROKER_LLMPROXY_URL")
+	if cfg.LLMProxyURL == "" {
+		return cfg, fmt.Errorf("CCBROKER_LLMPROXY_URL is required")
+	}
 	if v := os.Getenv("CCBROKER_LOG_LEVEL"); v != "" {
 		switch strings.ToLower(v) {
 		case "debug":

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
-// ValidateProxyToken calls the agentserver internal API to validate a sandbox proxy token.
-// Returns nil (not error) if the token is invalid.
-func (s *Server) ValidateProxyToken(ctx context.Context, proxyToken string) (*SandboxInfo, error) {
+// ValidateProxyToken calls the agentserver internal API to validate a proxy
+// token (sandbox- or workspace-scoped). Returns nil (not error) if the token
+// is invalid.
+func (s *Server) ValidateProxyToken(ctx context.Context, proxyToken string) (*TokenInfo, error) {
 	reqBody, err := json.Marshal(map[string]string{"proxy_token": proxyToken})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -47,9 +49,24 @@ func (s *Server) ValidateProxyToken(ctx context.Context, proxyToken string) (*Sa
 		return nil, fmt.Errorf("agentserver returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var info SandboxInfo
+	var info TokenInfo
 	if err := json.Unmarshal(body, &info); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return &info, nil
+}
+
+// extractProxyToken returns the proxy token from either x-api-key or
+// Authorization: Bearer. Both transports are accepted; sandbox tokens
+// historically use x-api-key while cc-broker injects workspace tokens as
+// ANTHROPIC_AUTH_TOKEN which Claude CLI sends as Bearer. The token itself
+// is opaque — type is determined by the validation result, not the header.
+func extractProxyToken(headers http.Header) string {
+	if v := headers.Get("x-api-key"); v != "" {
+		return v
+	}
+	if v := headers.Get("Authorization"); strings.HasPrefix(v, "Bearer ") {
+		return strings.TrimPrefix(v, "Bearer ")
+	}
+	return ""
 }

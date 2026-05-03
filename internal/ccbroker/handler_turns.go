@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	agentsdk "github.com/agentserver/claude-agent-sdk-go"
@@ -142,6 +141,19 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Acquire the workspace's persistent proxy token first, before any
+	// expensive S3 setup, so a token-fetch failure (agentserver down,
+	// network glitch) doesn't waste a tarball download we'd have to clean up.
+	// Cache hit is in-memory; the only slow path is first-time per workspace.
+	// CC sends this as Authorization: Bearer via the ANTHROPIC_AUTH_TOKEN env;
+	// llmproxy uses it to authorize on behalf of this workspace.
+	wsTok, err := s.wstoken(r.Context(), req.WorkspaceID)
+	if err != nil {
+		s.logger.Error("workspace token fetch failed", "workspace_id", req.WorkspaceID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to acquire workspace token")
+		return
+	}
+
 	// Set up the per-turn workspace (download claude-home tarball from S3).
 	ws, err := workspaceSetup(r.Context(), req.WorkspaceID, req.SessionID, s.s3)
 	if err != nil {
@@ -179,13 +191,14 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		req.Metadata.TurnKind = "compaction"
 	}
 
-	// Build runner config from process env + turn metadata.
+	// Build runner config + turn metadata. AnthropicAPIKey is deliberately
+	// left empty so CC sends Bearer only (no x-api-key), terminating at
+	// llmproxy with the workspace token acquired above.
 	runCfg := runner.Config{
 		SystemPrompt:             "", // CC default; override later if we add a workspace prompt
 		MaxTurns:                 0,  // unlimited; rely on auto-compact
-		AnthropicAPIKey:          os.Getenv("ANTHROPIC_API_KEY"),
-		AnthropicAuthToken:       os.Getenv("ANTHROPIC_AUTH_TOKEN"),
-		AnthropicBaseURL:         os.Getenv("ANTHROPIC_BASE_URL"),
+		AnthropicAuthToken:       wsTok,
+		AnthropicBaseURL:         s.config.LLMProxyURL,
 		DisableFileCheckpointing: true,
 		AutoCompactWindow:        165000,
 

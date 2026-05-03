@@ -7,7 +7,12 @@ import (
 )
 
 // handleValidateProxyToken is an internal API for the LLM proxy to validate
-// sandbox proxy tokens. It returns sandbox metadata without requiring cookie auth.
+// proxy tokens. Returns workspace + status info that the proxy uses to apply
+// per-workspace RPD limits and per-sandbox status checks.
+//
+// Both sandbox-scoped and workspace-scoped tokens live in the same
+// proxy_tokens table; the response's token_type tells the proxy which kind
+// of validation to apply.
 func (s *Server) handleValidateProxyToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ProxyToken string `json:"proxy_token"`
@@ -17,26 +22,52 @@ func (s *Server) handleValidateProxyToken(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sbx, err := s.DB.GetSandboxByProxyToken(req.ProxyToken)
+	pt, err := s.DB.GetProxyToken(req.ProxyToken)
 	if err != nil {
 		log.Printf("validate-proxy-token: db error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if sbx == nil {
+	if pt == nil {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
 
 	resp := map[string]interface{}{
-		"sandbox_id":   sbx.ID,
-		"workspace_id": sbx.WorkspaceID,
-		"status":       sbx.Status,
+		"token_type":   string(pt.TokenType),
+		"workspace_id": pt.WorkspaceID,
 	}
 
-	// Include modelserver upstream URL if workspace has a connection
+	switch pt.TokenType {
+	case "sandbox":
+		// Sandbox tokens are only authoritative when the sandbox is alive.
+		// Look up the sandbox to surface its current status.
+		if !pt.SandboxID.Valid {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		sbx, err := s.DB.GetSandbox(pt.SandboxID.String)
+		if err != nil {
+			log.Printf("validate-proxy-token: get sandbox: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if sbx == nil {
+			// Sandbox was deleted but token row lingered (CASCADE should
+			// have prevented this; treat as invalid).
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		resp["sandbox_id"] = sbx.ID
+		resp["status"] = sbx.Status
+	case "workspace":
+		// Workspace tokens have no sandbox; status is constant.
+		resp["status"] = "active"
+	}
+
+	// Optional modelserver upstream — same logic for both token types.
 	if s.ModelserverProxyURL != "" {
-		hasMSConn, _ := s.DB.HasModelserverConnection(sbx.WorkspaceID)
+		hasMSConn, _ := s.DB.HasModelserverConnection(pt.WorkspaceID)
 		if hasMSConn {
 			resp["modelserver_upstream_url"] = s.ModelserverProxyURL
 		}
