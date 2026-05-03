@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -112,9 +113,14 @@ func (s *Server) handleTUIInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Asynchronously call cc-broker. The SSE bridge is implemented in Task 16;
-	// for T14 we drain the body so cc-broker's turn completes.
-	go s.callCCBrokerForTUI(context.Background(), sid, turnID, workspaceID, userID, req)
+	// Asynchronously call cc-broker. Cap at 30m so the goroutine can't
+	// leak indefinitely if cc-broker hangs (disaster-recovery ceiling;
+	// legitimate long turns complete well within this window).
+	turnDeadlineCtx, turnCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	go func() {
+		defer turnCancel()
+		s.callCCBrokerForTUI(turnDeadlineCtx, sid, turnID, workspaceID, userID, req)
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -173,7 +179,11 @@ func (s *Server) callCCBrokerForTUI(ctx context.Context, sid, turnID, wid, userI
 	httpReq.Header.Set("Accept", "text/event-stream")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		log.Printf("tui_inbound: cc-broker call failed: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("tui_inbound: cc-broker turn timed out after 30m sid=%s", sid)
+		} else {
+			log.Printf("tui_inbound: cc-broker call failed: %v", err)
+		}
 		_ = s.DB.ClearActiveTurn(ctx, sid, turnID)
 		return
 	}
