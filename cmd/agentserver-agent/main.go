@@ -307,8 +307,58 @@ to this machine via the executor-registry tunnel.`,
 	},
 }
 
+var (
+	tuiServer       string
+	tuiWorkspaceID  string
+	tuiName         string
+	tuiWorkDir      string
+	tuiResumeID     string
+	tuiContinue     bool
+	tuiYolo         bool
+	tuiSkipBrowser  bool
+	tuiModel        string
+	tuiResponderTTL string
+)
+
+var tuiCmd = &cobra.Command{
+	Use:   "tui",
+	Short: "Interactive terminal client for stateless cc",
+	Long: `Run an interactive Bubble Tea TUI that drives a remote stateless
+cc session. The same process also acts as a local executor (hands) so
+remote_* tool calls from cc-broker can land on this machine.
+
+On first run, requires --server. After /login the server URL is saved.
+Subsequent runs auto-load credentials and reconnect.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+			<-sigCh
+			cancel()
+		}()
+		err := agent.RunTUI(ctx, agent.TUIOpts{
+			Server:          tuiServer,
+			WorkspaceID:     tuiWorkspaceID,
+			Name:            tuiName,
+			WorkDir:         tuiWorkDir,
+			Resume:          tuiResumeID,
+			Continue:        tuiContinue,
+			Yolo:            tuiYolo,
+			SkipOpenBrowser: tuiSkipBrowser,
+			Model:           tuiModel,
+			ResponderTTL:    tuiResponderTTL,
+		})
+		if err != nil && err != context.Canceled {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
 func init() {
-	rootCmd.AddCommand(claudecodeCmd, loginCmd, listCmd, removeCmd, taskWorkerCmd, mcpServerCmd, versionCmd, executorCmd)
+	rootCmd.AddCommand(claudecodeCmd, loginCmd, listCmd, removeCmd, taskWorkerCmd, mcpServerCmd, versionCmd, executorCmd, tuiCmd)
 
 	// Root command flags (default: headless Claude Code agent).
 	rootCmd.Flags().StringVar(&server, "server", "https://agent.cs.ac.cn", "Agent server URL")
@@ -351,6 +401,24 @@ func init() {
 	executorCmd.Flags().StringVar(&executorWorkspaceID, "workspace-id", "", "workspace ID to register this executor under (required)")
 	executorCmd.Flags().BoolVar(&executorSkipBrowser, "skip-open-browser", false, "don't auto-open browser during auth")
 	executorCmd.Flags().StringVar(&executorWorkDir, "work-dir", "", "working directory for tool executions (default: current directory)")
+
+	// TUI subcommand flags.
+	defaultName, _ = os.Hostname()
+	if defaultName != "" {
+		defaultName += " (interactive)"
+	} else {
+		defaultName = "TUI Agent (interactive)"
+	}
+	tuiCmd.Flags().StringVar(&tuiServer, "server", "", "agentserver URL (defaults to saved creds)")
+	tuiCmd.Flags().StringVar(&tuiWorkspaceID, "workspace-id", "", "workspace ID (required)")
+	tuiCmd.Flags().StringVar(&tuiName, "name", defaultName, "display name for this executor")
+	tuiCmd.Flags().StringVar(&tuiWorkDir, "work-dir", "", "executor working directory (default: cwd)")
+	tuiCmd.Flags().StringVarP(&tuiResumeID, "resume", "r", "", "attach to an existing session by ID")
+	tuiCmd.Flags().BoolVarP(&tuiContinue, "continue", "c", false, "attach to most recent TUI session")
+	tuiCmd.Flags().BoolVar(&tuiYolo, "yolo", false, "start with permission_mode=bypass")
+	tuiCmd.Flags().BoolVar(&tuiSkipBrowser, "skip-open-browser", false, "do not auto-open browser on /login")
+	tuiCmd.Flags().StringVar(&tuiModel, "model", "", "sticky model for first turn (default: server choice)")
+	tuiCmd.Flags().StringVar(&tuiResponderTTL, "responder-ttl", "", "override responder TTL (informational; server enforces)")
 }
 
 func truncID(id string, n int) string {

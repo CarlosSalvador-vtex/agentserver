@@ -59,7 +59,7 @@ func RunLogin(opts LoginOptions) error {
 	}
 
 	// 1. Request device authorization (via agentserver reverse proxy).
-	deviceResp, err := requestDeviceCode(opts.ServerURL)
+	deviceResp, err := RequestDeviceCode(opts.ServerURL)
 	if err != nil {
 		return fmt.Errorf("device authorization failed: %w", err)
 	}
@@ -84,7 +84,7 @@ func RunLogin(opts LoginOptions) error {
 
 	// 4. Poll for token.
 	fmt.Println("Waiting for authentication...")
-	tokenResp, err := pollForToken(opts.ServerURL, deviceResp)
+	tokenResp, err := PollForToken(opts.ServerURL, deviceResp)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -106,7 +106,10 @@ func RunLogin(opts LoginOptions) error {
 	return nil
 }
 
-func requestDeviceCode(serverURL string) (*DeviceAuthResponse, error) {
+// RequestDeviceCode POSTs to /api/oauth2/device/auth and returns the device
+// authorization response. Exported so the TUI AuthController can use it as a
+// seam (injectable for tests).
+func RequestDeviceCode(serverURL string) (*DeviceAuthResponse, error) {
 	form := url.Values{
 		"client_id": {defaultClientID},
 		"scope":     {defaultScopes},
@@ -127,7 +130,10 @@ func requestDeviceCode(serverURL string) (*DeviceAuthResponse, error) {
 	return &result, nil
 }
 
-func pollForToken(serverURL string, deviceResp *DeviceAuthResponse) (*TokenResponse, error) {
+// PollForToken polls the token endpoint until the user authenticates, denies,
+// or the device code expires. Exported so the TUI AuthController can use it as
+// a seam (injectable for tests).
+func PollForToken(serverURL string, deviceResp *DeviceAuthResponse) (*TokenResponse, error) {
 	tokenURL := strings.TrimRight(serverURL, "/") + "/api/oauth2/token"
 	interval := time.Duration(deviceResp.Interval) * time.Second
 	if interval < 5*time.Second {
