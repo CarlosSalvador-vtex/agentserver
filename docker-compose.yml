@@ -99,14 +99,45 @@ services:
       CCBROKER_LOG_LEVEL: "info"
       CCBROKER_EXECUTOR_REGISTRY_URL: "http://executor-registry:8084"
       CCBROKER_AGENTSERVER_URL: "http://server:8080"
-      CCBROKER_OPENVIKING_URL: "http://openviking:1933"
-      CCBROKER_OPENVIKING_API_KEY: ""
+      CCBROKER_S3_ENDPOINT: "minio:9000"
+      CCBROKER_S3_REGION: ""
+      CCBROKER_S3_BUCKET: "ccbroker"
+      CCBROKER_S3_USE_SSL: "false"
+      CCBROKER_S3_PATH_STYLE: "true"
+      CCBROKER_S3_ACCESS_KEY_ID: "minioadmin"
+      CCBROKER_S3_SECRET_ACCESS_KEY: "minioadmin"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
     ports:
       - "8085:8085"
     depends_on:
       - postgres
+      - minio-init
     restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sleep 3
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb -p local/ccbroker || true
 
 volumes:
   pgdata:
+  minio-data:
