@@ -6,14 +6,15 @@ import (
 )
 
 type Executor struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	OwnerUserID string    `json:"owner_user_id"`
+	ID                string    `json:"id"`
+	WorkspaceID       string    `json:"workspace_id"`
+	Name              string    `json:"name"`
+	Type              string    `json:"type"`
+	Status            string    `json:"status"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	OwnerUserID       string    `json:"owner_user_id"`
+	SharedToWorkspace bool      `json:"shared_to_workspace,omitempty"` // workspace-scoped vs user-owned
 }
 
 type ExecutorCapability struct {
@@ -35,9 +36,8 @@ type ResourceInfo struct {
 
 type ExecutorInfo struct {
 	Executor
-	Capabilities      ExecutorCapability `json:"capabilities"`
-	LastSeen          *time.Time         `json:"last_seen,omitempty"`
-	SharedToWorkspace bool               `json:"shared_to_workspace"`
+	Capabilities ExecutorCapability `json:"capabilities"`
+	LastSeen     *time.Time         `json:"last_seen,omitempty"`
 }
 
 type ExecuteRequest struct {

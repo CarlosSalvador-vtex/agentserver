@@ -120,9 +120,10 @@ func (s *Store) CreateExecutor(ctx context.Context, executor Executor, tunnelTok
 		INSERT INTO executors (id, workspace_id, name, type, status, tunnel_token_hash, registry_token_hash,
 		                       owner_user_id, shared_to_workspace,
 		                       created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), FALSE, $9, $10)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11)`,
 		executor.ID, executor.WorkspaceID, executor.Name, executor.Type, executor.Status,
-		tunnelHash, registryHash, executor.OwnerUserID, executor.CreatedAt, executor.UpdatedAt,
+		tunnelHash, registryHash, executor.OwnerUserID, executor.SharedToWorkspace,
+		executor.CreatedAt, executor.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert executor: %w", err)

@@ -224,6 +224,52 @@ func TestRegisterPersistsOwnerUserID(t *testing.T) {
 	}
 }
 
+func TestRegisterSandboxIsSharedToWorkspace(t *testing.T) {
+	srv := setupTestServer(t)
+	body := registerSandboxRequest{
+		SandboxID:   "sbx_test_001",
+		WorkspaceID: "ws_test_shared",
+		Name:        "test sandbox",
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/executors/sandbox", body, "")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body)
+	}
+	info, err := srv.store.GetExecutor(context.Background(), "sbx_test_001")
+	if err != nil || info == nil {
+		t.Fatalf("GetExecutor: %v %v", info, err)
+	}
+	if !info.SharedToWorkspace {
+		t.Errorf("sandbox should be shared_to_workspace=true, got false")
+	}
+	if info.OwnerUserID != "unknown" {
+		t.Errorf("sandbox owner should be 'unknown', got %q", info.OwnerUserID)
+	}
+}
+
+func TestRegisterAgentIsNotSharedToWorkspace(t *testing.T) {
+	srv := setupTestServer(t)
+	body := map[string]string{
+		"name":          "test-agent",
+		"workspace_id":  "ws_test_notshared",
+		"owner_user_id": "u_alice",
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/executors/register", body, "")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status %d", rr.Code)
+	}
+	var reg struct {
+		ExecutorID string `json:"executor_id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &reg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	info, _ := srv.store.GetExecutor(context.Background(), reg.ExecutorID)
+	if info.SharedToWorkspace {
+		t.Errorf("local-agent executor should NOT be shared_to_workspace, got true")
+	}
+}
+
 // TestUpdateCapabilities registers an agent, updates its capabilities, then
 // fetches the executor and verifies the new capabilities are stored.
 func TestUpdateCapabilities(t *testing.T) {

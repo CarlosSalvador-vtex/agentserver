@@ -731,12 +731,17 @@ ALTER TABLE executors
   ADD COLUMN IF NOT EXISTS owner_user_id          TEXT,
   ADD COLUMN IF NOT EXISTS shared_to_workspace    BOOLEAN NOT NULL DEFAULT FALSE;
 
--- Restrictive cross-user policy. Legacy executors keep owner_user_id NULL
--- in the DB. The store layer (GetExecutor, Task 4) projects NULL → 'unknown'
--- via COALESCE; gate.Check (Task 6) compares 'unknown' against the session
--- creator's real user id, which never matches → cross_user_denied. Legacy
--- executors are therefore unreachable until re-registered with a real
--- owner_user_id.
+-- Restrictive cross-user policy for *user-owned* executors (local agents):
+-- Legacy executors keep owner_user_id NULL in the DB. The store layer
+-- (GetExecutor, Task 4) projects NULL → 'unknown' via COALESCE; gate.Check
+-- (Task 6) compares 'unknown' against the session creator's real user id,
+-- which never matches → cross_user_denied. Legacy executors are therefore
+-- unreachable until re-registered with a real owner_user_id.
+--
+-- Sandbox executors are exempt from this restriction: they are workspace
+-- resources (not user-owned), so the sandbox handler registers them with
+-- shared_to_workspace=TRUE. gate.Check then skips the cross-user check
+-- entirely for them. (See handler_sandbox.go.)
 --
 -- INVARIANT: the auth layer must reject 'unknown' as a registerable user id
 -- to prevent false equality with this sentinel. (Tracked as a Phase 1.x
