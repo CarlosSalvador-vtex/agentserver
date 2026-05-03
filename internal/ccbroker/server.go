@@ -29,6 +29,10 @@ type Server struct {
 	turnLock *TurnLock
 	logger   *slog.Logger
 	gate     *tools.Gate // permission gate, initialized in NewServer
+
+	// Task 12: TUI control endpoints
+	activeTurns  *activeTurnRegistry
+	compactQueue *compactQueue
 }
 
 func NewServer(cfg Config, store *Store) *Server {
@@ -46,6 +50,8 @@ func NewServer(cfg Config, store *Store) *Server {
 		s.logger.Debug("permission event (no SSE wiring yet)",
 			"session_id", sid, "type", e.Type, "pid", e.PermissionID)
 	})
+	s.activeTurns = newActiveTurnRegistry()
+	s.compactQueue = newCompactQueue()
 	return s
 }
 
@@ -64,6 +70,12 @@ func (s *Server) Routes() http.Handler {
 
 	// Session lifecycle
 	r.Post("/v1/sessions", s.handleCreateSession)
+
+	// Task 12: TUI control endpoints
+	r.Post("/api/sessions/{sid}/turns/{tid}/cancel",       s.handleCancelTurn)
+	r.Post("/api/sessions/{sid}/permissions/{pid}/decide", s.handleDecidePermission)
+	r.Post("/api/sessions/{sid}/compact",                  s.handleCompactNow)
+	r.Get("/api/sessions/{sid}/turns/active",              s.handleGetActiveTurn)
 
 	return r
 }
