@@ -25,4 +25,11 @@ COPY --from=builder /app/cc-broker /usr/local/bin/cc-broker
 USER 1000
 WORKDIR /home/cc
 EXPOSE 8085
+# Env vars used (see internal/ccbroker/config.go for full list):
+#   CCBROKER_DATABASE_URL       - PostgreSQL connection string (required)
+#   CCBROKER_PORT               - HTTP listen port (default: 8085)
+#   CCBROKER_EXECUTOR_REGISTRY_URL - Executor registry base URL
+#   CCBROKER_AGENTSERVER_URL    - Agentserver base URL
+#   AGENTSERVER_INTERNAL_URL    - Agentserver internal API URL for turn-finished callbacks (TUI flow)
+#   INTERNAL_API_SECRET         - Shared secret for internal agentserver endpoints (TUI flow)
 ENTRYPOINT ["cc-broker"]
