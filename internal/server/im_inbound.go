@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -88,13 +87,12 @@ func (s *Server) processWithCCBroker(ctx context.Context, session *db.AgentSessi
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	// Extract to_user_id from chat_jid (e.g., "user123@im.wechat" → "user123")
-	// and resolve the channel ID once, up-front, so the turn request and the
-	// final reply both carry the same IM context.
+	// Pass chat_jid through unchanged. Each provider's Send method strips
+	// its own JID suffix as needed (Matrix trims "@matrix"; WeChat/iLink
+	// REQUIRES the "@im.wechat" suffix on to_user_id and rejects bare
+	// openids with ret=-3). Resolve the channel ID once, up-front, so the
+	// turn request and the final reply both carry the same IM context.
 	toUserID := msg.ChatJID
-	if idx := strings.Index(toUserID, "@"); idx > 0 {
-		toUserID = toUserID[:idx]
-	}
 	// Always reply through the channel the message *came in on*, not whatever
 	// the session record happens to have stored. When a workspace re-binds an
 	// IM bot (e.g. the original bot's WeChat session expired and a fresh bot

@@ -219,7 +219,7 @@ func (p *TelegramProvider) ValidateCredentials(ctx context.Context, baseURL, tok
 
 // SendImage implements ImageSendProvider for Telegram.
 func (p *TelegramProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string) error {
-	chatID, err := strconv.ParseInt(toUserID, 10, 64)
+	chatID, err := strconv.ParseInt(strings.TrimSuffix(toUserID, "@tg"), 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid telegram chat ID %q: %w", toUserID, err)
 	}
@@ -236,7 +236,7 @@ func (p *TelegramProvider) DefaultBaseURL() string {
 }
 
 func (p *TelegramProvider) Send(ctx context.Context, creds *Credentials, toUserID, text string, meta map[string]string) error {
-	chatID, err := strconv.ParseInt(toUserID, 10, 64)
+	chatID, err := strconv.ParseInt(strings.TrimSuffix(toUserID, "@tg"), 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid telegram chat ID %q: %w", toUserID, err)
 	}
