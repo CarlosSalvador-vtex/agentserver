@@ -124,6 +124,30 @@ func TestAttachResponder(t *testing.T) {
 	}
 }
 
+func TestListSessionsByChannel_EscapesLikeWildcards(t *testing.T) {
+	d := newTestDB(t)
+	ctx := context.Background()
+
+	// Create a session with executor "exe_a".
+	sid := "cse_wild_" + t.Name()
+	_ = d.CreateAgentSessionTUI(ctx, CreateTUISessionParams{
+		ID: sid, WorkspaceID: "ws", ExternalID: "tui:exe_a:100", CreatorUserID: "u",
+	})
+	t.Cleanup(func() { d.Exec(`DELETE FROM agent_sessions WHERE id = $1`, sid) })
+
+	// Query with a wildcard-laden executor ID that should NOT match exe_a.
+	// Without escaping, "exe_%%" would match "exe_a" because _ is a LIKE wildcard.
+	list, err := d.ListSessionsByChannel(ctx, "ws", "tui", "exe_%", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range list {
+		if item.ID == sid {
+			t.Errorf("wildcard injection: executor_id=exe_%% matched exe_a session %q", item.ID)
+		}
+	}
+}
+
 func TestListSessionsByChannel(t *testing.T) {
 	d := newTestDB(t)
 	ctx := context.Background()

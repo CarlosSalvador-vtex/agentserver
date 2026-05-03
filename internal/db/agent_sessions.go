@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -603,18 +604,24 @@ func (db *DB) ListSessionsByChannel(ctx context.Context, workspaceID, channelTyp
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	escape := func(s string) string {
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		s = strings.ReplaceAll(s, `%`, `\%`)
+		s = strings.ReplaceAll(s, `_`, `\_`)
+		return s
+	}
+	pattern := fmt.Sprintf("%s:%s:%%", escape(channelType), escape(executorID))
+
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, COALESCE(external_id, ''), title, updated_at, permission_responder
 		  FROM agent_sessions
 		 WHERE workspace_id = $1
 		   AND channel_type = $2
-		   AND external_id LIKE $3
+		   AND external_id LIKE $3 ESCAPE '\'
 		   AND archived_at IS NULL
 		 ORDER BY updated_at DESC
 		 LIMIT $4`,
-		workspaceID, channelType,
-		fmt.Sprintf("%s:%s:%%", channelType, executorID),
-		limit)
+		workspaceID, channelType, pattern, limit)
 	if err != nil {
 		return nil, err
 	}
