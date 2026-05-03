@@ -70,7 +70,7 @@ func Setup(ctx context.Context, workspaceID, sessionID string, store *S3Store) (
 
 	if err := store.DownloadTarGz(ctx, claudeHomeKey(workspaceID), ws.ClaudeDir); err != nil {
 		_ = os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("download claude-home: %w", err)
+		return nil, fmt.Errorf("download claude-home for workspace %s: %w", workspaceID, err)
 	}
 
 	return ws, nil

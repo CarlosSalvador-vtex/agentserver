@@ -75,20 +75,25 @@ func (s *S3Store) DownloadTarGz(ctx context.Context, key, destDir string) error 
 
 	gr, err := gzip.NewReader(obj)
 	if err != nil {
-		// minio-go's GetObject is lazy: it doesn't return an error until first
-		// Read. A 404 surfaces here as a gzip read failure on an XML error doc.
-		// Discriminate on the underlying minio error.
+		// GetObject is lazy: the real error (404, auth, network, 5xx) surfaces
+		// here when minio-go reads the response body. Two failure shapes:
+		//   (a) minio.ErrorResponse from a clean S3 error — extractable directly
+		//   (b) gzip.ErrHeader, because minio-go yielded the XML error body as
+		//       data before flagging an error — gzip rejects it as non-gzip.
+		// Case (b) hides the real cause; resolve by stat-ing the object.
 		if errResp := minio.ToErrorResponse(err); errResp.Code == "NoSuchKey" {
 			return nil
 		}
-		// gzip.NewReader returned its own error (e.g. "unexpected EOF" on the
-		// XML error body). Re-check by stat-ing the object.
-		if _, statErr := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{}); statErr != nil {
+		_, statErr := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+		if statErr != nil {
 			if minio.ToErrorResponse(statErr).Code == "NoSuchKey" {
 				return nil
 			}
+			return fmt.Errorf("s3: download %s: %w", key, statErr)
 		}
-		return fmt.Errorf("s3: gzip reader: %w", err)
+		// Stat succeeded → object exists but body is not a valid gzip. Real
+		// corruption.
+		return fmt.Errorf("s3: corrupt tar.gz at %s: %w", key, err)
 	}
 	defer gr.Close()
 

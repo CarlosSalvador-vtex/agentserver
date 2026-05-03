@@ -152,6 +152,24 @@ func TestDownloadTarGz_NotFoundIsEmpty(t *testing.T) {
 	}
 }
 
+func TestDownloadTarGz_CorruptObjectReportsClearError(t *testing.T) {
+	fake := newFakeS3("ccbroker")
+	// Object exists but isn't a valid gzip — operator pushed garbage.
+	fake.objects["workspaces/ws1/claude-home.tar.gz"] = []byte("not a gzip stream")
+
+	store, srv := newTestStore(t, fake)
+	defer srv.Close()
+
+	dest := t.TempDir()
+	err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest)
+	if err == nil {
+		t.Fatal("DownloadTarGz on corrupt object: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "corrupt tar.gz") {
+		t.Fatalf("error should mention corruption; got %q", err.Error())
+	}
+}
+
 func TestDownloadTarGz_RejectsPathTraversal(t *testing.T) {
 	fake := newFakeS3("ccbroker")
 	fake.objects["workspaces/ws1/claude-home.tar.gz"] = makeTarGz(t, map[string]string{
