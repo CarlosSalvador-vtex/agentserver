@@ -10,15 +10,45 @@ import (
 	"time"
 )
 
-func captureNotifier() (*Gate, *[]Event) {
-	var mu sync.Mutex
-	events := []Event{}
+// eventLog is a race-safe collector for emitted Events. Tests should access
+// the slice via Snapshot() rather than dereferencing a raw *[]Event, since
+// the notifier closure runs on the goroutine executing Gate.Check while the
+// test polls from another goroutine.
+type eventLog struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (e *eventLog) append(ev Event) {
+	e.mu.Lock()
+	e.events = append(e.events, ev)
+	e.mu.Unlock()
+}
+
+func (e *eventLog) Snapshot() []Event {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]Event, len(e.events))
+	copy(out, e.events)
+	return out
+}
+
+func (e *eventLog) Len() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.events)
+}
+
+// captureNotifier returns a Gate plus an eventLog that tests can poll
+// race-safely. The historic *[]Event return is preserved only for compat
+// with the original test bodies — callers MUST use the eventLog wrapper
+// (returned via Log()) when reading concurrently.
+func captureNotifier() (*Gate, *eventLog) {
+	log := &eventLog{}
 	g := NewGate(func(_ string, e Event) {
-		mu.Lock()
-		events = append(events, e)
-		mu.Unlock()
+		log.append(e)
 	})
-	return g, &events
+	return g, log
 }
 
 func TestGate_BypassMode_AllowsImmediately(t *testing.T) {
@@ -77,8 +107,9 @@ func TestGate_AskMode_BlocksUntilResolve(t *testing.T) {
 	var pid string
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if len(*events) > 0 {
-			pid = (*events)[0].PermissionID
+		snap := events.Snapshot()
+		if len(snap) > 0 {
+			pid = snap[0].PermissionID
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -98,7 +129,7 @@ func TestGate_AskMode_BlocksUntilResolve(t *testing.T) {
 		t.Fatal("Check did not return after Resolve")
 	}
 	var sawResolved bool
-	for _, e := range *events {
+	for _, e := range events.Snapshot() {
 		if e.Type == "permission_resolved" {
 			sawResolved = true
 		}
@@ -143,8 +174,9 @@ func TestGate_StickyAlways_HitsWithoutEmit(t *testing.T) {
 	go func() { done <- g.Check(context.Background(), base) }()
 	var pid string
 	for i := 0; i < 200 && pid == ""; i++ {
-		if len(*events) > 0 {
-			pid = (*events)[0].PermissionID
+		snap := events.Snapshot()
+		if len(snap) > 0 {
+			pid = snap[0].PermissionID
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -152,18 +184,19 @@ func TestGate_StickyAlways_HitsWithoutEmit(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	eventsBefore := len(*events)
+	eventsBefore := events.Len()
 	base2 := base
 	base2.Args = json.RawMessage(`{"command":"git status -s"}`)
 	if err := g.Check(context.Background(), base2); err != nil {
 		t.Errorf("sticky should allow: %v", err)
 	}
-	eventsAfter := len(*events)
+	snapAfter := events.Snapshot()
+	eventsAfter := len(snapAfter)
 	if eventsAfter <= eventsBefore {
 		t.Errorf("expected at least one new event (resolved/sticky)")
 	}
 	for i := eventsBefore; i < eventsAfter; i++ {
-		if (*events)[i].Type == "permission_request" {
+		if snapAfter[i].Type == "permission_request" {
 			t.Errorf("sticky path should NOT emit permission_request")
 		}
 	}
