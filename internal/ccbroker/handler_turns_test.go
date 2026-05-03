@@ -148,20 +148,31 @@ func (f *fakeStore) InsertEvents(_ context.Context, _ string, _ int, events []Ev
 
 // ----- test server helpers -----
 
-// newFakeHTTPServer builds a minimal Server backed by an in-memory fakeStore
-// and returns its httptest.Server.
-func newFakeHTTPServer(t *testing.T) *httptest.Server {
+// newFakeServer builds a minimal Server backed by an in-memory fakeStore.
+// Callers that need direct access to s.activeTurns / s.compactQueue use this;
+// then wrap with httptest.NewServer(s.Routes()) themselves.
+func newFakeServer(t *testing.T) *Server {
 	t.Helper()
 	s := &Server{
-		config:   Config{},
-		store:    newFakeStore(),
-		sse:      NewSSEBroker(),
-		turnLock: NewTurnLock(),
-		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		config:       Config{},
+		store:        newFakeStore(),
+		sse:          NewSSEBroker(),
+		turnLock:     NewTurnLock(),
+		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		activeTurns:  newActiveTurnRegistry(),
+		compactQueue: newCompactQueue(),
 	}
 	s.gate = tools.NewGate(func(sid string, e tools.Event) {
 		// noop for tests
 	})
+	return s
+}
+
+// newFakeHTTPServer builds a minimal Server backed by an in-memory fakeStore
+// and returns its httptest.Server.
+func newFakeHTTPServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	s := newFakeServer(t)
 	return httptest.NewServer(s.Routes())
 }
 
@@ -305,5 +316,132 @@ func TestProcessTurn_DefaultsForLegacyIM(t *testing.T) {
 	}
 	if got.PermissionMode != "bypass" {
 		t.Errorf("default PermissionMode=%q want bypass", got.PermissionMode)
+	}
+}
+
+// ----- Task 13 tests -----
+
+func TestProcessTurn_CallsTurnFinished(t *testing.T) {
+	var (
+		mu     sync.Mutex
+		called map[string]string
+	)
+	fakeAS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/turn-finished") {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var b map[string]string
+		json.NewDecoder(r.Body).Decode(&b)
+		called = b
+		w.WriteHeader(200)
+	}))
+	defer fakeAS.Close()
+
+	stubWorkspaceSeams(t)
+
+	s := newFakeServer(t)
+	s.config.AgentserverInternalURL = fakeAS.URL
+	srv := httptest.NewServer(s.Routes())
+	defer srv.Close()
+
+	origRunner := runnerRun
+	runnerRun = func(ctx context.Context, ws *workspace.Workspace, sid, msg string,
+		cfg runner.Config, mcp *agentsdk.McpSdkServer) (<-chan agentsdk.SDKMessage, error) {
+		ch := make(chan agentsdk.SDKMessage)
+		close(ch)
+		return ch, nil
+	}
+	defer func() { runnerRun = origRunner }()
+
+	body := `{"session_id":"cse_x","workspace_id":"ws","user_message":"hi"}`
+	rr := postJSON(t, srv, "/api/turns", body)
+	if rr.Code != 200 {
+		t.Fatalf("status %d", rr.Code)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		if called != nil {
+			mu.Unlock()
+			break
+		}
+		mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if called == nil {
+		t.Fatal("turn-finished callback never fired")
+	}
+	if called["session_id"] != "cse_x" {
+		t.Errorf("session_id=%q want cse_x", called["session_id"])
+	}
+	if called["turn_id"] == "" {
+		t.Errorf("turn_id missing")
+	}
+}
+
+func TestProcessTurn_RegistersAndClearsActiveTurn(t *testing.T) {
+	stubWorkspaceSeams(t)
+
+	s := newFakeServer(t)
+	srv := httptest.NewServer(s.Routes())
+	defer srv.Close()
+
+	origRunner := runnerRun
+	runnerRun = func(ctx context.Context, ws *workspace.Workspace, sid, msg string,
+		cfg runner.Config, mcp *agentsdk.McpSdkServer) (<-chan agentsdk.SDKMessage, error) {
+		// While runner is "running", verify activeTurns has this session.
+		if tid, ok := s.activeTurns.Get(sid); !ok || tid == "" {
+			t.Errorf("active turn not registered during runner.Run; got %q ok=%v", tid, ok)
+		}
+		ch := make(chan agentsdk.SDKMessage)
+		close(ch)
+		return ch, nil
+	}
+	defer func() { runnerRun = origRunner }()
+
+	body := `{"session_id":"cse_at","workspace_id":"ws","user_message":"hi"}`
+	rr := postJSON(t, srv, "/api/turns", body)
+	if rr.Code != 200 {
+		t.Fatalf("status %d", rr.Code)
+	}
+	// After turn returns, active turn should be cleared.
+	if tid, ok := s.activeTurns.Get("cse_at"); ok && tid != "" {
+		t.Errorf("active turn not cleared after turn ended; tid=%q", tid)
+	}
+}
+
+func TestProcessTurn_CompactQueueTakenAndOverridesTurnKind(t *testing.T) {
+	stubWorkspaceSeams(t)
+
+	s := newFakeServer(t)
+	s.compactQueue.Set("cse_c") // queue the session for compaction
+	srv := httptest.NewServer(s.Routes())
+	defer srv.Close()
+
+	var capturedKind string
+	origRunner := runnerRun
+	runnerRun = func(ctx context.Context, ws *workspace.Workspace, sid, msg string,
+		cfg runner.Config, mcp *agentsdk.McpSdkServer) (<-chan agentsdk.SDKMessage, error) {
+		capturedKind = cfg.TurnKind
+		ch := make(chan agentsdk.SDKMessage)
+		close(ch)
+		return ch, nil
+	}
+	defer func() { runnerRun = origRunner }()
+
+	body := `{"session_id":"cse_c","workspace_id":"ws","user_message":"continue"}`
+	rr := postJSON(t, srv, "/api/turns", body)
+	if rr.Code != 200 {
+		t.Fatalf("status %d", rr.Code)
+	}
+	if capturedKind != "compaction" {
+		t.Errorf("TurnKind=%q want compaction", capturedKind)
+	}
+	if s.compactQueue.IsSet("cse_c") {
+		t.Errorf("compactQueue should have been Take()-d for cse_c")
 	}
 }

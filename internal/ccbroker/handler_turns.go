@@ -80,6 +80,17 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 	// tracing across logs.
 	turnID := "trn_" + uuid.NewString()
 
+	// Phase 1 Task 13: register this turn in activeTurns so cancel/leak-worker
+	// can reach it. The cancel propagates into turnCtx which is passed to the
+	// runner (so handleCancelTurn can abort the SDK invocation).
+	turnCtx, cancelTurn := context.WithCancel(r.Context())
+	s.activeTurns.Set(req.SessionID, turnID, cancelTurn)
+	defer func() {
+		cancelTurn()
+		s.activeTurns.Clear(req.SessionID, turnID)
+		s.callTurnFinished(req.SessionID, turnID)
+	}()
+
 	// Acquire turn lock so only one turn runs per session at a time.
 	s.turnLock.Acquire(req.SessionID)
 	defer s.turnLock.Release(req.SessionID)
@@ -160,10 +171,15 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 		PermissionMode:         defaultStr(req.Metadata.PermissionMode, "bypass"),
 		PreferredExecutorID:    req.Metadata.PreferredExecutorID,
 		Gate:                   s.gate,
-		AgentserverInternalURL: "", // wired in Task 13; leave empty for now
+		AgentserverInternalURL: s.config.AgentserverInternalURL,
 		CurrentTurnID:          turnID,
 	}
 	mcp := tools.BuildMcpServer(tctx)
+
+	// Phase 1 Task 13: honor any compaction request queued since the previous turn.
+	if s.compactQueue.Take(req.SessionID) {
+		req.Metadata.TurnKind = "compaction"
+	}
 
 	// Build runner config from process env + turn metadata.
 	runCfg := runner.Config{
@@ -188,7 +204,8 @@ func (s *Server) handleProcessTurn(w http.ResponseWriter, r *http.Request) {
 
 	// Start the SDK session. Returns a channel of SDKMessages that closes
 	// when the CC subprocess exits, ctx is cancelled, or the SDK errors.
-	msgCh, err := runnerRun(r.Context(), ws, req.SessionID, req.UserMessage, runCfg, mcp)
+	// Use turnCtx (not r.Context()) so handleCancelTurn can abort the runner.
+	msgCh, err := runnerRun(turnCtx, ws, req.SessionID, req.UserMessage, runCfg, mcp)
 	if err != nil {
 		s.logger.Error("runner.Run failed", "session_id", req.SessionID, "error", err)
 		go workspaceTeardown(context.Background(), ws, vc) //nolint:errcheck
