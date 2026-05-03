@@ -328,6 +328,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 		return m, nil
+	case RequeuePermissionMsg:
+		m.permQueue = append(m.permQueue, v.Panel)
+		return m, nil
 	}
 
 	// Plain key handling in ModeNormal.
