@@ -40,6 +40,14 @@ func imTools(tctx *Context) []agentsdk.McpTool {
 				if in.Text == "" {
 					return errResult(fmt.Errorf("text is required")), nil
 				}
+				// TUI session: no IM channel to deliver to. The tool_use event
+				// travels via cc-broker SSE → agentserver SSE → TUI, which renders
+				// args directly. No external send needed; just ack.
+				if tctx.IMChannelID == "" {
+					return &agentsdk.McpToolResult{
+						Content: []agentsdk.McpToolContent{{Type: "text", Text: "ok (delivered via session SSE)"}},
+					}, nil
+				}
 				return imbridgePost(ctx, tctx, "/api/internal/imbridge/send", map[string]string{
 					"channel_id": tctx.IMChannelID,
 					"to_user_id": tctx.IMUserID,
@@ -54,6 +62,14 @@ func imTools(tctx *Context) []agentsdk.McpTool {
 				}
 				if _, err := base64.StdEncoding.DecodeString(in.Source); err != nil {
 					return errResult(fmt.Errorf("source must be base64-encoded image bytes: %w", err)), nil
+				}
+				// TUI session: no IM channel to deliver to. The tool_use event
+				// travels via cc-broker SSE → agentserver SSE → TUI, which renders
+				// args directly. No external send needed; just ack.
+				if tctx.IMChannelID == "" {
+					return &agentsdk.McpToolResult{
+						Content: []agentsdk.McpToolContent{{Type: "text", Text: "ok (delivered via session SSE)"}},
+					}, nil
 				}
 				body := map[string]string{
 					"channel_id":   tctx.IMChannelID,
@@ -70,7 +86,15 @@ func imTools(tctx *Context) []agentsdk.McpTool {
 			}),
 		agentsdk.Tool[sendFileInput]("send_file",
 			"Send a file to the user in the current IM conversation.",
-			func(ctx context.Context, _ sendFileInput) (*agentsdk.McpToolResult, error) {
+			func(ctx context.Context, in sendFileInput) (*agentsdk.McpToolResult, error) {
+				// TUI session: no IM channel to deliver to. The tool_use event
+				// travels via cc-broker SSE → agentserver SSE → TUI, which renders
+				// args directly. No external send needed; just ack.
+				if tctx.IMChannelID == "" {
+					return &agentsdk.McpToolResult{
+						Content: []agentsdk.McpToolContent{{Type: "text", Text: "ok (delivered via session SSE)"}},
+					}, nil
+				}
 				return errResult(fmt.Errorf("send_file is not yet supported by the IM provider")), nil
 			}),
 	}

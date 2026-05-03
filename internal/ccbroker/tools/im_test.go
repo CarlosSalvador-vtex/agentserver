@@ -78,11 +78,127 @@ func TestSendMessage_EmptyText(t *testing.T) {
 }
 
 func TestSendFile_ReturnsError(t *testing.T) {
-	tctx := &Context{HTTP: http.DefaultClient}
+	tctx := &Context{
+		IMChannelID: "ch_1",
+		IMUserID:    "u_1",
+		HTTP:        http.DefaultClient,
+	}
 	tool := byName(imTools(tctx), "send_file")
 	r, _ := tool.Handler(context.Background(),
 		json.RawMessage(`{"source":"x","filename":"x.txt"}`))
 	if !r.IsError {
 		t.Errorf("expected IsError for send_file (not yet supported)")
+	}
+}
+
+func TestSendMessage_TUIShortCircuit(t *testing.T) {
+	var bridgeHit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		bridgeHit = true
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	tctx := &Context{
+		IMChannelID: "",  // TUI session
+		IMBridgeURL: srv.URL,
+		HTTP:        http.DefaultClient,
+	}
+	tool := byName(imTools(tctx), "send_message")
+	r, _ := tool.Handler(context.Background(),
+		json.RawMessage(`{"text":"hello tui"}`))
+	if r.IsError {
+		t.Errorf("expected ok result, got error: %v", r.Content)
+	}
+	if bridgeHit {
+		t.Errorf("imbridge should NOT be hit when IMChannelID is empty")
+	}
+}
+
+func TestSendMessage_IMSessionStillCallsBridge(t *testing.T) {
+	var bridgeHit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		bridgeHit = true
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	tctx := &Context{
+		IMChannelID: "ch_1",
+		IMUserID:    "u_1",
+		IMBridgeURL: srv.URL,
+		HTTP:        http.DefaultClient,
+	}
+	tool := byName(imTools(tctx), "send_message")
+	r, _ := tool.Handler(context.Background(),
+		json.RawMessage(`{"text":"hello im"}`))
+	if r.IsError {
+		t.Errorf("got error: %v", r.Content)
+	}
+	if !bridgeHit {
+		t.Errorf("imbridge SHOULD be hit for IM session")
+	}
+}
+
+func TestSendImage_TUIShortCircuit(t *testing.T) {
+	var bridgeHit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		bridgeHit = true
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	tctx := &Context{
+		IMChannelID: "",  // TUI session
+		IMBridgeURL: srv.URL,
+		HTTP:        http.DefaultClient,
+	}
+	tool := byName(imTools(tctx), "send_image")
+	r, _ := tool.Handler(context.Background(),
+		json.RawMessage(`{"source":"aGVsbG8="}`))  // valid base64
+	if r.IsError {
+		t.Errorf("expected ok result, got error: %v", r.Content)
+	}
+	if bridgeHit {
+		t.Errorf("imbridge should NOT be hit when IMChannelID is empty")
+	}
+}
+
+func TestSendFile_TUIShortCircuit(t *testing.T) {
+	var bridgeHit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		bridgeHit = true
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	tctx := &Context{
+		IMChannelID: "",  // TUI session
+		IMBridgeURL: srv.URL,
+		HTTP:        http.DefaultClient,
+	}
+	tool := byName(imTools(tctx), "send_file")
+	r, _ := tool.Handler(context.Background(),
+		json.RawMessage(`{"source":"x","filename":"x.txt"}`))
+	if r.IsError {
+		t.Errorf("expected ok result for TUI session, got error: %v", r.Content)
+	}
+	if bridgeHit {
+		t.Errorf("imbridge should NOT be hit when IMChannelID is empty")
+	}
+}
+
+func TestSendFile_IMSessionStillErrors(t *testing.T) {
+	tctx := &Context{
+		IMChannelID: "ch_1",
+		IMUserID:    "u_1",
+		IMBridgeURL: "http://imbridge.example",
+		HTTP:        http.DefaultClient,
+	}
+	tool := byName(imTools(tctx), "send_file")
+	r, _ := tool.Handler(context.Background(),
+		json.RawMessage(`{"source":"x","filename":"x.txt"}`))
+	if !r.IsError {
+		t.Errorf("expected IsError for send_file with IM session (not yet supported)")
 	}
 }
