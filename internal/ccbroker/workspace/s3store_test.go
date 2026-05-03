@@ -146,3 +146,34 @@ func TestDownloadTarGz_NotFoundIsEmpty(t *testing.T) {
 		t.Fatalf("destDir should be empty, got %d entries", len(entries))
 	}
 }
+
+func TestDownloadTarGz_RejectsPathTraversal(t *testing.T) {
+	fake := newFakeS3("ccbroker")
+	fake.objects["workspaces/ws1/claude-home.tar.gz"] = makeTarGz(t, map[string]string{
+		"../escape.txt":   "should-not-write",
+		"/abs/escape.txt": "should-not-write",
+		"safe.txt":        "ok",
+	})
+
+	store, srv := newTestStore(t, fake)
+	defer srv.Close()
+
+	dest := t.TempDir()
+	parent := filepath.Dir(dest)
+
+	if err := store.DownloadTarGz(context.Background(), "workspaces/ws1/claude-home.tar.gz", dest); err != nil {
+		t.Fatalf("DownloadTarGz: %v", err)
+	}
+
+	// Safe entry written
+	if _, err := os.Stat(filepath.Join(dest, "safe.txt")); err != nil {
+		t.Fatalf("safe.txt missing: %v", err)
+	}
+	// Escape attempts must NOT have written outside dest
+	if _, err := os.Stat(filepath.Join(parent, "escape.txt")); !os.IsNotExist(err) {
+		t.Fatalf("traversal write succeeded; want IsNotExist, got %v", err)
+	}
+	if _, err := os.Stat("/abs/escape.txt"); !os.IsNotExist(err) {
+		t.Fatalf("absolute-path write succeeded; want IsNotExist, got %v", err)
+	}
+}
