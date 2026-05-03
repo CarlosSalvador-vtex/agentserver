@@ -3,8 +3,10 @@ package ccbroker
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 )
@@ -14,6 +16,15 @@ func (s *Server) handleCancelTurn(w http.ResponseWriter, r *http.Request) {
 	tid := chi.URLParam(r, "tid")
 	s.activeTurns.Cancel(sid, tid)
 	s.gate.CancelTurn(tid)
+	// Broadcast turn_cancelled so TUI subscribers see it.
+	payload, _ := json.Marshal(map[string]string{"turn_id": tid})
+	s.sse.Publish(sid, &StreamClientEvent{
+		EventID:   "evt_" + uuid.NewString(),
+		EventType: "turn_cancelled",
+		Source:    "broker",
+		Payload:   payload,
+		CreatedAt: time.Now().Format(time.RFC3339Nano),
+	})
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte(`{"cancelled":true}`))
 }

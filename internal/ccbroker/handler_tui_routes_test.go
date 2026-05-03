@@ -14,6 +14,7 @@ import (
 // helper: build a minimal Server with gate + registries wired
 func newRoutesTestServer(t *testing.T) *Server {
 	s := &Server{
+		sse:          NewSSEBroker(),
 		activeTurns:  newActiveTurnRegistry(),
 		compactQueue: newCompactQueue(),
 	}

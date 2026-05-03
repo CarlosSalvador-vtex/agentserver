@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"github.com/agentserver/agentserver/internal/ccbroker/tools"
 )
@@ -45,10 +47,19 @@ func NewServer(cfg Config, store *Store) *Server {
 		logger:   logger,
 	}
 	s.gate = tools.NewGate(func(sid string, e tools.Event) {
-		// emit-to-SSE wiring — for Phase 1 Task 7, leave as a noop logger.
-		// Task 12 will wire this to the SSE broadcast path.
-		s.logger.Debug("permission event (no SSE wiring yet)",
-			"session_id", sid, "type", e.Type, "pid", e.PermissionID)
+		payload, err := json.Marshal(e)
+		if err != nil {
+			s.logger.Warn("permission event marshal failed",
+				"session_id", sid, "type", e.Type, "err", err)
+			return
+		}
+		s.sse.Publish(sid, &StreamClientEvent{
+			EventID:   "evt_" + uuid.NewString(),
+			EventType: e.Type,
+			Source:    "gate",
+			Payload:   payload,
+			CreatedAt: time.Now().Format(time.RFC3339Nano),
+		})
 	})
 	s.activeTurns = newActiveTurnRegistry()
 	s.compactQueue = newCompactQueue()
