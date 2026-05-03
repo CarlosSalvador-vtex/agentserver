@@ -25,7 +25,7 @@ import (
 // validation → session ensure → user-event insert → SDK pump → SSE done.
 //
 // The runner is faked to emit a scripted SDK message sequence; workspace
-// Setup/Teardown are stubbed so no OpenViking calls happen and no real
+// Setup/Teardown are stubbed so no S3 calls happen and no real
 // temp dir is created.
 //
 // NOTE: This test is currently t.Skip()ped because Server requires a real
@@ -45,7 +45,7 @@ func TestHandleProcessTurn_OrchestratesPipeline(t *testing.T) {
 	}()
 
 	teardownCalled := atomic.Int32{}
-	workspaceSetup = func(_ context.Context, wid, sid string, _ *workspace.VikingClient) (*workspace.Workspace, error) {
+	workspaceSetup = func(_ context.Context, wid, sid string, _ *workspace.S3Store) (*workspace.Workspace, error) {
 		return &workspace.Workspace{
 			WorkspaceID: wid,
 			SessionID:   sid,
@@ -55,7 +55,7 @@ func TestHandleProcessTurn_OrchestratesPipeline(t *testing.T) {
 			MemoryDir:   "/tmp/fake/claude-config/projects/ws_" + wid + "/memory",
 		}, nil
 	}
-	workspaceTeardown = func(_ context.Context, _ *workspace.Workspace, _ *workspace.VikingClient) error {
+	workspaceTeardown = func(_ context.Context, _ *workspace.Workspace, _ *workspace.S3Store) error {
 		teardownCalled.Add(1)
 		return nil
 	}
@@ -204,7 +204,7 @@ func stubWorkspaceSeams(t *testing.T) {
 	t.Helper()
 	origSetup := workspaceSetup
 	origTeardown := workspaceTeardown
-	workspaceSetup = func(_ context.Context, wid, sid string, _ *workspace.VikingClient) (*workspace.Workspace, error) {
+	workspaceSetup = func(_ context.Context, wid, sid string, _ *workspace.S3Store) (*workspace.Workspace, error) {
 		return &workspace.Workspace{
 			WorkspaceID: wid,
 			SessionID:   sid,
@@ -214,7 +214,7 @@ func stubWorkspaceSeams(t *testing.T) {
 			MemoryDir:   "/tmp/fake-t7/claude-config/projects/ws_" + wid + "/memory",
 		}, nil
 	}
-	workspaceTeardown = func(_ context.Context, _ *workspace.Workspace, _ *workspace.VikingClient) error {
+	workspaceTeardown = func(_ context.Context, _ *workspace.Workspace, _ *workspace.S3Store) error {
 		return nil
 	}
 	t.Cleanup(func() {

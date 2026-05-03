@@ -235,13 +235,15 @@ ccbroker:
     name: ccbroker
     # Full DSN; overrides the shared PostgreSQL helper when set.
     externalUrl: ""
-  # OpenViking provides per-workspace context persistence (CLAUDE.md, Memory,
-  # Skills, settings). When both fields are empty, cc-broker will start but
-  # workers will run without workspace context — fine for basic text chat,
-  # but skills/memory/CLAUDE.md won't persist.
-  openviking:
-    url: ""
-    apiKey: ""
+  # S3-compatible object store for per-workspace context persistence
+  # (CLAUDE.md, Memory, Skills, settings). One claude-home.tar.gz object
+  # per workspace. Required when ccbroker.enabled is true.
+  s3:
+    endpoint: ""           # required full URL, e.g. "https://s3.amazonaws.com" or "http://minio.minio.svc:9000"
+    region: ""             # required for AWS-style; "" is fine for MinIO
+    bucket: ""             # required
+    pathStyle: false       # true for MinIO / on-prem; false for AWS / OSS / COS
+    existingSecret: ""     # k8s secret with keys: access_key_id, secret_access_key
   # Spawned CC workers need Anthropic credentials. They're read from the
   # shared agentserver secret (see `models.anthropicApiKey` /
   # `models.anthropicBaseUrl` / `models.anthropicAuthToken` above).
@@ -257,46 +259,6 @@ executorRegistry:
     pullPolicy: Always
   replicaCount: 1
   port: 8084
-
-# OpenViking (vendored subchart — charts/openviking/) provides per-workspace
-# context persistence for cc-broker workers: CLAUDE.md, auto-memory, skills,
-# settings.json. Enable alongside ccbroker.enabled to get a full-context flow.
-#
-# When enabled and ccbroker.openviking.url is left empty, cc-broker's URL is
-# auto-wired to the in-cluster service by the chart template.
-#
-# Set `openviking.config.server.root_api_key` AND
-# `ccbroker.openviking.apiKey` to the same value so cc-broker can authenticate.
-openviking:
-  enabled: false
-  # Upstream default image is ghcr.io/volcengine/openviking. Override here if
-  # you're pulling through a mirror registry.
-  image:
-    repository: ghcr.io/volcengine/openviking
-    pullPolicy: IfNotPresent
-    tag: ""
-  persistence:
-    enabled: true
-    # Leave empty to use the cluster default storage class, or set to match
-    # your environment (e.g. csi-rbd-sc).
-    storageClass: ""
-    size: 20Gi
-  service:
-    type: ClusterIP
-    port: 1933
-  # OpenViking server config (subset — see charts/openviking/values.yaml for
-  # the full list including embedding/VLM settings that cc-broker does not
-  # exercise and can safely be left blank).
-  config:
-    server:
-      # Required for auth. Generate one and set both this AND
-      # ccbroker.openviking.apiKey to the same value.
-      root_api_key: ""
-  logLevel: info
-  database:
-    name: executorregistry
-    externalUrl: ""
-  resources: {}
 
 service:
   type: ClusterIP

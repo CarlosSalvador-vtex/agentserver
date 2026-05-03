@@ -3,6 +3,7 @@ package ccbroker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/agentserver/agentserver/internal/ccbroker/tools"
+	"github.com/agentserver/agentserver/internal/ccbroker/workspace"
 )
 
 // storer abstracts the database operations needed by the Server. The concrete
@@ -27,6 +29,7 @@ type storer interface {
 type Server struct {
 	config   Config
 	store    storer
+	s3       *workspace.S3Store
 	sse      *SSEBroker
 	turnLock *TurnLock
 	logger   *slog.Logger
@@ -37,14 +40,28 @@ type Server struct {
 	compactQueue *compactQueue
 }
 
-func NewServer(cfg Config, store *Store) *Server {
+func NewServer(cfg Config, store *Store) (*Server, error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	s3, err := workspace.NewS3Store(workspace.S3Config{
+		Endpoint:        cfg.S3Endpoint,
+		Region:          cfg.S3Region,
+		Bucket:          cfg.S3Bucket,
+		AccessKeyID:     cfg.S3AccessKeyID,
+		SecretAccessKey: cfg.S3SecretAccessKey,
+		PathStyle:       cfg.S3PathStyle,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init s3 store: %w", err)
+	}
 	s := &Server{
-		config:   cfg,
-		store:    store,
-		sse:      NewSSEBroker(),
-		turnLock: NewTurnLock(),
-		logger:   logger,
+		config:       cfg,
+		store:        store,
+		s3:           s3,
+		sse:          NewSSEBroker(),
+		turnLock:     NewTurnLock(),
+		logger:       logger,
+		activeTurns:  newActiveTurnRegistry(),
+		compactQueue: newCompactQueue(),
 	}
 	s.gate = tools.NewGate(func(sid string, e tools.Event) {
 		payload, err := json.Marshal(e)
@@ -61,9 +78,7 @@ func NewServer(cfg Config, store *Store) *Server {
 			CreatedAt: time.Now().Format(time.RFC3339Nano),
 		})
 	})
-	s.activeTurns = newActiveTurnRegistry()
-	s.compactQueue = newCompactQueue()
-	return s
+	return s, nil
 }
 
 func (s *Server) Routes() http.Handler {
@@ -76,10 +91,7 @@ func (s *Server) Routes() http.Handler {
 		w.Write([]byte("ok"))
 	})
 
-	// External API
 	r.Post("/api/turns", s.handleProcessTurn)
-
-	// Session lifecycle
 	r.Post("/v1/sessions", s.handleCreateSession)
 
 	// Task 12: TUI control endpoints
@@ -91,7 +103,6 @@ func (s *Server) Routes() http.Handler {
 	return r
 }
 
-// Helpers
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

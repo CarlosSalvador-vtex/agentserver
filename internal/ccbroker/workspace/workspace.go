@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Workspace is the ephemeral local filesystem view a single CC turn operates in.
@@ -14,10 +15,8 @@ type Workspace struct {
 
 	TempDir    string // root: /tmp/cc-broker/sess_<sessionID>
 	ClaudeDir  string // <TempDir>/claude-config — CLAUDE_CONFIG_DIR
-	ProjectDir string // <TempDir>/project       — CLI cwd
+	ProjectDir string // <TempDir>/project       — CLI cwd (kept empty; only used for proj_hash)
 	MemoryDir  string // <ClaudeDir>/projects/ws_<wid>/memory — auto-memory override
-
-	snapshot map[string]FileInfo // captured at Setup, consumed by Teardown
 }
 
 // TempDirBase is the parent under which per-session work directories are
@@ -31,18 +30,66 @@ func tempDirBase() string {
 	return os.TempDir()
 }
 
-// Setup creates the temp directory tree and downloads workspace context from
-// OpenViking. The returned Workspace must be passed to Teardown so the temp
-// directory is removed and changed files are uploaded back.
+// claudeHomeKey is the deterministic S3 object key for a workspace's
+// claude-home tarball — workspace-shared files only (skills, settings,
+// memory, .claude.json). Per-session subtrees are stored separately under
+// sessionJsonlKey.
+func claudeHomeKey(workspaceID string) string {
+	return fmt.Sprintf("workspaces/%s/claude-home.tar.gz", workspaceID)
+}
+
+// sessionTarballKey is the deterministic S3 object key for a single session's
+// state — the entire projects/<projHash>/ subtree packaged as tar.gz. One key
+// per (workspace, session) pair so concurrent sessions in the same workspace
+// cannot overwrite each other via the shared claude-home tarball.
 //
-// Download errors are non-fatal: a missing or partial workspace tree is expected
-// on first-turn workspaces that start empty.
-func Setup(ctx context.Context, workspaceID, sessionID string, vc *VikingClient) (*Workspace, error) {
+// The subtree currently contains only the conversation jsonl, but storing the
+// whole directory protects against future Claude CLI additions (metadata
+// files, checkpoints, etc.) silently disappearing because they fall in the
+// claude-home tarball's exclude window.
+func sessionTarballKey(workspaceID, sessionID string) string {
+	return fmt.Sprintf("workspaces/%s/sessions/%s.tar.gz", workspaceID, sessionID)
+}
+
+// projHashDir returns the directory name Claude CLI derives from cwd when
+// it stores a session's jsonl under <CLAUDE_CONFIG_DIR>/projects/<projHash>/.
+// Empirically, the CLI replaces every '/' and '_' in cwd with '-'.
+//
+// Verified against an actual on-disk layout:
+//
+//	cwd:  /tmp/cc-broker/sess_cse_<uuid>/project
+//	dir:  -tmp-cc-broker-sess-cse-<uuid>-project
+func projHashDir(cwd string) string {
+	return strings.NewReplacer("/", "-", "_", "-").Replace(cwd)
+}
+
+// sessionSubtreeLocalDir is the on-disk directory Claude CLI uses for this
+// session's project state (jsonl + any future per-session files). It maps
+// 1:1 to sessionTarballKey on the S3 side.
+func sessionSubtreeLocalDir(ws *Workspace) string {
+	return filepath.Join(ws.ClaudeDir, "projects", projHashDir(ws.ProjectDir))
+}
+
+// sessionSubtreeRel is the rel-path (relative to ClaudeDir) of the
+// per-session subtree that should be omitted from the claude-home tarball
+// because it lives under sessionTarballKey instead.
+func sessionSubtreeRel(ws *Workspace) string {
+	return "projects/" + projHashDir(ws.ProjectDir)
+}
+
+// Setup creates the temp directory tree, downloads the workspace's
+// claude-home tarball, and downloads the per-session jsonl. The returned
+// Workspace must be passed to Teardown so the temp directory is removed and
+// state is uploaded back.
+//
+// On any error after the directory tree is created, Setup removes TempDir
+// before returning, so callers do not leak per-session directories.
+func Setup(ctx context.Context, workspaceID, sessionID string, store *S3Store) (*Workspace, error) {
 	// Path is deterministic in (sessionID) so Claude CLI's proj_hash lookup
-	// (which is derived from Cwd = ProjectDir) finds the same session jsonl
-	// across turns. Per-session turn serialization is enforced by the
-	// in-memory TurnLock in handler_turns. cc-broker runs replicas: 1 in
-	// production; multi-replica deployments would need a distributed lock.
+	// (derived from Cwd = ProjectDir) finds the same session jsonl across
+	// turns. Per-session turn serialization is enforced by the in-memory
+	// TurnLock in handler_turns. cc-broker runs replicas: 1 in production;
+	// multi-replica deployments would need a distributed lock.
 	tempDir := filepath.Join(tempDirBase(), "cc-broker", "sess_"+sessionID)
 	if err := os.MkdirAll(tempDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir temp: %w", err)
@@ -64,65 +111,63 @@ func Setup(ctx context.Context, workspaceID, sessionID string, vc *VikingClient)
 		}
 	}
 
-	// Download claude-home (global config, CLAUDE.md, memory files, etc.).
-	// Fail-open: missing tree is normal for brand-new workspaces.
-	homeURI := fmt.Sprintf("viking://resources/workspace_%s/claude-home/", workspaceID)
-	if err := vc.DownloadTree(ctx, homeURI, ws.ClaudeDir); err != nil {
-		fmt.Fprintf(os.Stderr, "workspace.Setup: download claude-home: %v\n", err)
+	if err := store.DownloadTarGz(ctx, claudeHomeKey(workspaceID), ws.ClaudeDir); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("download claude-home for workspace %s: %w", workspaceID, err)
 	}
 
-	// Download project tree (source files the agent will operate on).
-	projectURI := fmt.Sprintf("viking://resources/workspace_%s/project/", workspaceID)
-	if err := vc.DownloadTree(ctx, projectURI, ws.ProjectDir); err != nil {
-		fmt.Fprintf(os.Stderr, "workspace.Setup: download project: %v\n", err)
+	// Per-session subtree is downloaded AFTER claude-home so it overrides
+	// any stale copy that was still present in the tarball.
+	if err := store.DownloadTarGz(ctx, sessionTarballKey(workspaceID, sessionID), sessionSubtreeLocalDir(ws)); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("download session subtree for %s/%s: %w", workspaceID, sessionID, err)
 	}
 
-	// Snapshot ClaudeDir so Teardown can diff and upload only what changed.
-	ws.snapshot = TakeSnapshot(ws.ClaudeDir)
 	return ws, nil
 }
 
-// Teardown diffs ClaudeDir against the snapshot taken at Setup, uploads every
-// added or modified file back to OpenViking, then removes the temp dir.
-//
-// - New (added) files use CreateFile (two-step temp_upload + add_resource).
-// - Modified files use UploadFile (single content/write call).
-// - Removed files are not propagated; OpenViking content writes are
-//   append-or-replace only.
-//
-// Individual upload errors are logged to stderr but do not cause Teardown to
-// return an error — a flaky upload must not block the caller's turn response.
-func Teardown(ctx context.Context, ws *Workspace, vc *VikingClient) error {
+// subtreeHasFiles reports whether dir exists and contains at least one entry.
+// Used by Teardown to decide whether there's anything worth uploading.
+func subtreeHasFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return len(entries) > 0
+}
+
+// Teardown uploads the per-session jsonl, then packages ClaudeDir as a tar.gz
+// (excluding this session's subtree) and uploads it. Finally, the temp dir
+// is removed. Upload failures are logged but do not propagate — a flaky
+// upload must not block the caller's turn response. TempDir is always
+// removed.
+func Teardown(ctx context.Context, ws *Workspace, store *S3Store) error {
 	if ws == nil {
 		return nil
 	}
 	defer func() { _ = os.RemoveAll(ws.TempDir) }()
 
-	changes := DiffSnapshot(ws.ClaudeDir, ws.snapshot)
-	for _, c := range changes {
-		if c.Kind == "removed" {
-			continue
+	subtreeDir := sessionSubtreeLocalDir(ws)
+	if subtreeHasFiles(subtreeDir) {
+		if err := store.UploadTarGz(ctx, subtreeDir, sessionTarballKey(ws.WorkspaceID, ws.SessionID), nil); err != nil {
+			fmt.Fprintf(os.Stderr, "workspace.Teardown: upload session subtree: %v\n", err)
 		}
+	}
 
-		content, err := os.ReadFile(c.Path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "workspace.Teardown: read %s: %v\n", c.Path, err)
-			continue
-		}
-
-		uri := fmt.Sprintf("viking://resources/workspace_%s/claude-home/%s",
-			ws.WorkspaceID, c.RelPath)
-
-		switch c.Kind {
-		case "added":
-			if err := vc.CreateFile(ctx, uri, content); err != nil {
-				fmt.Fprintf(os.Stderr, "workspace.Teardown: create %s: %v\n", uri, err)
-			}
-		case "modified":
-			if err := vc.UploadFile(ctx, uri, string(content)); err != nil {
-				fmt.Fprintf(os.Stderr, "workspace.Teardown: upload %s: %v\n", uri, err)
-			}
-		}
+	// Exclude THIS session's subtree from the claude-home tarball — it's
+	// stored separately. We deliberately do NOT exclude other sessions'
+	// subtrees that may still be present; they get rewritten the next
+	// time their owning session runs a turn.
+	//
+	// Concurrent same-workspace turns can still race here: last writer wins
+	// on memory / settings. The per-session subtree (jsonl) is safe because
+	// each session uses its own key.
+	skipSubtree := sessionSubtreeRel(ws)
+	excludeRel := func(rel string) bool {
+		return rel == skipSubtree || strings.HasPrefix(rel, skipSubtree+"/")
+	}
+	if err := store.UploadTarGz(ctx, ws.ClaudeDir, claudeHomeKey(ws.WorkspaceID), excludeRel); err != nil {
+		fmt.Fprintf(os.Stderr, "workspace.Teardown: upload claude-home: %v\n", err)
 	}
 	return nil
 }
