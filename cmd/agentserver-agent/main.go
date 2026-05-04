@@ -410,7 +410,7 @@ func init() {
 		defaultName = "TUI Agent (interactive)"
 	}
 	tuiCmd.Flags().StringVar(&tuiServer, "server", "", "agentserver URL (defaults to saved creds)")
-	tuiCmd.Flags().StringVar(&tuiWorkspaceID, "workspace-id", "", "workspace ID (required)")
+	tuiCmd.Flags().StringVar(&tuiWorkspaceID, "workspace-id", "", "workspace ID (optional; falls back to saved executor session, then most-recent workspace from server)")
 	tuiCmd.Flags().StringVar(&tuiName, "name", defaultName, "display name for this executor")
 	tuiCmd.Flags().StringVar(&tuiWorkDir, "work-dir", "", "executor working directory (default: cwd)")
 	tuiCmd.Flags().StringVarP(&tuiResumeID, "resume", "r", "", "attach to an existing session by ID")

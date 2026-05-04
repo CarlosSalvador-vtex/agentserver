@@ -77,6 +77,51 @@ func loadLatestExecutorSession(serverURL, workspaceID string) (*ExecutorSession,
 	return sessions[0], nil
 }
 
+// LoadAnyExecutorSessionForServer scans the persisted executor sessions and
+// returns the most recently created one that matches serverURL, regardless of
+// workspace. Used by `agentserver tui` to auto-pick a workspace when
+// --workspace-id is not provided. Returns nil if no match is found; returns
+// an error only on filesystem failures other than "directory missing".
+func LoadAnyExecutorSessionForServer(serverURL string) (*ExecutorSession, error) {
+	dir, err := executorSessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var sessions []*ExecutorSession
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var sess ExecutorSession
+		if err := json.Unmarshal(data, &sess); err != nil {
+			continue
+		}
+		if sess.ServerURL == serverURL {
+			sessions = append(sessions, &sess)
+		}
+	}
+
+	if len(sessions) == 0 {
+		return nil, nil
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+	})
+	return sessions[0], nil
+}
+
 // removeExecutorSession deletes the persisted session file for the given
 // executor ID. Missing files are not considered an error.
 func removeExecutorSession(executorID string) error {

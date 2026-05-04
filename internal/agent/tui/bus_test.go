@@ -178,6 +178,41 @@ func TestBus_AttachSession(t *testing.T) {
 	}
 }
 
+func TestBus_ListWorkspaces(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/workspaces" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer T" {
+			t.Errorf("missing auth header")
+		}
+		w.Write([]byte(`[
+			{"id":"ws_old","name":"Old","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"},
+			{"id":"ws_new","name":"New","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+		]`))
+	}))
+	defer srv.Close()
+	bus := NewBus(BusConfig{ServerURL: srv.URL, Auth: &fakeAuth{tk: "T"}})
+	got, err := bus.ListWorkspaces(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "ws_old" || got[1].ID != "ws_new" {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestBus_SetWorkspaceID(t *testing.T) {
+	bus := NewBus(BusConfig{ServerURL: "x", WorkspaceID: "", Auth: &fakeAuth{tk: "t"}})
+	if bus.WorkspaceID() != "" {
+		t.Errorf("expected empty initial workspace, got %q", bus.WorkspaceID())
+	}
+	bus.SetWorkspaceID("ws_after")
+	if bus.WorkspaceID() != "ws_after" {
+		t.Errorf("SetWorkspaceID not applied, got %q", bus.WorkspaceID())
+	}
+}
+
 // Sanity check that Auth wiring is invoked
 func TestBus_PassesContextDeadline(t *testing.T) {
 	blocker := make(chan struct{})
