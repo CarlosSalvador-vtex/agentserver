@@ -136,7 +136,25 @@ func (m *Model) resize(width, height int) {
 	m.viewport.Height = vh
 	// Input box has rounded border (1+1) + horizontal padding (1+1) on each side.
 	m.input.SetWidth(width - 4)
-	m.viewport.SetContent(m.timeline.Render(width, m.cfg.ExecutorID))
+	m.refreshViewport()
+}
+
+// refreshViewport re-renders the timeline into the viewport, bottom-aligned
+// so latest messages stick to the input box (claude-code style). When the
+// content is shorter than the viewport, leading blank lines pad the top.
+func (m *Model) refreshViewport() {
+	content := m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID)
+	if m.viewport.Height > 0 {
+		lines := strings.Count(content, "\n") + 1
+		if content == "" {
+			lines = 0
+		}
+		if pad := m.viewport.Height - lines; pad > 0 {
+			content = strings.Repeat("\n", pad) + content
+		}
+	}
+	m.viewport.SetContent(content)
+	m.viewport.GotoBottom()
 }
 
 func (m *Model) InputEnabled() bool {
@@ -220,8 +238,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if ev, ok := msg.(EventArrivedMsg); ok {
 		m.timeline.Append(ev.Event)
-		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		if cmd := m.maybeOpenPanelForEvent(ev.Event); cmd != nil {
 			return m, cmd
 		}
@@ -333,8 +350,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Type: "ask_user_answered",
 			Data: []byte(fmt.Sprintf(`{"qid":%q,"selected":%s}`, v.QID, mustJSONList(v.Selected))),
 		})
-		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		return m, nil
 	case LogoutDoneMsg:
 		if v.Err != nil {
@@ -413,8 +429,7 @@ func (m *Model) handleNormalKey(k tea.KeyMsg) (bool, tea.Cmd) {
 			Type: "hint",
 			Data: []byte(`{"text":"Not logged in. Type /login to authenticate first."}`),
 		})
-		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		return true, nil
 	}
 	m.input.Reset()

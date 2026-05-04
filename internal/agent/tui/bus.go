@@ -12,9 +12,11 @@ import (
 )
 
 // AuthSource is implemented by AuthController. Bus uses it to fetch a fresh
-// access token for every request (it's cheap when the token is already valid).
+// access token for every request (it's cheap when the token is already valid),
+// and to mark credentials as invalid when the server rejects them (401).
 type AuthSource interface {
 	EnsureValid(ctx context.Context) (string, error)
+	Invalidate()
 }
 
 type BusConfig struct {
@@ -89,6 +91,13 @@ func (b *Bus) do(ctx context.Context, method, path string, body any, out any) er
 		if wrap.Error.Code == "" {
 			wrap.Error.Code = fmt.Sprintf("http_%d", resp.StatusCode)
 			wrap.Error.Message = string(bb)
+		}
+		// 401 means the saved access token is no longer trusted by the server
+		// (revoked, account deleted, signing key rotated, etc). Tell auth to
+		// drop creds so the user can /login again — otherwise AuthController
+		// stays in LoggedIn and refuses StartLogin with "already logged in".
+		if resp.StatusCode == http.StatusUnauthorized {
+			b.cfg.Auth.Invalidate()
 		}
 		return &wrap.Error
 	}

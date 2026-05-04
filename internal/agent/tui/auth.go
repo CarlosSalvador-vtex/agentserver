@@ -253,6 +253,18 @@ func (a *AuthController) CancelLogin() {
 	}
 }
 
+// Invalidate marks the current credentials as no longer trusted (e.g. server
+// returned 401). Clears in-memory creds, removes the credentials file, and
+// transitions to LoggedOut so the user can /login again. Safe to call from
+// any goroutine.
+func (a *AuthController) Invalidate() {
+	a.mu.Lock()
+	a.creds = nil
+	a.mu.Unlock()
+	_ = os.Remove(a.cfg.CredentialsPath)
+	a.setState(AuthLoggedOut)
+}
+
 // Logout clears in-memory credentials and invalidates the credentials file so
 // that subsequent LoadCredentials calls return an error (file contains no
 // parseable content).

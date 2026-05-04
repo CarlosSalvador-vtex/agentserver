@@ -12,11 +12,16 @@ import (
 	"time"
 )
 
-type fakeAuth struct{ tk string }
+type fakeAuth struct {
+	tk          string
+	invalidated int
+}
 
 func (f *fakeAuth) EnsureValid(_ context.Context) (string, error) {
 	return f.tk, nil
 }
+
+func (f *fakeAuth) Invalidate() { f.invalidated++ }
 
 func TestBus_PostInbound(t *testing.T) {
 	var receivedAuth, receivedBody string
