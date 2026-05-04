@@ -331,6 +331,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RequeuePermissionMsg:
 		m.permQueue = append(m.permQueue, v.Panel)
 		return m, nil
+	case FatalErrorMsg:
+		if v.Err != nil {
+			m.timeline.Append(SSEEvent{
+				Type: "fatal_error",
+				Data: []byte(fmt.Sprintf(`{"error":%q}`, v.Err.Error())),
+			})
+			m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
+			m.viewport.GotoBottom()
+		}
+		return m, nil
 	}
 
 	// Plain key handling in ModeNormal.

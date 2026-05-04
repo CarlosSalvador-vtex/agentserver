@@ -256,8 +256,38 @@ func (b *Bus) SetExecutorID(id string) {
 	b.cfg.ExecutorID = id
 }
 
+// SetWorkspaceID updates the workspace ID on the Bus. Same caveats as
+// SetExecutorID: only call during init, before any concurrent requests. Used
+// when --workspace-id wasn't provided and the ID is resolved post-login by
+// listing the user's workspaces.
+func (b *Bus) SetWorkspaceID(id string) {
+	b.cfg.WorkspaceID = id
+}
+
+func (b *Bus) WorkspaceID() string { return b.cfg.WorkspaceID }
+
 // AccessToken exposes Auth.EnsureValid for the SSE consumer, which builds
 // long-lived requests outside of `do`'s code path.
 func (b *Bus) AccessToken(ctx context.Context) (string, error) {
 	return b.cfg.Auth.EnsureValid(ctx)
+}
+
+// ---- GET /api/workspaces ----
+
+type WorkspaceListItem struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// ListWorkspaces returns all workspaces the authenticated user is a member of.
+// Used at startup when --workspace-id is not provided and no saved executor
+// session matches the current server.
+func (b *Bus) ListWorkspaces(ctx context.Context) ([]WorkspaceListItem, error) {
+	var out []WorkspaceListItem
+	if err := b.do(ctx, http.MethodGet, "/api/workspaces", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
