@@ -211,6 +211,62 @@ func TestModel_YoloCallsPostControl(t *testing.T) {
 	}
 }
 
+// TestModel_LoggedOut_AllowsTyping verifies that keypresses reach the
+// textarea even before the user is logged in — otherwise they couldn't
+// type "/login".
+func TestModel_LoggedOut_AllowsTyping(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedOut)
+	for _, r := range "/login" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if got := m.input.Value(); got != "/login" {
+		t.Errorf("input value = %q, want %q", got, "/login")
+	}
+}
+
+// TestModel_LoggedOut_EnterDispatchesSlashCommand: pressing Enter on a
+// slash command should fire CommandSelectedMsg even when logged out.
+func TestModel_LoggedOut_EnterDispatchesSlashCommand(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedOut)
+	m.input.SetValue("/login")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected cmd from Enter")
+	}
+	msg := cmd()
+	cs, ok := msg.(CommandSelectedMsg)
+	if !ok {
+		t.Fatalf("got %T want CommandSelectedMsg", msg)
+	}
+	if cs.Command != "login" {
+		t.Errorf("Command=%q want login", cs.Command)
+	}
+}
+
+// TestModel_LoggedOut_EnterPlainTextHints: pressing Enter on plain text
+// while logged out should drop a hint into the timeline (and not POST).
+func TestModel_LoggedOut_EnterPlainTextHints(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedOut)
+	m.input.SetValue("hello")
+	startLen := m.timeline.Len()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		// Cmd should be nil (no inbound posted) — but if non-nil, it must
+		// not be an inbound POST closure.
+		if msg := cmd(); msg != nil {
+			if _, ok := msg.(InboundAcceptedMsg); ok {
+				t.Errorf("logged-out plain text triggered inbound POST")
+			}
+		}
+	}
+	if m.timeline.Len() != startLen+1 {
+		t.Errorf("timeline len did not grow by 1 (got %d → %d)", startLen, m.timeline.Len())
+	}
+}
+
 // silence unused imports
 var _ = strings.Builder{}
 var _ = json.RawMessage{}

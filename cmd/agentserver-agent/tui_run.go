@@ -136,31 +136,36 @@ func runTUI(ctx context.Context, opts agent.TUIOpts) error {
 
 	// startExecutor resolves the workspace (if needed), then registers the
 	// executor with the server (once per process) and starts the yamux tunnel
-	// goroutine. Called on login or at startup if already logged in. Workspace
-	// resolution is OUTSIDE the once-guard so a transient failure (e.g.
-	// network) doesn't permanently lock out registration on subsequent /login
-	// attempts.
+	// goroutine. Called on login or at startup if already logged in.
+	//
+	// CRITICAL: this MUST run async — Bubble Tea calls OnLoggedIn from Init()
+	// or Update(), and synchronous HTTP would block the event loop, leaving
+	// the screen frozen until both calls return (5–15s on a slow network).
+	// Workspace resolution sits OUTSIDE the once-guard so a transient failure
+	// doesn't permanently lock out a retry on the next /login.
 	var executorOnce sync.Once
 	startExecutor := func() {
-		if err := resolveAndSetWorkspace(); err != nil {
-			p.Send(tui.FatalErrorMsg{Err: err})
-			return
-		}
-		wsID := bus.WorkspaceID()
-		executorOnce.Do(func() {
-			sess, err := agent.LoadOrRegisterExecutor(agent.ExecutorOpts{
-				ServerURL:   server,
-				Name:        opts.Name,
-				WorkspaceID: wsID,
-			})
-			if err != nil {
-				p.Send(tui.FatalErrorMsg{Err: fmt.Errorf("register executor after login: %w", err)})
+		go func() {
+			if err := resolveAndSetWorkspace(); err != nil {
+				p.Send(tui.FatalErrorMsg{Err: err})
 				return
 			}
-			bus.SetExecutorID(sess.ExecutorID)
-			ec := agent.NewExecutorClient(sess, workDir)
-			go func() { _ = ec.Run(ctx) }()
-		})
+			wsID := bus.WorkspaceID()
+			executorOnce.Do(func() {
+				sess, err := agent.LoadOrRegisterExecutor(agent.ExecutorOpts{
+					ServerURL:   server,
+					Name:        opts.Name,
+					WorkspaceID: wsID,
+				})
+				if err != nil {
+					p.Send(tui.FatalErrorMsg{Err: fmt.Errorf("register executor after login: %w", err)})
+					return
+				}
+				bus.SetExecutorID(sess.ExecutorID)
+				ec := agent.NewExecutorClient(sess, workDir)
+				go func() { _ = ec.Run(ctx) }()
+			})
+		}()
 	}
 
 	// 5. Build Model with lifecycle callbacks.

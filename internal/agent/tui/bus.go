@@ -12,9 +12,11 @@ import (
 )
 
 // AuthSource is implemented by AuthController. Bus uses it to fetch a fresh
-// access token for every request (it's cheap when the token is already valid).
+// access token for every request (it's cheap when the token is already valid),
+// and to mark credentials as invalid when the server rejects them (401).
 type AuthSource interface {
 	EnsureValid(ctx context.Context) (string, error)
+	Invalidate()
 }
 
 type BusConfig struct {
@@ -90,6 +92,13 @@ func (b *Bus) do(ctx context.Context, method, path string, body any, out any) er
 			wrap.Error.Code = fmt.Sprintf("http_%d", resp.StatusCode)
 			wrap.Error.Message = string(bb)
 		}
+		// 401 means the saved access token is no longer trusted by the server
+		// (revoked, account deleted, signing key rotated, etc). Tell auth to
+		// drop creds so the user can /login again — otherwise AuthController
+		// stays in LoggedIn and refuses StartLogin with "already logged in".
+		if resp.StatusCode == http.StatusUnauthorized {
+			b.cfg.Auth.Invalidate()
+		}
 		return &wrap.Error
 	}
 	if out != nil {
@@ -98,7 +107,7 @@ func (b *Bus) do(ctx context.Context, method, path string, body any, out any) er
 	return nil
 }
 
-// ---- POST /api/workspaces/{wid}/tui/inbound ----
+// ---- POST /api/agents/workspaces/{wid}/inbound ----
 
 type InboundRequest struct {
 	SessionID           string             `json:"session_id,omitempty"`
@@ -131,7 +140,7 @@ func (b *Bus) PostInbound(ctx context.Context, in InboundRequest) (*InboundRespo
 	}{InboundRequest: in, ExecutorID: b.cfg.ExecutorID}
 	var out InboundResponse
 	err := b.do(ctx, http.MethodPost,
-		fmt.Sprintf("/api/workspaces/%s/tui/inbound", b.cfg.WorkspaceID),
+		fmt.Sprintf("/api/agents/workspaces/%s/inbound", b.cfg.WorkspaceID),
 		body, &out)
 	if err != nil {
 		return nil, err
@@ -139,13 +148,13 @@ func (b *Bus) PostInbound(ctx context.Context, in InboundRequest) (*InboundRespo
 	return &out, nil
 }
 
-// ---- POST /api/agent-sessions ----
+// ---- POST /api/agents/sessions ----
 
 func (b *Bus) NewSession(ctx context.Context, permissionMode string, preferredExecutorID string) (string, error) {
 	var out struct {
 		SessionID string `json:"session_id"`
 	}
-	err := b.do(ctx, http.MethodPost, "/api/agent-sessions", map[string]any{
+	err := b.do(ctx, http.MethodPost, "/api/agents/sessions", map[string]any{
 		"workspace_id":          b.cfg.WorkspaceID,
 		"executor_id":           b.cfg.ExecutorID,
 		"permission_mode":       permissionMode,
@@ -154,7 +163,7 @@ func (b *Bus) NewSession(ctx context.Context, permissionMode string, preferredEx
 	return out.SessionID, err
 }
 
-// ---- POST /api/agent-sessions/{sid}/attach ----
+// ---- POST /api/agents/sessions/{sid}/attach ----
 
 type AttachResponse struct {
 	SessionID         string  `json:"session_id"`
@@ -166,7 +175,7 @@ type AttachResponse struct {
 func (b *Bus) AttachSession(ctx context.Context, sid, mode string) (*AttachResponse, error) {
 	var out AttachResponse
 	err := b.do(ctx, http.MethodPost,
-		fmt.Sprintf("/api/agent-sessions/%s/attach", sid),
+		fmt.Sprintf("/api/agents/sessions/%s/attach", sid),
 		map[string]any{
 			"executor_id":             b.cfg.ExecutorID,
 			"mode":                    mode,
@@ -176,7 +185,7 @@ func (b *Bus) AttachSession(ctx context.Context, sid, mode string) (*AttachRespo
 	return &out, err
 }
 
-// ---- GET /api/agent-sessions ----
+// ---- GET /api/agents/sessions ----
 
 type SessionListItem struct {
 	SessionID           string  `json:"session_id"`
@@ -195,33 +204,33 @@ func (b *Bus) ListSessions(ctx context.Context) ([]SessionListItem, error) {
 	var out struct {
 		Sessions []SessionListItem `json:"sessions"`
 	}
-	err := b.do(ctx, http.MethodGet, "/api/agent-sessions?"+q.Encode(), nil, &out)
+	err := b.do(ctx, http.MethodGet, "/api/agents/sessions?"+q.Encode(), nil, &out)
 	return out.Sessions, err
 }
 
-// ---- POST /api/agent-sessions/{sid}/control ----
+// ---- POST /api/agents/sessions/{sid}/control ----
 
 func (b *Bus) PostControl(ctx context.Context, sid, command string, args map[string]any) (json.RawMessage, error) {
 	var out json.RawMessage
 	err := b.do(ctx, http.MethodPost,
-		fmt.Sprintf("/api/agent-sessions/%s/control", sid),
+		fmt.Sprintf("/api/agents/sessions/%s/control", sid),
 		map[string]any{"command": command, "args": args}, &out)
 	return out, err
 }
 
-// ---- POST /api/agent-sessions/{sid}/turns/{tid}/cancel ----
+// ---- POST /api/agents/sessions/{sid}/turns/{tid}/cancel ----
 
 func (b *Bus) PostCancel(ctx context.Context, sid, tid string) error {
 	return b.do(ctx, http.MethodPost,
-		fmt.Sprintf("/api/agent-sessions/%s/turns/%s/cancel", sid, tid),
+		fmt.Sprintf("/api/agents/sessions/%s/turns/%s/cancel", sid, tid),
 		struct{}{}, nil)
 }
 
-// ---- POST /api/agent-sessions/{sid}/permissions/{pid} ----
+// ---- POST /api/agents/sessions/{sid}/permissions/{pid} ----
 
 func (b *Bus) PostDecision(ctx context.Context, sid, pid, decision, scope string) error {
 	return b.do(ctx, http.MethodPost,
-		fmt.Sprintf("/api/agent-sessions/%s/permissions/%s", sid, pid),
+		fmt.Sprintf("/api/agents/sessions/%s/permissions/%s", sid, pid),
 		map[string]any{
 			"decision":              decision,
 			"scope":                 scope,
@@ -229,7 +238,7 @@ func (b *Bus) PostDecision(ctx context.Context, sid, pid, decision, scope string
 		}, nil)
 }
 
-// ---- GET /api/executors/{id}/status ----
+// ---- GET /api/agents/executors/{id}/status ----
 
 type ExecutorStatusResp struct {
 	ExecutorID    string `json:"executor_id"`
@@ -239,7 +248,7 @@ type ExecutorStatusResp struct {
 
 func (b *Bus) FetchExecutorStatus(ctx context.Context) (*ExecutorStatusResp, error) {
 	var out ExecutorStatusResp
-	err := b.do(ctx, http.MethodGet, "/api/executors/"+b.cfg.ExecutorID+"/status", nil, &out)
+	err := b.do(ctx, http.MethodGet, "/api/agents/executors/"+b.cfg.ExecutorID+"/status", nil, &out)
 	return &out, err
 }
 
@@ -272,7 +281,7 @@ func (b *Bus) AccessToken(ctx context.Context) (string, error) {
 	return b.cfg.Auth.EnsureValid(ctx)
 }
 
-// ---- GET /api/workspaces ----
+// ---- GET /api/agents/workspaces ----
 
 type WorkspaceListItem struct {
 	ID        string `json:"id"`
@@ -286,7 +295,7 @@ type WorkspaceListItem struct {
 // session matches the current server.
 func (b *Bus) ListWorkspaces(ctx context.Context) ([]WorkspaceListItem, error) {
 	var out []WorkspaceListItem
-	if err := b.do(ctx, http.MethodGet, "/api/workspaces", nil, &out); err != nil {
+	if err := b.do(ctx, http.MethodGet, "/api/agents/workspaces", nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

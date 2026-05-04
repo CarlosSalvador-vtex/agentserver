@@ -192,6 +192,14 @@ func renderItem(it TimelineItem, selfExecID string) string {
 		return styleSystem.Render("▸ ask_user — answer in panel")
 	case "permission_responder_lost", "permission_responder_changed":
 		return styleSystem.Render("⚠ control transferred")
+	case "hint":
+		var p struct{ Text string `json:"text"` }
+		_ = json.Unmarshal(it.Payload, &p)
+		return styleSystem.Render("ℹ " + p.Text)
+	case "fatal_error", "login_failed", "logout_error":
+		var p struct{ Error string `json:"error"` }
+		_ = json.Unmarshal(it.Payload, &p)
+		return styleErr.Render("✗ "+it.EventType+": ") + p.Error
 	default:
 		return styleSystem.Render("▸ " + it.EventType)
 	}

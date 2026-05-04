@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Mode tracks which input handler owns the keypress stream right now.
@@ -88,8 +89,12 @@ type Model struct {
 
 func NewModel(cfg ModelConfig) *Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message…"
+	ta.Placeholder = "Type a message, or /login to sign in…"
+	ta.Prompt = "> "
+	ta.ShowLineNumbers = false
 	ta.SetHeight(3)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
 	ta.Focus()
 	vp := viewport.New(80, 20)
 	return &Model{
@@ -112,6 +117,44 @@ func (m *Model) SetAuthState(s AuthState) {
 	if s == AuthLoggedIn {
 		m.input.Focus()
 	}
+}
+
+// resize lays out viewport and input to the current terminal dimensions.
+// Reserved rows: input box (3 textarea + 2 border) + status bar (1) +
+// optional hint line (1, only when logged out). We always reserve 7 rows
+// for chrome to keep height stable across auth state.
+func (m *Model) resize(width, height int) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	const chromeRows = 7
+	vh := height - chromeRows
+	if vh < 3 {
+		vh = 3
+	}
+	m.viewport.Width = width
+	m.viewport.Height = vh
+	// Input box has rounded border (1+1) + horizontal padding (1+1) on each side.
+	m.input.SetWidth(width - 4)
+	m.refreshViewport()
+}
+
+// refreshViewport re-renders the timeline into the viewport, bottom-aligned
+// so latest messages stick to the input box (claude-code style). When the
+// content is shorter than the viewport, leading blank lines pad the top.
+func (m *Model) refreshViewport() {
+	content := m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID)
+	if m.viewport.Height > 0 {
+		lines := strings.Count(content, "\n") + 1
+		if content == "" {
+			lines = 0
+		}
+		if pad := m.viewport.Height - lines; pad > 0 {
+			content = strings.Repeat("\n", pad) + content
+		}
+	}
+	m.viewport.SetContent(content)
+	m.viewport.GotoBottom()
 }
 
 func (m *Model) InputEnabled() bool {
@@ -189,10 +232,13 @@ func (m *Model) attachAndSubscribe(sid string) tea.Cmd {
 //  3. Plain KeyMsg in ModeNormal goes to handleNormalKey, then falls
 //     through to the textarea if not handled.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		m.resize(ws.Width, ws.Height)
+		return m, nil
+	}
 	if ev, ok := msg.(EventArrivedMsg); ok {
 		m.timeline.Append(ev.Event)
-		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		if cmd := m.maybeOpenPanelForEvent(ev.Event); cmd != nil {
 			return m, cmd
 		}
@@ -304,8 +350,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Type: "ask_user_answered",
 			Data: []byte(fmt.Sprintf(`{"qid":%q,"selected":%s}`, v.QID, mustJSONList(v.Selected))),
 		})
-		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		return m, nil
 	case LogoutDoneMsg:
 		if v.Err != nil {
@@ -343,43 +388,51 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Plain key handling in ModeNormal.
+	// Plain key handling in ModeNormal. The textarea always receives keys
+	// regardless of auth state — otherwise a logged-out user couldn't even
+	// type "/login". Auth gating happens only in handleNormalKey on Enter.
 	var cmd tea.Cmd
 	if k, ok := msg.(tea.KeyMsg); ok && m.mode == ModeNormal {
 		if handled, c := m.handleNormalKey(k); handled {
 			return m, c
 		}
-		if m.InputEnabled() {
-			m.input, cmd = m.input.Update(msg)
-		}
+		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
-	if m.InputEnabled() {
-		m.input, cmd = m.input.Update(msg)
-	}
+	m.input, cmd = m.input.Update(msg)
 	return m, cmd
 }
 
 // handleNormalKey returns (true, cmd) if it consumed the keypress; otherwise
 // (false, nil) to let the textarea handle it. Cmd is the side-effect of the
 // keypress (e.g. POST inbound after Enter).
+//
+// Auth gating: slash commands work in any auth state (so a logged-out user
+// can run /login, /quit, /help). Plain text only sends when logged in;
+// otherwise we drop a hint into the timeline.
 func (m *Model) handleNormalKey(k tea.KeyMsg) (bool, tea.Cmd) {
 	if k.Type != tea.KeyEnter {
 		return false, nil
-	}
-	if !m.InputEnabled() {
-		return true, nil
 	}
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" {
 		return true, nil
 	}
-	m.input.Reset()
 	if cmd, ok := ParseSlashCommand(text); ok {
+		m.input.Reset()
 		return true, func() tea.Msg {
 			return CommandSelectedMsg{Command: cmd.Name, Args: cmd.Args}
 		}
 	}
+	if !m.InputEnabled() {
+		m.timeline.Append(SSEEvent{
+			Type: "hint",
+			Data: []byte(`{"text":"Not logged in. Type /login to authenticate first."}`),
+		})
+		m.refreshViewport()
+		return true, nil
+	}
+	m.input.Reset()
 	sid := m.sessionID
 	bus := m.bus
 	attachments := m.pendingAttachments

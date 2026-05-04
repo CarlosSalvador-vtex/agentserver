@@ -12,11 +12,16 @@ import (
 	"time"
 )
 
-type fakeAuth struct{ tk string }
+type fakeAuth struct {
+	tk          string
+	invalidated int
+}
 
 func (f *fakeAuth) EnsureValid(_ context.Context) (string, error) {
 	return f.tk, nil
 }
+
+func (f *fakeAuth) Invalidate() { f.invalidated++ }
 
 func TestBus_PostInbound(t *testing.T) {
 	var receivedAuth, receivedBody string
@@ -129,7 +134,7 @@ func TestBus_PostCancel_HitsCorrectURL(t *testing.T) {
 	if err := bus.PostCancel(context.Background(), "cse_1", "trn_2"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(hitPath, "/agent-sessions/cse_1/turns/trn_2/cancel") {
+	if !strings.HasSuffix(hitPath, "/agents/sessions/cse_1/turns/trn_2/cancel") {
 		t.Errorf("path = %q", hitPath)
 	}
 }
@@ -180,7 +185,7 @@ func TestBus_AttachSession(t *testing.T) {
 
 func TestBus_ListWorkspaces(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces" {
+		if r.URL.Path != "/api/agents/workspaces" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer T" {
