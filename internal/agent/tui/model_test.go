@@ -3,6 +3,10 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -119,6 +123,91 @@ func TestModel_AuthStateChanged_LoggedIn_ClearsLoginPanel(t *testing.T) {
 	}
 	if m.activePanel != nil {
 		t.Errorf("activePanel should be cleared")
+	}
+}
+
+func TestModel_OnLoggedIn_FiresOnAuthTransition(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedOut)
+	var fired bool
+	m.cfg.OnLoggedIn = func() { fired = true }
+	m.Update(AuthStateChangedMsg{State: AuthLoggedIn})
+	if !fired {
+		t.Error("OnLoggedIn should fire on transition to LoggedIn")
+	}
+}
+
+func TestModel_OnSessionReady_FiresOnInboundAccepted(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	var got string
+	m.cfg.OnSessionReady = func(sid string) { got = sid }
+	m.Update(InboundAcceptedMsg{SessionID: "cse_new", TurnID: "trn_x"})
+	if got != "cse_new" {
+		t.Errorf("OnSessionReady got %q want cse_new", got)
+	}
+}
+
+func TestModel_SendAnswerMsg_AppendsToTimeline(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	before := m.timeline.Len()
+	m.Update(SendAnswerMsg{QID: "q1", Selected: []string{"foo"}})
+	if m.timeline.Len() != before+1 {
+		t.Errorf("timeline len did not grow: before=%d after=%d", before, m.timeline.Len())
+	}
+}
+
+func TestModel_LogoutDoneMsg_NoError_NoTimelineEntry(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	before := m.timeline.Len()
+	m.Update(LogoutDoneMsg{Err: nil})
+	if m.timeline.Len() != before {
+		t.Errorf("logout success should NOT add timeline entry; before=%d after=%d", before, m.timeline.Len())
+	}
+}
+
+func TestModel_LogoutDoneMsg_WithError_AppendsErrorEntry(t *testing.T) {
+	m := newTestModel(t)
+	m.SetAuthState(AuthLoggedIn)
+	before := m.timeline.Len()
+	m.Update(LogoutDoneMsg{Err: errors.New("boom")})
+	if m.timeline.Len() != before+1 {
+		t.Errorf("logout error should add timeline entry")
+	}
+}
+
+func TestModel_YoloCallsPostControl(t *testing.T) {
+	var hit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		if !strings.HasSuffix(r.URL.Path, "/control") {
+			t.Errorf("path %q want /control", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"mode":"bypass"`) {
+			t.Errorf("body %s missing mode=bypass", body)
+		}
+		w.Write([]byte(`{"applied":true,"mode":"bypass"}`))
+	}))
+	defer srv.Close()
+	m := NewModel(ModelConfig{
+		ServerURL: srv.URL, WorkspaceID: "ws", ExecutorID: "e",
+		Bus: NewBus(BusConfig{ServerURL: srv.URL, WorkspaceID: "ws", ExecutorID: "e", Auth: &fakeAuth{tk: "t"}}),
+	})
+	m.SetAuthState(AuthLoggedIn)
+	m.sessionID = "cse_test"
+	_, cmd := m.Update(CommandSelectedMsg{Command: "yolo"})
+	if cmd == nil {
+		t.Fatal("expected cmd")
+	}
+	_ = cmd()
+	if !hit {
+		t.Error("PostControl was not invoked")
+	}
+	if m.permMode != "bypass" {
+		t.Errorf("permMode=%q", m.permMode)
 	}
 }
 

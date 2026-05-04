@@ -248,6 +248,14 @@ func (b *Bus) FetchExecutorStatus(ctx context.Context) (*ExecutorStatusResp, err
 func (b *Bus) ServerURL() string  { return b.cfg.ServerURL }
 func (b *Bus) ExecutorID() string { return b.cfg.ExecutorID }
 
+// SetExecutorID updates the executor ID on the Bus. This should only be called
+// during initialization (before any session activity), not concurrently with
+// active requests. Used by tui_run.go when the executor is registered lazily
+// (post-login) and the ID wasn't known at Bus construction time.
+func (b *Bus) SetExecutorID(id string) {
+	b.cfg.ExecutorID = id
+}
+
 // AccessToken exposes Auth.EnsureValid for the SSE consumer, which builds
 // long-lived requests outside of `do`'s code path.
 func (b *Bus) AccessToken(ctx context.Context) (string, error) {

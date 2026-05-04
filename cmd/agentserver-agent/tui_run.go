@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -53,24 +54,8 @@ func runTUI(ctx context.Context, opts agent.TUIOpts) error {
 
 	var executorID string
 
-	// 3. If logged in, register executor + start tunnel BEFORE the Bubble Tea
-	//    program starts. If not logged in, the executor goroutine is started
-	//    after /login completes.
-	if auth.State() == tui.AuthLoggedIn {
-		sess, err := agent.LoadOrRegisterExecutor(agent.ExecutorOpts{
-			ServerURL:   server,
-			Name:        opts.Name,
-			WorkspaceID: opts.WorkspaceID,
-		})
-		if err != nil {
-			return fmt.Errorf("register executor: %w", err)
-		}
-		executorID = sess.ExecutorID
-		ec := agent.NewExecutorClient(sess, workDir)
-		go func() { _ = ec.Run(ctx) }()
-	}
-
-	// 4. Build Bus.
+	// 3. Build Bus (executor ID may be empty if not yet logged in; SetExecutorID
+	//    is called by startExecutor after registration).
 	bus := tui.NewBus(tui.BusConfig{
 		ServerURL:   server,
 		WorkspaceID: opts.WorkspaceID,
@@ -78,40 +63,82 @@ func runTUI(ctx context.Context, opts agent.TUIOpts) error {
 		Auth:        auth,
 	})
 
-	// 5. Build Model.
-	model := tui.NewModel(tui.ModelConfig{
-		ServerURL:    server,
-		WorkspaceID:  opts.WorkspaceID,
-		ExecutorID:   executorID,
-		Bus:          bus,
-		Auth:         auth,
-		Yolo:         opts.Yolo,
-		InitialModel: opts.Model,
-		Resume:       opts.Resume,
-		Continue:     opts.Continue,
-	})
+	// 4. Build the Bubble Tea program placeholder so callbacks can call p.Send.
+	//    We assign model below, after defining the callbacks.
+	var p *tea.Program
 
-	// 6. Build the Bubble Tea program and wire AuthController.OnChange to
-	//    pump AuthStateChangedMsg into the program.
-	p := tea.NewProgram(model, tea.WithContext(ctx), tea.WithAltScreen())
-	auth.SetOnChange(func(s tui.AuthState) {
-		p.Send(tui.AuthStateChangedMsg{State: s})
-	})
-
-	// 7. If Resume is set, start SSE consumer and pump events into the program.
-	//    TODO(T17): also start SSE when sessionID is known dynamically (after
-	//    NewSessionReplyMsg, InboundAcceptedMsg, etc.).
-	if opts.Resume != "" && auth.State() == tui.AuthLoggedIn {
-		consumer := tui.NewSSEConsumer(bus, tui.SSEConfig{
-			SessionID: opts.Resume,
-		})
+	// restartSSE (re)starts the SSE consumer goroutine for the given session.
+	// Any previous consumer is cancelled first.
+	var sseCancel context.CancelFunc
+	var sseMu sync.Mutex
+	restartSSE := func(sid string) {
+		if sid == "" {
+			return
+		}
+		sseMu.Lock()
+		defer sseMu.Unlock()
+		if sseCancel != nil {
+			sseCancel() // cancel any previous consumer
+		}
+		sseCtx, cancel := context.WithCancel(ctx)
+		sseCancel = cancel
+		busCapture := bus // capture for goroutine
 		go func() {
-			evCh := consumer.Run(ctx)
+			consumer := tui.NewSSEConsumer(busCapture, tui.SSEConfig{SessionID: sid})
+			evCh := consumer.Run(sseCtx)
 			for ev := range evCh {
 				p.Send(tui.EventArrivedMsg{Event: ev})
 			}
 		}()
 	}
+
+	// startExecutor registers the executor with the server (once) and starts
+	// the yamux tunnel goroutine. Called on login or at startup if already
+	// logged in.
+	var executorOnce sync.Once
+	startExecutor := func() {
+		executorOnce.Do(func() {
+			sess, err := agent.LoadOrRegisterExecutor(agent.ExecutorOpts{
+				ServerURL:   server,
+				Name:        opts.Name,
+				WorkspaceID: opts.WorkspaceID,
+			})
+			if err != nil {
+				p.Send(tui.FatalErrorMsg{Err: fmt.Errorf("register executor after login: %w", err)})
+				return
+			}
+			bus.SetExecutorID(sess.ExecutorID)
+			ec := agent.NewExecutorClient(sess, workDir)
+			go func() { _ = ec.Run(ctx) }()
+		})
+	}
+
+	// 5. Build Model with lifecycle callbacks.
+	model := tui.NewModel(tui.ModelConfig{
+		ServerURL:      server,
+		WorkspaceID:    opts.WorkspaceID,
+		ExecutorID:     executorID,
+		Bus:            bus,
+		Auth:           auth,
+		Yolo:           opts.Yolo,
+		InitialModel:   opts.Model,
+		Resume:         opts.Resume,
+		Continue:       opts.Continue,
+		OnLoggedIn:     startExecutor,
+		OnSessionReady: restartSSE,
+	})
+
+	// 6. Build the Bubble Tea program and wire AuthController.OnChange to
+	//    pump AuthStateChangedMsg into the program.
+	p = tea.NewProgram(model, tea.WithContext(ctx), tea.WithAltScreen())
+	auth.SetOnChange(func(s tui.AuthState) {
+		p.Send(tui.AuthStateChangedMsg{State: s})
+	})
+
+	// 7. Wire the OnLoginFailed callback (surfaces OAuth errors to the TUI timeline).
+	auth.SetOnLoginFailed(func(err error) {
+		p.Send(tui.LoginPollDoneMsg{Err: err})
+	})
 
 	_, err := p.Run()
 	if err != nil {

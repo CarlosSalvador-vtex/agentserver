@@ -46,6 +46,11 @@ type AuthConfig struct {
 	SkipOpenBrowser bool
 	OnChange        func(AuthState)
 
+	// OnLoginFailed is called (from the poll goroutine) when the OAuth Device
+	// Flow fails for any reason other than user cancellation (context cancel).
+	// nil if caller doesn't need this signal.
+	OnLoginFailed func(error)
+
 	// Test seams (default to real implementations from internal/agent/login.go).
 	RequestDeviceCode func(serverURL string) (*agent.DeviceAuthResponse, error)
 	PollForToken      func(serverURL string, dr *agent.DeviceAuthResponse) (*agent.TokenResponse, error)
@@ -110,6 +115,12 @@ func (a *AuthController) setState(s AuthState) {
 // and the program exist.
 func (a *AuthController) SetOnChange(fn func(AuthState)) {
 	a.cfg.OnChange = fn
+}
+
+// SetOnLoginFailed installs or replaces the OnLoginFailed callback after
+// construction. Used by RunTUI to surface login errors to the TUI timeline.
+func (a *AuthController) SetOnLoginFailed(fn func(error)) {
+	a.cfg.OnLoginFailed = fn
 }
 
 // EnsureValid returns a non-empty access token or an error. If the token is
@@ -206,6 +217,9 @@ func (a *AuthController) runPoll(ctx context.Context, dr *agent.DeviceAuthRespon
 	}
 	if err != nil {
 		a.setState(AuthLoggedOut)
+		if a.cfg.OnLoginFailed != nil {
+			a.cfg.OnLoginFailed(err)
+		}
 		return
 	}
 	creds := &agent.Credentials{
@@ -274,7 +288,10 @@ func refreshDirect(ctx context.Context, serverURL, refreshToken string) (*agent.
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	// Use a timeout client; http.DefaultClient has no timeout and a slow or
+	// hung token endpoint would block all Bus.do calls indefinitely.
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -90,6 +90,28 @@ func TestPermissionPanel_DisablesAlwaysOnNestedShell(t *testing.T) {
 	}
 }
 
+func TestPermissionPanel_EscRequeues(t *testing.T) {
+	p := NewPermissionPanel(PermissionPanelInput{
+		PID: "p1", Tool: "remote_bash", ExecutorID: "e", SelfExecID: "e",
+		Args: json.RawMessage(`{}`),
+	})
+	_, cmd, dismissed := p.HandleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if !dismissed {
+		t.Fatal("Esc should dismiss the active panel")
+	}
+	if cmd == nil {
+		t.Fatal("Esc should produce a RequeuePermissionMsg cmd")
+	}
+	msg := cmd()
+	rq, ok := msg.(RequeuePermissionMsg)
+	if !ok {
+		t.Fatalf("got %T want RequeuePermissionMsg", msg)
+	}
+	if rq.Panel == nil || rq.Panel.ID() != "p1" {
+		t.Errorf("requeued panel = %+v", rq.Panel)
+	}
+}
+
 func TestAskUserPanel_SingleSelect(t *testing.T) {
 	p := NewAskUserPanel(AskUserPanelInput{
 		QID:      "q1",

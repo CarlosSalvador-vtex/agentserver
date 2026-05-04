@@ -34,6 +34,11 @@ type SendDecisionMsg struct {
 	PID, Verdict, Scope string
 }
 
+// RequeuePermissionMsg is emitted by the permission panel when the user
+// presses Esc ("answer later"). The Model appends the panel to the back of
+// permQueue so the request isn't permanently dismissed.
+type RequeuePermissionMsg struct{ Panel Panel }
+
 type permissionPanel struct {
 	in            PermissionPanelInput
 	nestedDisable bool
@@ -102,7 +107,8 @@ func (p *permissionPanel) HandleKey(msg tea.KeyMsg) (Panel, tea.Cmd, bool) {
 	case keyIs(msg, "n"), msg.Type == tea.KeyEnter:
 		verdict, scope = "deny", "once"
 	case msg.Type == tea.KeyEsc:
-		return p, nil, true // dismissed without a decision; Model may re-queue
+		panel := Panel(p)
+		return p, func() tea.Msg { return RequeuePermissionMsg{Panel: panel} }, true // dismissed; Model re-queues
 	default:
 		return p, nil, false
 	}
