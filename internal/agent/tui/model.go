@@ -119,6 +119,26 @@ func (m *Model) SetAuthState(s AuthState) {
 	}
 }
 
+// resize lays out viewport and input to the current terminal dimensions.
+// Reserved rows: input box (3 textarea + 2 border) + status bar (1) +
+// optional hint line (1, only when logged out). We always reserve 7 rows
+// for chrome to keep height stable across auth state.
+func (m *Model) resize(width, height int) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	const chromeRows = 7
+	vh := height - chromeRows
+	if vh < 3 {
+		vh = 3
+	}
+	m.viewport.Width = width
+	m.viewport.Height = vh
+	// Input box has rounded border (1+1) + horizontal padding (1+1) on each side.
+	m.input.SetWidth(width - 4)
+	m.viewport.SetContent(m.timeline.Render(width, m.cfg.ExecutorID))
+}
+
 func (m *Model) InputEnabled() bool {
 	return m.authState == AuthLoggedIn || m.authState == AuthRefreshing
 }
@@ -194,6 +214,10 @@ func (m *Model) attachAndSubscribe(sid string) tea.Cmd {
 //  3. Plain KeyMsg in ModeNormal goes to handleNormalKey, then falls
 //     through to the textarea if not handled.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		m.resize(ws.Width, ws.Height)
+		return m, nil
+	}
 	if ev, ok := msg.(EventArrivedMsg); ok {
 		m.timeline.Append(ev.Event)
 		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))

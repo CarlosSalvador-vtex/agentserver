@@ -136,8 +136,12 @@ func RequestDeviceCode(serverURL string) (*DeviceAuthResponse, error) {
 func PollForToken(serverURL string, deviceResp *DeviceAuthResponse) (*TokenResponse, error) {
 	tokenURL := strings.TrimRight(serverURL, "/") + "/api/oauth2/token"
 	interval := time.Duration(deviceResp.Interval) * time.Second
-	if interval < 5*time.Second {
-		interval = 5 * time.Second
+	// The OAuth Device Flow spec lets the server suggest an interval; we
+	// floor at 1s so an interactive UX doesn't sit on its hands for 5+ seconds
+	// after the user clicks Approve. If the server rate-limits us, the
+	// slow_down branch below adds 5s back per occurrence.
+	if interval < 1*time.Second {
+		interval = 1 * time.Second
 	}
 	deadline := time.Now().Add(time.Duration(deviceResp.ExpiresIn) * time.Second)
 

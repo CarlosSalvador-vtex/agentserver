@@ -40,6 +40,8 @@ func (p *loginPanel) View(width int) string {
 	sb.WriteString(fmt.Sprintf("  Code:  %s\n\n", p.info.UserCode))
 	sb.WriteString(p.qr)
 	sb.WriteByte('\n')
+	sb.WriteString(StyleHint.Render("Waiting for browser approval (polls every ~1s)…"))
+	sb.WriteByte('\n')
 	sb.WriteString(StyleHint.Render("[ o ] open browser   [ esc ] cancel"))
 	return StyleBorder.Render(sb.String())
 }
