@@ -343,43 +343,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Plain key handling in ModeNormal.
+	// Plain key handling in ModeNormal. The textarea always receives keys
+	// regardless of auth state — otherwise a logged-out user couldn't even
+	// type "/login". Auth gating happens only in handleNormalKey on Enter.
 	var cmd tea.Cmd
 	if k, ok := msg.(tea.KeyMsg); ok && m.mode == ModeNormal {
 		if handled, c := m.handleNormalKey(k); handled {
 			return m, c
 		}
-		if m.InputEnabled() {
-			m.input, cmd = m.input.Update(msg)
-		}
+		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
-	if m.InputEnabled() {
-		m.input, cmd = m.input.Update(msg)
-	}
+	m.input, cmd = m.input.Update(msg)
 	return m, cmd
 }
 
 // handleNormalKey returns (true, cmd) if it consumed the keypress; otherwise
 // (false, nil) to let the textarea handle it. Cmd is the side-effect of the
 // keypress (e.g. POST inbound after Enter).
+//
+// Auth gating: slash commands work in any auth state (so a logged-out user
+// can run /login, /quit, /help). Plain text only sends when logged in;
+// otherwise we drop a hint into the timeline.
 func (m *Model) handleNormalKey(k tea.KeyMsg) (bool, tea.Cmd) {
 	if k.Type != tea.KeyEnter {
 		return false, nil
-	}
-	if !m.InputEnabled() {
-		return true, nil
 	}
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" {
 		return true, nil
 	}
-	m.input.Reset()
 	if cmd, ok := ParseSlashCommand(text); ok {
+		m.input.Reset()
 		return true, func() tea.Msg {
 			return CommandSelectedMsg{Command: cmd.Name, Args: cmd.Args}
 		}
 	}
+	if !m.InputEnabled() {
+		m.timeline.Append(SSEEvent{
+			Type: "hint",
+			Data: []byte(`{"text":"Not logged in. Type /login to authenticate first."}`),
+		})
+		m.viewport.SetContent(m.timeline.Render(m.viewport.Width, m.cfg.ExecutorID))
+		m.viewport.GotoBottom()
+		return true, nil
+	}
+	m.input.Reset()
 	sid := m.sessionID
 	bus := m.bus
 	attachments := m.pendingAttachments
