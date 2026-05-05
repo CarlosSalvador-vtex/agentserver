@@ -65,7 +65,7 @@ tag-check
 | `build-windows` (uses `./.github/workflows/rust-release-windows.yml`) | Discarded. Replaced by an inline job `runs-on: windows-latest` that builds `x86_64-pc-windows-msvc` unsigned. The reusable workflow stays in upstream form, untouched. |
 | `argument-comment-lint-release-assets` | Removed. Built dylint, requires `macos-15-xlarge` and complex toolchain; not needed by terminal users. |
 | `zsh-release-assets` | Removed. Ships a patched zsh for the `shell-escalation` Linux-only subsystem; not part of agentx's distribution surface. |
-| `release` (incl. dotslash + GH Release) | Mirror copy. Artifact names rewritten to `agentx-*`. The dotslash steps are kept (no extra secrets required). |
+| `release` (incl. dotslash + GH Release) | Pruned copy. Artifact names rewritten to `agentx-*`. **Dotslash steps removed** (would require adding per-binary `.zst` outputs and an agentx-specific dotslash config JSON; not worth the divergence for a fork). NPM publishing also removed (we don't publish to npm). The `developers.openai.com` deploy hook is removed. |
 | `winget` | Mirror copy. `identifier: Agentserver.AgentX`, `installers-regex: ^agentx-x86_64-pc-windows-msvc\.exe\.zip$` (only x86_64 — see ARM64 entry in YAGNI), `fork-user: agentserver`. |
 | `update-branch` (latest-alpha-cli) | Removed. Fork does not maintain that branch. |
 | **(new)** `choco` | Pushes `agentx` to chocolatey.org. Triggers only when version is stable (no `-` in cargo version). |
@@ -235,6 +235,8 @@ The following were considered and dropped. Reintroduce only when there is a conc
 - **ARM64 Windows binary** — upstream does build it, but GitHub-hosted runners do not provide ARM64 Windows; user surface is small.
 - **`argv[0]`-based binary multiplexing** — codex appears to use argv[0] introspection (`~/.codex/tmp/arg0/`), but with only one binary shipped, the single name `agentx` does not exercise that branch.
 - **Auto-PR back to upstream** — fork does not contribute upstream from CI.
+- **DotSlash artifacts** — would require per-binary `.zst` outputs and a fork-specific dotslash config; not a primary install channel for terminal users (winget/choco/dmg cover the cases).
+- **NPM publishing** — upstream stages an npm wrapper around the binaries; agentx ships only the binary directly.
 
 ## Open ops items (not blocking design)
 
