@@ -55,9 +55,16 @@ may migrate to this stack later; that migration is out of scope.
 
 - Not implementing the full ~144-RPC codex app-server / exec-server surface
   in phase 1. Phase 1 covers 8 client requests + 1 client notification + 8
-  server notifications + 4 server-request approvals = 21 RPCs (the minimum
-  for a usable TUI session). The rest is reserved for later phases (see
-  § Phase 1 vs deferred).
+  server notifications = 17 RPCs (the minimum for a usable TUI session).
+  The rest is reserved for later phases (see § Phase 1 vs deferred).
+- **Not implementing approval RPCs in phase 1.** Approvals require a
+  bidirectional codex↔gateway channel that `codex exec --experimental-json`
+  (the SDK's chosen driver, deliberately stateless one-shot) does not
+  support — `exec` streams events on stdout but has no path to write an
+  approval decision back into the running codex turn. Phase 1 sets
+  `ApprovalPolicy=never` so the LLM/sandbox auto-approves within its
+  pre-configured policy. Approval support is deferred to phase 2 (see
+  § Approval handling — deferred to phase 2).
 - Not extending `executor-registry`. The new gateways are independent from
   the yamux+MCP tunnel registry. Existing executor-registry continues to
   serve cc-broker; once cc-broker migrates onto codex-exec-gateway, the
@@ -87,11 +94,11 @@ codex --remote-app-server                            codex exec-server --connect
 │  - app-server v2 RPC handler │         │  - exe_id ↔ inbound ws map      │
 │  - turn queue + persistence  │         │  - outbound bridge ws endpoint  │
 │  - sessionWorker             │         │    /bridge/{exe_id}             │
-│  - spawn `codex exec` per    │         │  - byte-level bidirectional     │
-│    turn via codex-agent-sdk- │         │    forward                      │
-│    go; sets:                 │         │                                 │
+│  - spawn `codex exec` per    │         │  - frame-level bidirectional    │
+│    turn via codex-agent-sdk- │         │    ws forwarding (auth checked  │
+│    go; sets:                 │         │    once at connect)             │
 │      CODEX_EXEC_SERVERS_JSON │         │                                 │
-│      BROKER_TOKEN            │         │                                 │
+│      CODEX_EXEC_GATEWAY_TOKEN│         │                                 │
 │  - SDK ThreadEvent → app-    │         │                                 │
 │    server ServerNotification │         │                                 │
 │  - inject <environments>     │         │                                 │
@@ -116,9 +123,10 @@ codex --remote-app-server                            codex exec-server --connect
 | codex subprocess → exec-gateway | codex exec-server JSON-RPC over ws | `/bridge/{exe_id}` |
 | exec-gateway ← codex-exec | codex exec-server JSON-RPC over wss | `/codex-exec/{exe_id}` |
 
-The exec-gateway is a transparent byte-level forwarder between the bridge
-endpoint and the inbound exec connection — it does not parse exec-server
-RPCs.
+The exec-gateway is a transparent ws-frame-level forwarder between the
+bridge endpoint and the inbound exec connection — it does not parse
+exec-server JSON-RPC inside frames. Auth is verified once at connect time;
+forwarding is unconditional thereafter until either side closes.
 
 ## Repository layout
 
@@ -137,14 +145,13 @@ agentserver/
 │   │   ├── protocol/
 │   │   │   ├── client_request.go          ClientRequest sum-type (8 in P1)
 │   │   │   ├── server_notification.go     ServerNotification (8 in P1)
-│   │   │   ├── server_request.go          ServerRequest (4 approvals in P1)
 │   │   │   ├── types.go                   Thread, Turn, Item, Usage
 │   │   │   └── schema_fixture_test.go     align with codex schema/json/*
+│   │   │                                  (server_request.go added in P2)
 │   │   ├── handlers/
 │   │   │   ├── initialize.go
 │   │   │   ├── thread.go
-│   │   │   ├── turn.go
-│   │   │   └── approvals.go
+│   │   │   └── turn.go                    (approvals.go added in P2)
 │   │   ├── runner/
 │   │   │   ├── runner.go                  per-turn spawn via SDK
 │   │   │   ├── manifest.go                CODEX_EXEC_SERVERS_JSON writer
@@ -160,7 +167,13 @@ agentserver/
 │       ├── inbound.go                     /codex-exec/{exe_id} acceptor
 │       ├── bridge.go                      /bridge/{exe_id} acceptor + forward
 │       ├── registry.go                    in-memory exe_id ↔ ws conn map
-│       └── auth.go                        bearer + capability validation
+│       ├── auth.go                        bearer + capability validation
+│       ├── revocation.go                  in-memory revoked turn_id set
+│       ├── store.go                       Postgres (executors, workspace_executors)
+│       ├── migrations/
+│       └── handlers/
+│           ├── register.go                executor self-registration
+│           └── workspace_binding.go       workspace ↔ executor admin endpoints
 ├── Dockerfile.codex-app-gateway           (new)
 ├── Dockerfile.codex-exec-gateway          (new)
 └── deploy/                                (helm values, k8s manifests)
@@ -189,13 +202,13 @@ Add env var `CODEX_EXEC_SERVERS_JSON` pointing to a JSON file:
     {
       "id": "exe_alpha",
       "url": "ws://codex-exec-gateway:6060/bridge/exe_alpha",
-      "auth_token_env": "BROKER_TOKEN",
+      "auth_token_env": "CODEX_EXEC_GATEWAY_TOKEN",
       "description": "Daisy's MacBook Pro, /home/daisy/projects"
     },
     {
       "id": "exe_beta",
       "url": "ws://codex-exec-gateway:6060/bridge/exe_beta",
-      "auth_token_env": "BROKER_TOKEN",
+      "auth_token_env": "CODEX_EXEC_GATEWAY_TOKEN",
       "description": "EC2 us-east-1, /var/projects/api"
     }
   ]
@@ -347,8 +360,8 @@ codex Rust test suite plus its new tests.
 
 1. Accept ws connections from `codex-app` clients; authenticate with bearer
    JWT (issued by agentserver auth service).
-2. Speak codex app-server v2 JSON-RPC: `initialize`, `thread/*`, `turn/*`,
-   `execCommandApproval`, `applyPatchApproval`.
+2. Speak codex app-server v2 JSON-RPC: `initialize`, `thread/*`, `turn/*`
+   (approvals deferred — see Non-goals).
 3. Maintain per-thread turn queue + persistence; recover pending turns on
    restart.
 4. For each turn, build the manifest of environments the workspace can use,
@@ -390,19 +403,18 @@ codex Rust test suite plus its new tests.
 | `item/agentMessage/delta` | For incremental text deltas from codex (mapped from codex item streaming or item.updated as appropriate) |
 | `error` | Top-level codex errors not tied to a specific turn |
 
-**ServerRequest (4 approvals):**
+**ServerRequest: none in phase 1.** See Non-goals — approvals are deferred
+to phase 2 because `codex exec --experimental-json` has no path to write an
+approval decision back into the running turn. Phase 1 spawns codex with
+`ApprovalPolicy=never`, which makes codex's own sandbox / pre-configured
+permission profile the sole gate on tool execution.
 
-| Method | Trigger |
-|---|---|
-| `execCommandApproval` | codex emits an exec approval request item |
-| `applyPatchApproval` | codex emits a file-change approval request item |
-| `item/commandExecution/requestApproval` | granular per-tool-call approval (newer form) |
-| `item/fileChange/requestApproval` | granular per-tool-call approval (newer form) |
-
-The gateway suspends the codex subprocess's tool execution until the TUI
-client returns a response on the same JSON-RPC id. Internally the gateway
-has held the codex `permission_request` object via the exec-server bridge
-flow; the response decision is forwarded back into the codex process.
+If a request item that would normally trigger an approval surfaces from
+codex despite `ApprovalPolicy=never` (e.g., legacy item types), the
+gateway logs and forwards the item as a regular `item/started` /
+`item/completed` notification without suspending — the LLM treats the
+unanswered approval as auto-denied, which is consistent with `never`
+policy semantics.
 
 ### Turn lifecycle (mirrors ccbroker)
 
@@ -418,7 +430,7 @@ TUI: turn/start { thread_id, input[], cwd?, model? }
         1. PickNextPending → mark turn 'running'
         2. workspace.Setup: download S3 ~/.codex/sessions/<thread_id>.jsonl → tmp
         3. build manifest from workspace.executors → write CODEX_EXEC_SERVERS_JSON
-        4. issue per-turn capability token (BROKER_TOKEN)
+        4. issue per-turn capability token (CODEX_EXEC_GATEWAY_TOKEN)
         5. codex.New(opts).ResumeThread(thread_id).RunStreamed(ctx, input, ...)
         6. for each SDK event:
              - map to ServerNotification or ServerRequest
@@ -443,32 +455,57 @@ For each turn, the gateway:
 3. For each live executor, emits a manifest entry with:
    - `id`: the executor's `exe_id`
    - `url`: `ws://codex-exec-gateway:6060/bridge/{exe_id}`
-   - `auth_token_env`: `"BROKER_TOKEN"` (single env var holds the cap token)
+   - `auth_token_env`: `"CODEX_EXEC_GATEWAY_TOKEN"` (single env var holds the cap token covering every entry)
    - `description`: executor's user-supplied label + cwd hint
 4. Picks `default_environment_id`:
    - If TUI passed `turn/start.environments`, use the first
    - Else use workspace's `default_executor_id`
    - Else use the first manifest entry
-5. Writes manifest to `/tmp/codex-app-gateway/<turn_id>/exec_servers.json`
-   (mode 0600), exports path as `CODEX_EXEC_SERVERS_JSON` to the codex
-   subprocess.
+5. Mints a `CODEX_EXEC_GATEWAY_TOKEN` whose payload `exe_ids` is exactly
+   the manifest's id list (so the token can only authorize this set of
+   executors).
+6. Writes manifest to `/tmp/codex-app-gateway/<turn_id>/exec_servers.json`
+   (mode 0600), exports path as `CODEX_EXEC_SERVERS_JSON` and the minted
+   token as `CODEX_EXEC_GATEWAY_TOKEN` to the codex subprocess.
 
 Cleanup: sessionWorker `defer`s removal of the manifest tmpdir at turn
 end (success / failure / cancel).
 
-### Capability token (BROKER_TOKEN)
+### Capability token (`CODEX_EXEC_GATEWAY_TOKEN`)
 
-Per-turn HMAC token signed by gateway shared secret:
+Per-turn HMAC token in JWT-style 3-part format. Single token covers every
+executor in this turn's manifest; the allowed exe_id list is **embedded in
+the token payload and signed**, so exec-gateway never needs to query
+codex-app-gateway about turn ownership.
 
 ```
-BROKER_TOKEN = base64( hmac_sha256(secret, turn_id || ":" || exp_unix) || ":" || turn_id || ":" || exp_unix )
+CODEX_EXEC_GATEWAY_TOKEN = base64url(header) "." base64url(payload) "." base64url(sig)
+
+  header  = '{"alg":"HS256","typ":"CXG"}'
+  payload = '{"turn_id":"trn_xxx","workspace_id":"ws_xxx",
+             "exe_ids":["exe_alpha","exe_beta"],
+             "iat":1714867200,"exp":1714870800}'
+  sig     = hmac_sha256(secret, base64url(header) "." base64url(payload))
 ```
 
-`exp` = turn start + 1h (loose upper bound on turn duration). Single token
-covers all executors in the manifest — exec-gateway extracts `turn_id`
-from the token, validates the HMAC, then on `/bridge/{exe_id}` looks up
-"is this turn allowed to use exe_xxx" by joining with workspace.executors
-in DB.
+`exp` = turn start + 1h (loose upper bound on turn duration). The shared
+HMAC secret is provisioned via K8s Secret to both gateway Pods.
+
+**Bridge-side validation** at `POST /bridge/{exe_id}`:
+
+1. Split token on `.`; verify `sig`; reject 401 on any mismatch.
+2. Parse payload; reject 401 if `now > exp`.
+3. Reject 403 if `{exe_id}` from URL is not in `payload.exe_ids`.
+4. Reject 401 if `payload.turn_id` is in the in-memory revoked set.
+5. Look up `registry[exe_id]`; reject 503 if executor not currently
+   connected.
+6. Pair connections, start frame-pump goroutines.
+
+No DB touch on the hot bridge path — all bridge auth is local arithmetic
+plus an in-memory map lookup. `executors` and `workspace_executors` are
+read only by the admin endpoints and the `/api/exec-gateway/connected`
+internal API (which performs the workspace ↔ executor join once per
+manifest build, not per bridge connect).
 
 ### Data model
 
@@ -538,8 +575,8 @@ CREATE TABLE executors (
 - Before turn: download S3 `s3://codex-sessions/<workspace_id>/<thread_id>.jsonl`
   → `<codex-home>/sessions/<thread_id>.jsonl`
 - Spawn codex with `--cd <project-dir>`, `CODEX_HOME=<codex-home>`,
-  `CODEX_EXEC_SERVERS_JSON=<manifest path>`, `BROKER_TOKEN=<cap token>`,
-  `CODEX_API_KEY=<workspace token>`
+  `CODEX_EXEC_SERVERS_JSON=<manifest path>`,
+  `CODEX_EXEC_GATEWAY_TOKEN=<cap token>`, `CODEX_API_KEY=<workspace token>`
 - After turn (success or fail): upload `<codex-home>/sessions/<thread_id>.jsonl`
   back to S3; remove tmp dir
 - The S3 store wrapper is factored out to `internal/storage/agentworkspace/`
@@ -554,9 +591,9 @@ codexClient := codex.New(codex.CodexOptions{
     APIKey: workspaceToken,
     BaseURL: cfg.LLMProxyURL,
     Env: map[string]string{
-        "CODEX_HOME":                tmpHome,
-        "CODEX_EXEC_SERVERS_JSON":   manifestPath,
-        "BROKER_TOKEN":              capToken,
+        "CODEX_HOME":                  tmpHome,
+        "CODEX_EXEC_SERVERS_JSON":     manifestPath,
+        "CODEX_EXEC_GATEWAY_TOKEN":    capToken,
     },
 })
 thread := codexClient.ResumeThread(threadID, codex.ThreadOptions{
@@ -591,7 +628,7 @@ union. Tested with table-driven cases per event type.
    per exe_id; new connection evicts old).
 3. Accept ws connections at `/bridge/{exe_id}` from the spawned codex
    subprocess inside codex-app-gateway; authenticate with per-turn
-   capability token (`BROKER_TOKEN`).
+   capability token (`CODEX_EXEC_GATEWAY_TOKEN`).
 4. After both endpoints' connection-time auth checks pass, forward ws
    frames bidirectionally between the inbound and bridge connections at
    the frame level. The gateway does not parse exec-server JSON-RPC inside
@@ -611,8 +648,9 @@ codex-exec (laptop) ──connect──> /codex-exec/{exe_id}
 
 codex subprocess (gateway pod) ──connect──> /bridge/{exe_id}
    gateway:
-     - extract turn_id from BROKER_TOKEN, verify HMAC
-     - check workspace_executors: is this exe_id allowed for this turn's workspace?
+     - parse CODEX_EXEC_GATEWAY_TOKEN, verify HMAC, check exp
+     - reject 403 if {exe_id} from URL not in token.payload.exe_ids
+     - reject 401 if token.payload.turn_id is in revoked set
      - look up registry[exe_id]; if absent, reject with 503
      - pair the two conns; spawn copy goroutines:
          go pump(bridge → inbound)
@@ -625,7 +663,7 @@ codex subprocess (gateway pod) ──connect──> /bridge/{exe_id}
 | Connection | Credential | Validator |
 |---|---|---|
 | codex-exec → /codex-exec/{exe_id} | persistent tunnel token (executor registration) | bcrypt-compare against `executors.registration_token_hash` |
-| codex subprocess → /bridge/{exe_id} | per-turn capability token (BROKER_TOKEN) | HMAC verify with shared secret |
+| codex subprocess → /bridge/{exe_id} | per-turn capability token (CODEX_EXEC_GATEWAY_TOKEN) | HMAC verify + exp + exe_id allow-list + revocation check |
 
 Tunnel tokens are issued at executor registration time:
 
@@ -636,13 +674,12 @@ Auth: user JWT
 → 201 { exe_id, registration_token }
 ```
 
-The user copies `registration_token` into their local environment and
-launches:
+The user exports `registration_token` to a local env var and launches:
 
 ```
+export CODEX_EXEC_TOKEN=<registration_token>
 codex exec-server --connect wss://AS/codex-exec/exe_xxx \
                   --auth-token-env CODEX_EXEC_TOKEN
-CODEX_EXEC_TOKEN=<token> codex exec-server --connect ...
 ```
 
 ### Workspace-executor binding
@@ -683,7 +720,7 @@ Auth: shared-secret bearer
 the workspace's binding, used to compose the per-turn manifest.
 
 `/revoke-turn` is called by codex-app-gateway whenever a turn reaches a
-terminal state, so exec-gateway can drop the turn's BROKER_TOKEN from its
+terminal state, so exec-gateway can drop the turn's `CODEX_EXEC_GATEWAY_TOKEN` from its
 allow set even while it's still inside the token's `exp` window. See
 "Capability-token replay" in § Open risks.
 
@@ -692,13 +729,13 @@ allow set even while it's still inside the token's `exp` window. See
 | Hop | Credential | Issuer | Lifetime |
 |---|---|---|---|
 | codex-app TUI → codex-app-gateway | per-user JWT bearer | agentserver auth service | per session, refreshable |
-| spawned codex → codex-exec-gateway/bridge | per-turn HMAC capability token (BROKER_TOKEN) | codex-app-gateway | turn duration + 1h slack |
+| spawned codex → codex-exec-gateway/bridge | per-turn HMAC capability token (CODEX_EXEC_GATEWAY_TOKEN) | codex-app-gateway | turn duration + 1h slack |
 | codex-exec → codex-exec-gateway/codex-exec/{id} | persistent registration token | codex-exec-gateway at registration | until rotated |
 | codex subprocess → llmproxy | workspace token | wstoken service (existing) | short-lived |
 | codex-app-gateway ↔ codex-exec-gateway internal API | shared bearer secret | env config | static |
 
 Shared secrets live in K8s secrets, mounted as files in each Pod. The
-broker capability HMAC secret is rotated quarterly; old tokens stay valid
+gateway capability HMAC secret is rotated quarterly; old tokens stay valid
 until their `exp`.
 
 ## Deployment
@@ -729,7 +766,7 @@ Service discovery uses K8s Service DNS. codex-app-gateway has
 
 **Phase 1 (this spec):**
 
-- 8 ClientRequest + 1 ClientNotification + 8 ServerNotification + 4 ServerRequest in codex-app-gateway
+- 8 ClientRequest + 1 ClientNotification + 8 ServerNotification = 17 RPCs in codex-app-gateway (approvals deferred)
 - codex fork patches P1–P4
 - codex-exec-gateway with inbound + bridge endpoints
 - Per-workspace static executor binding
@@ -742,6 +779,13 @@ Service discovery uses K8s Service DNS. codex-app-gateway has
 
 **Phase 2 candidates (out of scope, listed for traceability):**
 
+- **Approvals (the 4 ServerRequest RPCs)** — requires either (a) extending
+  `codex-agent-sdk-go` + `codex exec` to expose a back-channel for
+  approval decisions (e.g., a control fd or a JSON-RPC sidecar over an
+  extra pipe), or (b) switching the driver from `codex exec` to a
+  long-lived `codex app-server` instance per session and proxying its
+  bidirectional protocol. (b) trades the stateless-harness property for
+  approval support; the choice is itself a phase-2 design call.
 - Full app-server v2 RPC surface: `account/*`, `config/*`, `fs/*`,
   `mcpServer/*`, `skills/*`, `plugin/*`, `marketplace/*`,
   `apps/*`, `experimentalFeature/*`, `feedback/*`, `command/exec` (vs
@@ -778,18 +822,24 @@ Service discovery uses K8s Service DNS. codex-app-gateway has
    `codex --remote-app-server <wss-url>` option to the TUI subcommand.
    Verify in plan task 2.
 3. **Backpressure across the bridge**: a slow executor stalls codex's
-   exec-server protocol. The bridge is byte-level; backpressure propagates
-   naturally through ws flow control, but very long-running streams may hit
-   ws idle timeouts. Need explicit ping/pong configuration on both sides.
-4. **Capability-token replay**: BROKER_TOKEN is good for `exp` window
-   (turn start + 1h). Without revocation, a leaked token from a finished
-   turn could connect to bridge during slack. Phase 1 mitigation (listed
-   above): on turn finish (success / fail / cancel), codex-app-gateway
-   POSTs `turn_id` to codex-exec-gateway's `/api/exec-gateway/revoke-turn`
-   endpoint; exec-gateway adds it to an in-memory revoked set (sized cap
-   ~10k, periodically pruned of entries past their original `exp`); future
-   bridge connects whose token decodes to that turn_id are rejected with
-   401.
+   exec-server protocol. The bridge is frame-level; backpressure propagates
+   naturally through ws flow control, but very long-running streams risk
+   hitting ws idle timeouts. Phase 1 defaults: ws ping interval 30s, idle
+   read timeout 5min on both inbound and bridge endpoints; ping handler is
+   automatic in `nhooyr.io/websocket`. Configurable via env (`PING_INTERVAL`,
+   `IDLE_TIMEOUT`).
+4. **Capability-token replay**: `CODEX_EXEC_GATEWAY_TOKEN` is good for
+   `exp` window (turn start + 1h). Without revocation, a leaked token from
+   a finished turn could connect to bridge during slack. Phase 1
+   mitigation (listed above): on turn finish (success / fail / cancel),
+   codex-app-gateway POSTs `turn_id` to codex-exec-gateway's
+   `/api/exec-gateway/revoke-turn` endpoint; exec-gateway adds it to an
+   in-memory revoked set (sized cap ~10k, periodically pruned of entries
+   past their original `exp`); future bridge connects whose token decodes
+   to that turn_id are rejected with 401. Revocation set is per-Pod (not
+   shared across exec-gateway replicas), so the worst-case window is
+   "until other replicas' next sync"; for phase 1 sync = "always all
+   replicas, broadcast via internal POST fan-out from app-gateway".
 5. **Manifest staleness within a turn**: if an executor disconnects
    mid-turn, its bridge URL becomes a dead endpoint. codex's tool call
    will return an error to the LLM, which is acceptable behavior; no
