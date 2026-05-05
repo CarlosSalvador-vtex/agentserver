@@ -35,9 +35,9 @@ builds on this plan. Both plans share the same module path
 `internal/codexappgateway/`. Specifically, 2b imports the following types
 defined here: `protocol.ClientRequest`, `protocol.ServerNotification`,
 `protocol.Thread/Turn/ThreadItem/Usage/ThreadError`,
-`store.CodexThread/CodexTurn/CodexTurnEvent`, the `Store` queue ops
+`store.Thread/AgentTurn/TurnEvent`, the `Store` queue ops
 (`EnqueueTurn`, `PickNextPending`, `MarkTurn{Running,Done,Failed,Cancelled}`,
-`GetTurnEvents`, `ResetRunningToQueued`), the `transport.JSONRPCMessage`
+`ListEvents`, `ResetRunningToQueued`), the `transport.JSONRPCMessage`
 envelope, `exectoken.Mint`, and `agentworkspace.Workspace` /
 `agentworkspace.CodexLayout`. **Do not rename any of these in 2a without
 updating 2b's references.**
@@ -58,7 +58,7 @@ assume this is the cwd unless otherwise noted.
 | `Dockerfile.codex-app-gateway` | Multi-stage build; copies the codex CLI binary into the runtime layer |
 | `internal/codexappgateway/config.go` | `Config` struct + `LoadConfigFromEnv()` (CXG_* env vars) |
 | `internal/codexappgateway/server.go` | `Server`, `NewServer`, `Routes()`, `Start`, `Shutdown` (no handlers yet) |
-| `internal/codexappgateway/store.go` | `Store`, embedded migrations, `Codex{Thread,Turn,TurnEvent}` row types, queue ops |
+| `internal/codexappgateway/store.go` | `Store`, embedded migrations, `Thread`/`AgentTurn`/`TurnEvent` row types, queue ops |
 | `internal/codexappgateway/migrations/001_codex_initial.sql` | `codex_threads`, `codex_turns`, `codex_turn_events` |
 | `internal/codexappgateway/transport/jsonrpc.go` | `JSONRPCMessage`/`Request`/`Response`/`Notification`/`Error` + encode/decode (no `jsonrpc:"2.0"` field) |
 | `internal/codexappgateway/transport/ws_listener.go` | `chi` route registration + ws upgrader; bearer-JWT middleware |
@@ -585,7 +585,7 @@ func openTestStore(t *testing.T) *Store {
 func TestStore_CreateAndGetThread(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	th := CodexThread{
+	th := Thread{
 		ThreadID:    "thr_test1",
 		WorkspaceID: "ws_a",
 		UserID:      "user_a",
@@ -607,12 +607,12 @@ func TestStore_CreateAndGetThread(t *testing.T) {
 func TestStore_TurnQueueRoundtrip(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	_ = s.CreateThread(ctx, CodexThread{
+	_ = s.CreateThread(ctx, Thread{
 		ThreadID: "thr_q", WorkspaceID: "ws_a", UserID: "u", Status: "active",
 	})
 
 	now := time.Now().UTC()
-	turn := CodexTurn{
+	turn := AgentTurn{
 		TurnID:      "trn_1",
 		ThreadID:    "thr_q",
 		UserInput:   json.RawMessage(`[{"type":"text","text":"hi"}]`),
@@ -641,8 +641,8 @@ func TestStore_TurnQueueRoundtrip(t *testing.T) {
 func TestStore_MarkTurnFailedAndCancelled(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	_ = s.CreateThread(ctx, CodexThread{ThreadID: "thr_f", WorkspaceID: "w", UserID: "u", Status: "active"})
-	_ = s.EnqueueTurn(ctx, CodexTurn{TurnID: "trn_f", ThreadID: "thr_f", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
+	_ = s.CreateThread(ctx, Thread{ThreadID: "thr_f", WorkspaceID: "w", UserID: "u", Status: "active"})
+	_ = s.EnqueueTurn(ctx, AgentTurn{TurnID: "trn_f", ThreadID: "thr_f", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
 	_, _ = s.PickNextPending(ctx, "thr_f")
 	if err := s.MarkTurnFailed(ctx, "trn_f", "boom"); err != nil {
 		t.Fatal(err)
@@ -652,7 +652,7 @@ func TestStore_MarkTurnFailedAndCancelled(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 
-	_ = s.EnqueueTurn(ctx, CodexTurn{TurnID: "trn_c", ThreadID: "thr_f", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
+	_ = s.EnqueueTurn(ctx, AgentTurn{TurnID: "trn_c", ThreadID: "thr_f", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
 	_, _ = s.PickNextPending(ctx, "thr_f")
 	_ = s.MarkTurnCancelled(ctx, "trn_c")
 	got2, _ := s.GetTurn(ctx, "trn_c")
@@ -661,24 +661,28 @@ func TestStore_MarkTurnFailedAndCancelled(t *testing.T) {
 	}
 }
 
-func TestStore_GetTurnEvents(t *testing.T) {
+func TestStore_ListEvents(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	_ = s.CreateThread(ctx, CodexThread{ThreadID: "thr_e", WorkspaceID: "w", UserID: "u", Status: "active"})
-	_ = s.EnqueueTurn(ctx, CodexTurn{TurnID: "trn_e", ThreadID: "thr_e", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
+	_ = s.CreateThread(ctx, Thread{ThreadID: "thr_e", WorkspaceID: "w", UserID: "u", Status: "active"})
+	_ = s.EnqueueTurn(ctx, AgentTurn{TurnID: "trn_e", ThreadID: "thr_e", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
 	for i := 0; i < 3; i++ {
-		if err := s.AppendTurnEvent(ctx, "trn_e", json.RawMessage(`{"k":1}`)); err != nil {
+		seq, err := s.InsertEvent(ctx, "trn_e", json.RawMessage(`{"k":1}`))
+		if err != nil {
 			t.Fatal(err)
 		}
+		if seq != int64(i+1) {
+			t.Errorf("InsertEvent seq = %d, want %d", seq, i+1)
+		}
 	}
-	evs, err := s.GetTurnEvents(ctx, "trn_e", 0)
+	evs, err := s.ListEvents(ctx, "trn_e", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(evs) != 3 {
 		t.Errorf("len = %d, want 3", len(evs))
 	}
-	tail, _ := s.GetTurnEvents(ctx, "trn_e", evs[1].SeqNum)
+	tail, _ := s.ListEvents(ctx, "trn_e", evs[1].SeqNum)
 	if len(tail) != 1 {
 		t.Errorf("tail len = %d, want 1", len(tail))
 	}
@@ -687,8 +691,8 @@ func TestStore_GetTurnEvents(t *testing.T) {
 func TestStore_ResetRunningToQueued(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	_ = s.CreateThread(ctx, CodexThread{ThreadID: "thr_r", WorkspaceID: "w", UserID: "u", Status: "active"})
-	_ = s.EnqueueTurn(ctx, CodexTurn{TurnID: "trn_r", ThreadID: "thr_r", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
+	_ = s.CreateThread(ctx, Thread{ThreadID: "thr_r", WorkspaceID: "w", UserID: "u", Status: "active"})
+	_ = s.EnqueueTurn(ctx, AgentTurn{TurnID: "trn_r", ThreadID: "thr_r", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
 	_, _ = s.PickNextPending(ctx, "thr_r") // → running
 	n, err := s.ResetRunningToQueued(ctx)
 	if err != nil {
@@ -707,22 +711,38 @@ func TestStore_ListThreadsAndTurns(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	for _, id := range []string{"thr_x1", "thr_x2", "thr_x3"} {
-		_ = s.CreateThread(ctx, CodexThread{ThreadID: id, WorkspaceID: "ws_l", UserID: "u", Status: "active"})
+		_ = s.CreateThread(ctx, Thread{ThreadID: id, WorkspaceID: "ws_l", UserID: "u", Status: "active"})
 	}
-	threads, err := s.ListThreads(ctx, "ws_l", 10)
+	threads, err := s.ListThreads(ctx, "ws_l", 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(threads) != 3 {
 		t.Errorf("ListThreads len = %d", len(threads))
 	}
-	_ = s.EnqueueTurn(ctx, CodexTurn{TurnID: "trn_l", ThreadID: "thr_x1", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
-	turns, err := s.ListThreadTurns(ctx, "thr_x1", 10)
+	// Offset paging: skip the first 2, expect 1 remaining.
+	page2, err := s.ListThreads(ctx, "ws_l", 10, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page2) != 1 {
+		t.Errorf("ListThreads offset=2 len = %d, want 1", len(page2))
+	}
+	_ = s.EnqueueTurn(ctx, AgentTurn{TurnID: "trn_l", ThreadID: "thr_x1", UserInput: json.RawMessage(`[]`), Status: "pending", EnqueuedAt: time.Now()})
+	turns, err := s.ListTurns(ctx, "thr_x1", 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(turns) != 1 {
-		t.Errorf("ListThreadTurns len = %d", len(turns))
+		t.Errorf("ListTurns len = %d", len(turns))
+	}
+	// Offset past the end returns empty.
+	none, err := s.ListTurns(ctx, "thr_x1", 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Errorf("ListTurns offset=5 len = %d, want 0", len(none))
 	}
 }
 ```
@@ -829,7 +849,7 @@ func (s *Store) migrate() error {
 
 // --- Row types ---
 
-type CodexThread struct {
+type Thread struct {
 	ThreadID    string
 	WorkspaceID string
 	UserID      string
@@ -840,7 +860,7 @@ type CodexThread struct {
 	Metadata    json.RawMessage
 }
 
-type CodexTurn struct {
+type AgentTurn struct {
 	TurnID       string
 	ThreadID     string
 	UserInput    json.RawMessage
@@ -852,7 +872,7 @@ type CodexTurn struct {
 	FinishedAt   *time.Time
 }
 
-type CodexTurnEvent struct {
+type TurnEvent struct {
 	TurnID    string
 	SeqNum    int64
 	Payload   json.RawMessage
@@ -861,7 +881,7 @@ type CodexTurnEvent struct {
 
 // --- Thread CRUD ---
 
-func (s *Store) CreateThread(ctx context.Context, t CodexThread) error {
+func (s *Store) CreateThread(ctx context.Context, t Thread) error {
 	_, err := s.ExecContext(ctx,
 		`INSERT INTO codex_threads(thread_id,workspace_id,user_id,title,status,metadata)
 		 VALUES ($1,$2,$3,$4,$5,$6)`,
@@ -869,8 +889,8 @@ func (s *Store) CreateThread(ctx context.Context, t CodexThread) error {
 	return err
 }
 
-func (s *Store) GetThread(ctx context.Context, threadID string) (*CodexThread, error) {
-	var t CodexThread
+func (s *Store) GetThread(ctx context.Context, threadID string) (*Thread, error) {
+	var t Thread
 	var title sql.NullString
 	var meta sql.NullString
 	err := s.QueryRowContext(ctx,
@@ -892,18 +912,18 @@ func (s *Store) GetThread(ctx context.Context, threadID string) (*CodexThread, e
 	return &t, nil
 }
 
-func (s *Store) ListThreads(ctx context.Context, workspaceID string, limit int) ([]CodexThread, error) {
+func (s *Store) ListThreads(ctx context.Context, workspaceID string, limit, offset int) ([]Thread, error) {
 	rows, err := s.QueryContext(ctx,
 		`SELECT thread_id,workspace_id,user_id,COALESCE(title,''),status,created_at,updated_at
 		 FROM codex_threads WHERE workspace_id=$1
-		 ORDER BY updated_at DESC LIMIT $2`, workspaceID, limit)
+		 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`, workspaceID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CodexThread
+	var out []Thread
 	for rows.Next() {
-		var t CodexThread
+		var t Thread
 		if err := rows.Scan(&t.ThreadID, &t.WorkspaceID, &t.UserID, &t.Title, &t.Status, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -914,7 +934,7 @@ func (s *Store) ListThreads(ctx context.Context, workspaceID string, limit int) 
 
 // --- Turn queue ops (mirror ccbroker.{EnqueueTurn,PickNextPending,...}) ---
 
-func (s *Store) EnqueueTurn(ctx context.Context, t CodexTurn) error {
+func (s *Store) EnqueueTurn(ctx context.Context, t AgentTurn) error {
 	_, err := s.ExecContext(ctx,
 		`INSERT INTO codex_turns(turn_id,thread_id,user_input,turn_options,status,enqueued_at)
 		 VALUES ($1,$2,$3,$4,$5,$6)`,
@@ -925,7 +945,7 @@ func (s *Store) EnqueueTurn(ctx context.Context, t CodexTurn) error {
 // PickNextPending atomically claims the oldest pending turn for a thread,
 // flipping its status to 'running' and stamping started_at. Returns nil
 // if no work is available.
-func (s *Store) PickNextPending(ctx context.Context, threadID string) (*CodexTurn, error) {
+func (s *Store) PickNextPending(ctx context.Context, threadID string) (*AgentTurn, error) {
 	row := s.QueryRowContext(ctx,
 		`UPDATE codex_turns
 		 SET status='running', started_at=NOW()
@@ -936,7 +956,7 @@ func (s *Store) PickNextPending(ctx context.Context, threadID string) (*CodexTur
 		 )
 		 RETURNING turn_id,thread_id,user_input,COALESCE(turn_options,'null'::jsonb),status,COALESCE(error_message,''),enqueued_at,started_at,finished_at`,
 		threadID)
-	var t CodexTurn
+	var t AgentTurn
 	var ui, to []byte
 	if err := row.Scan(&t.TurnID, &t.ThreadID, &ui, &to, &t.Status, &t.ErrorMessage, &t.EnqueuedAt, &t.StartedAt, &t.FinishedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -970,8 +990,8 @@ func (s *Store) MarkTurnCancelled(ctx context.Context, turnID string) error {
 	return s.markTurn(ctx, turnID, "cancelled", "")
 }
 
-func (s *Store) GetTurn(ctx context.Context, turnID string) (*CodexTurn, error) {
-	var t CodexTurn
+func (s *Store) GetTurn(ctx context.Context, turnID string) (*AgentTurn, error) {
+	var t AgentTurn
 	var ui, to []byte
 	err := s.QueryRowContext(ctx,
 		`SELECT turn_id,thread_id,user_input,COALESCE(turn_options,'null'::jsonb),status,COALESCE(error_message,''),enqueued_at,started_at,finished_at
@@ -988,18 +1008,18 @@ func (s *Store) GetTurn(ctx context.Context, turnID string) (*CodexTurn, error) 
 	return &t, nil
 }
 
-func (s *Store) ListThreadTurns(ctx context.Context, threadID string, limit int) ([]CodexTurn, error) {
+func (s *Store) ListTurns(ctx context.Context, threadID string, limit, offset int) ([]AgentTurn, error) {
 	rows, err := s.QueryContext(ctx,
 		`SELECT turn_id,thread_id,user_input,COALESCE(turn_options,'null'::jsonb),status,COALESCE(error_message,''),enqueued_at,started_at,finished_at
-		 FROM codex_turns WHERE thread_id=$1 ORDER BY enqueued_at DESC LIMIT $2`,
-		threadID, limit)
+		 FROM codex_turns WHERE thread_id=$1 ORDER BY enqueued_at DESC LIMIT $2 OFFSET $3`,
+		threadID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CodexTurn
+	var out []AgentTurn
 	for rows.Next() {
-		var t CodexTurn
+		var t AgentTurn
 		var ui, to []byte
 		if err := rows.Scan(&t.TurnID, &t.ThreadID, &ui, &to, &t.Status, &t.ErrorMessage, &t.EnqueuedAt, &t.StartedAt, &t.FinishedAt); err != nil {
 			return nil, err
@@ -1024,25 +1044,31 @@ func (s *Store) ResetRunningToQueued(ctx context.Context) (int, error) {
 
 // --- Turn events ---
 
-func (s *Store) AppendTurnEvent(ctx context.Context, turnID string, payload json.RawMessage) error {
-	_, err := s.ExecContext(ctx,
-		`INSERT INTO codex_turn_events(turn_id,payload) VALUES ($1,$2)`, turnID, []byte(payload))
-	return err
+// InsertEvent appends a turn event row and returns the freshly assigned
+// seq_num. Callers may use the returned seq_num for live broadcaster
+// fan-out without needing a follow-up read.
+func (s *Store) InsertEvent(ctx context.Context, turnID string, payload json.RawMessage) (int64, error) {
+	var seq int64
+	err := s.QueryRowContext(ctx,
+		`INSERT INTO codex_turn_events(turn_id,payload) VALUES ($1,$2)
+		 RETURNING seq_num`, turnID, []byte(payload)).Scan(&seq)
+	return seq, err
 }
 
-// GetTurnEvents returns events with seq_num > sinceSeqNum.
-func (s *Store) GetTurnEvents(ctx context.Context, turnID string, sinceSeqNum int64) ([]CodexTurnEvent, error) {
+// ListEvents returns events with seq_num > sinceSeq. Pass sinceSeq=0 to
+// retrieve all events for the turn in seq_num order.
+func (s *Store) ListEvents(ctx context.Context, turnID string, sinceSeq int64) ([]TurnEvent, error) {
 	rows, err := s.QueryContext(ctx,
 		`SELECT turn_id,seq_num,payload,created_at
 		 FROM codex_turn_events WHERE turn_id=$1 AND seq_num>$2 ORDER BY seq_num`,
-		turnID, sinceSeqNum)
+		turnID, sinceSeq)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CodexTurnEvent
+	var out []TurnEvent
 	for rows.Next() {
-		var e CodexTurnEvent
+		var e TurnEvent
 		var p []byte
 		if err := rows.Scan(&e.TurnID, &e.SeqNum, &p, &e.CreatedAt); err != nil {
 			return nil, err
@@ -1929,7 +1955,7 @@ Phase-1 RPCs (from spec § Phase 1 RPC surface):
 | `thread/resume` | request | `ThreadResumeParams` / `ThreadResumeResponse` |
 | `thread/read` | request | `ThreadReadParams` / `ThreadReadResponse` |
 | `thread/list` | request | `ThreadListParams` / `ThreadListResponse` |
-| `thread/turns/list` | request | `ThreadTurnsListParams` / `ThreadTurnsListResponse` |
+| `thread/turns/list` | request | `ThreadTurnsListParams` / `TurnListResponse` |
 | `turn/start` | request | `TurnStartParams` / `TurnStartResponse` |
 | `turn/interrupt` | request | `TurnInterruptParams` / `TurnInterruptResponse` |
 | `initialized` | notification | `InitializedParams` (empty) |
@@ -2022,7 +2048,72 @@ func TestClientNotification_Initialized(t *testing.T) {
 		t.Errorf("expected Initialized populated, got %+v", cn)
 	}
 }
+
+func TestInitializeResponse_StructuredCapabilities(t *testing.T) {
+	resp := InitializeResponse{
+		ServerVersion: "0.1",
+		ServerInfo:    ServerInfo{Name: "codex-app-gateway", Version: "0.1"},
+		Capabilities:  Capabilities{Threads: true, Turns: true, Approvals: false},
+	}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"serverInfo"`, `"name":"codex-app-gateway"`,
+		`"capabilities"`, `"threads":true`, `"turns":true`, `"approvals":false`,
+	} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("InitializeResponse missing %q: %s", want, string(b))
+		}
+	}
+}
+
+func TestThreadResumeResponse_DiagnosticOmitemptyWhenEmpty(t *testing.T) {
+	b, _ := json.Marshal(ThreadResumeResponse{Thread: Thread{ID: "t1", CreatedAt: "now"}})
+	if strings.Contains(string(b), "diagnostic") {
+		t.Errorf("empty Diagnostic should be omitted: %s", string(b))
+	}
+	b2, _ := json.Marshal(ThreadResumeResponse{
+		Thread:     Thread{ID: "t1", CreatedAt: "now"},
+		Diagnostic: "session jsonl truncated; resumed best-effort",
+	})
+	if !strings.Contains(string(b2), `"diagnostic":"session jsonl truncated`) {
+		t.Errorf("non-empty Diagnostic should appear: %s", string(b2))
+	}
+}
+
+func TestThreadReadResponse_EventsField(t *testing.T) {
+	resp := ThreadReadResponse{
+		Thread: Thread{ID: "t1", CreatedAt: "now"},
+		Events: []PersistedEvent{
+			{SeqNum: 1, Payload: json.RawMessage(`{"method":"turn/started"}`)},
+			{SeqNum: 2, Payload: json.RawMessage(`{"method":"turn/completed"}`)},
+		},
+	}
+	b, _ := json.Marshal(resp)
+	for _, want := range []string{`"events"`, `"seqNum":1`, `"seqNum":2`, `"payload"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("ThreadReadResponse missing %q: %s", want, string(b))
+		}
+	}
+}
+
+func TestTurnInterruptResponse_CancelledField(t *testing.T) {
+	b, _ := json.Marshal(TurnInterruptResponse{Cancelled: true})
+	if !strings.Contains(string(b), `"cancelled":true`) {
+		t.Errorf("expected cancelled:true: %s", string(b))
+	}
+	b2, _ := json.Marshal(TurnInterruptResponse{Cancelled: false})
+	if !strings.Contains(string(b2), `"cancelled":false`) {
+		t.Errorf("expected cancelled:false (not omitempty): %s", string(b2))
+	}
+}
 ```
+
+The new tests reference `strings`; ensure that import is present in
+`client_request_test.go` (the file's existing imports already include
+`encoding/json` and `testing` — add `strings` alongside).
 
 - [ ] **Step 2: Run the test (expect FAIL)**
 
@@ -2048,9 +2139,26 @@ type InitializeParams struct {
 	Capabilities  json.RawMessage `json:"capabilities,omitempty"`
 }
 
+// ServerInfo identifies the gateway implementation in the
+// `initialize` response. Wire shape matches MCP/JSON-RPC convention.
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// Capabilities is the structured capability advertisement returned by
+// `initialize`. Phase 1 returns {Threads: true, Turns: true,
+// Approvals: false}; later phases flip Approvals on.
+type Capabilities struct {
+	Threads   bool `json:"threads"`
+	Turns     bool `json:"turns"`
+	Approvals bool `json:"approvals"`
+}
+
 type InitializeResponse struct {
-	ServerVersion string                 `json:"serverVersion"`
-	Capabilities  map[string]any         `json:"capabilities,omitempty"`
+	ServerVersion string       `json:"serverVersion"`
+	ServerInfo    ServerInfo   `json:"serverInfo"`
+	Capabilities  Capabilities `json:"capabilities"`
 }
 
 type ThreadStartParams struct {
@@ -2069,7 +2177,20 @@ type ThreadResumeParams struct {
 }
 
 type ThreadResumeResponse struct {
-	Thread Thread `json:"thread"`
+	Thread     Thread `json:"thread"`
+	// Diagnostic, when non-empty, signals that the underlying jsonl
+	// session file was unreadable or partially corrupt. The gateway
+	// still returns the resumed Thread so the TUI can surface a
+	// non-fatal warning to the user.
+	Diagnostic string `json:"diagnostic,omitempty"`
+}
+
+// PersistedEvent represents one row from `codex_turn_events` as
+// returned by `thread/read`. The Payload is an opaque
+// ServerNotification envelope previously broadcast for this turn.
+type PersistedEvent struct {
+	SeqNum  int64           `json:"seqNum"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 type ThreadReadParams struct {
@@ -2078,8 +2199,9 @@ type ThreadReadParams struct {
 }
 
 type ThreadReadResponse struct {
-	Thread Thread `json:"thread"`
-	Turns  []Turn `json:"turns,omitempty"`
+	Thread Thread           `json:"thread"`
+	Turns  []Turn           `json:"turns,omitempty"`
+	Events []PersistedEvent `json:"events"`
 }
 
 type ThreadListParams struct {
@@ -2098,7 +2220,11 @@ type ThreadTurnsListParams struct {
 	Limit    int    `json:"limit,omitempty"`
 }
 
-type ThreadTurnsListResponse struct {
+// TurnListResponse is the response to `thread/turns/list`. Renamed
+// from `ThreadTurnsListResponse` to align with Plan 2b's handler name
+// and the matching `turn/list` semantic. Wire shape unchanged
+// (`{"turns":[...]}`).
+type TurnListResponse struct {
 	Turns []Turn `json:"turns"`
 }
 
@@ -2117,7 +2243,12 @@ type TurnInterruptParams struct {
 	TurnID string `json:"turnId"`
 }
 
-type TurnInterruptResponse struct{}
+type TurnInterruptResponse struct {
+	// Cancelled is true when the gateway actually fired a cancel for
+	// the turn. False means the turn was already in a terminal state
+	// (done/failed/cancelled) at the time the interrupt arrived.
+	Cancelled bool `json:"cancelled"`
+}
 
 type InitializedParams struct{}
 
@@ -3042,7 +3173,144 @@ func SetupWithLayout(layout Layout) func(ctx context.Context, workspaceID, sessi
 		return ws, nil
 	}
 }
+
+// --- Codex-flavoured wrapper used by Plan 2b's session_worker ---
+//
+// CodexWorkspace adapts the lower-level (S3Store, Layout) abstractions
+// into the call-site shape Plan 2b expects: Setup returns paths, and
+// Teardown round-trips the jsonl back to S3 + removes tmp.
+
+// WorkspaceLayout is the per-turn on-disk layout returned by
+// CodexWorkspace.Setup. CodexHome is what gets exported as $CODEX_HOME
+// to the codex subprocess; ProjectDir is the workspace project tree.
+type WorkspaceLayout struct {
+	CodexHome  string
+	ProjectDir string
+	// internal: kept so Teardown can find the source jsonl + tmp roots.
+	workspaceID string
+	threadID    string
+	tmpRoot     string
+}
+
+// CodexWorkspace owns the per-turn workspace lifecycle for codex turns.
+// One instance is shared by all sessionWorkers; Setup/Teardown are
+// goroutine-safe (each call gets its own tmp dir).
+type CodexWorkspace struct {
+	s3         *S3Store
+	baseTmpDir string
+}
+
+// NewCodexWorkspace constructs a CodexWorkspace bound to an S3 store and
+// a base tmp dir (e.g. "/tmp/codex-app-gateway"). The base dir is created
+// lazily on first Setup.
+func NewCodexWorkspace(s3 *S3Store, baseTmpDir string) *CodexWorkspace {
+	return &CodexWorkspace{s3: s3, baseTmpDir: baseTmpDir}
+}
+
+// Setup creates the per-turn tmp dir and downloads
+// `<workspace_id>/<thread_id>.jsonl` from S3 into
+// `<CodexHome>/sessions/<thread_id>.jsonl`. Returns the layout. The
+// project dir is created empty; callers may populate it as needed.
+func (cw *CodexWorkspace) Setup(ctx context.Context, workspaceID, threadID string) (*WorkspaceLayout, error) {
+	if err := os.MkdirAll(cw.baseTmpDir, 0o700); err != nil {
+		return nil, fmt.Errorf("CodexWorkspace.Setup: mkdir base: %w", err)
+	}
+	tmp, err := os.MkdirTemp(cw.baseTmpDir, threadID+"-*")
+	if err != nil {
+		return nil, fmt.Errorf("CodexWorkspace.Setup: mkdir tmp: %w", err)
+	}
+	codexHome := filepath.Join(tmp, "codex-home")
+	projectDir := filepath.Join(tmp, "project-dir")
+	sessionsDir := filepath.Join(codexHome, "sessions")
+	for _, d := range []string{codexHome, projectDir, sessionsDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			_ = os.RemoveAll(tmp)
+			return nil, fmt.Errorf("CodexWorkspace.Setup: mkdir %s: %w", d, err)
+		}
+	}
+	jsonlPath := filepath.Join(sessionsDir, threadID+".jsonl")
+	key := fmt.Sprintf("%s/%s.jsonl", workspaceID, threadID)
+	if err := cw.s3.DownloadIfExists(ctx, key, jsonlPath); err != nil {
+		_ = os.RemoveAll(tmp)
+		return nil, fmt.Errorf("CodexWorkspace.Setup: s3 download %s: %w", key, err)
+	}
+	return &WorkspaceLayout{
+		CodexHome:   codexHome,
+		ProjectDir:  projectDir,
+		workspaceID: workspaceID,
+		threadID:    threadID,
+		tmpRoot:     tmp,
+	}, nil
+}
+
+// Teardown uploads the (possibly mutated) jsonl back to S3 then removes
+// the per-turn tmp dir. A non-nil error from upload still triggers
+// removal — the caller has no use for an orphaned tmp dir.
+func (cw *CodexWorkspace) Teardown(ctx context.Context, layout *WorkspaceLayout) error {
+	if layout == nil {
+		return nil
+	}
+	defer os.RemoveAll(layout.tmpRoot)
+	jsonlPath := filepath.Join(layout.CodexHome, "sessions", layout.threadID+".jsonl")
+	key := fmt.Sprintf("%s/%s.jsonl", layout.workspaceID, layout.threadID)
+	if err := cw.s3.UploadIfExists(ctx, jsonlPath, key); err != nil {
+		return fmt.Errorf("CodexWorkspace.Teardown: s3 upload %s: %w", key, err)
+	}
+	return nil
+}
 ```
+
+Add `internal/storage/agentworkspace/codex_workspace_test.go` covering
+the happy-path round trip:
+
+```go
+package agentworkspace
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestCodexWorkspace_SetupCreatesDirs(t *testing.T) {
+	base := t.TempDir()
+	cw := NewCodexWorkspace(newFakeS3Store(t), base)
+	layout, err := cw.Setup(context.Background(), "ws_a", "thr_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(layout.CodexHome); err != nil {
+		t.Errorf("CodexHome missing: %v", err)
+	}
+	if _, err := os.Stat(layout.ProjectDir); err != nil {
+		t.Errorf("ProjectDir missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(layout.CodexHome, "sessions")); err != nil {
+		t.Errorf("sessions dir missing: %v", err)
+	}
+}
+
+func TestCodexWorkspace_TeardownRemovesTmp(t *testing.T) {
+	base := t.TempDir()
+	cw := NewCodexWorkspace(newFakeS3Store(t), base)
+	layout, err := cw.Setup(context.Background(), "ws_a", "thr_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := layout.tmpRoot
+	if err := cw.Teardown(context.Background(), layout); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Errorf("tmp dir still present: %v", err)
+	}
+}
+```
+
+`newFakeS3Store` is a per-test helper that returns an S3Store backed by
+`os.TempDir()` instead of real S3 (no upload/download performed when the
+jsonl key is absent).
 
 `internal/ccbroker/workspace/s3store.go`:
 ```go
@@ -3134,7 +3402,7 @@ git commit -m "refactor(workspace): factor agentworkspace package out of ccbroke
 - [ ] **Type consistency for 2b:** the names exported in this plan
   (`protocol.ClientRequest`, `protocol.ServerNotification`,
   `protocol.{Thread,Turn,ThreadItem,Usage,ThreadError}`,
-  `Store.{EnqueueTurn,PickNextPending,MarkTurn{Running,Done,Failed,Cancelled},GetTurnEvents,ResetRunningToQueued}`,
+  `Store.{EnqueueTurn,PickNextPending,MarkTurn{Running,Done,Failed,Cancelled},InsertEvent,ListEvents,ResetRunningToQueued}`,
   `transport.JSONRPCMessage`, `exectoken.{Mint,Verify,Claims}`,
   `agentworkspace.{Workspace,S3Store,CodexLayout,SetupWithLayout}`) all
   appear verbatim in this plan. **Renaming any of these in 2a requires

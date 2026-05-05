@@ -43,8 +43,10 @@ plan assumes 2a has shipped:
   with `CodexHome` + `ProjectDir`), `Setup(ctx, workspaceID, threadID)`,
   `Teardown(ctx, layout)`. Layout exposes `TmpRoot` so the manifest
   writer can place `exec_servers.json` alongside the workspace dirs.
-- `internal/codexappgateway/exectoken`: `Mint(secret, payload) (string, error)`,
-  `Payload{TurnID, WorkspaceID, ExeIDs []string, IAT, EXP int64}`.
+- `internal/codexappgateway/exectoken`: `Mint(MintInput) (string, error)`,
+  `Verify(secret string, token string) (Claims, error)`,
+  `MintInput{Secret string, TurnID, WorkspaceID string, ExeIDs []string, TTL time.Duration, Now time.Time}`,
+  `Claims{TurnID, WorkspaceID string, ExeIDs []string, IssuedAt, ExpiresAt int64}`.
 - `internal/codexappgateway/server.go` exposing a `*Server` with
   `Store`, `Workspace`, `WSToken func(ctx, wid) (string, error)`,
   `Logger`, `Config`, `WorkerRegistry` (tested in 2a as a no-op).
@@ -999,7 +1001,7 @@ func TestBuildAndWriteManifest_EmitsExpectedSpec(t *testing.T) {
 		ExecGatewayHTTPURL: srv.URL,
 		ExecGatewayWSURL:   "ws://codex-exec-gateway:6060",
 		AuthSecret:         "internal-shared",
-		HMACSecret:         []byte("hmac-secret"),
+		HMACSecret:         "hmac-secret",
 		TmpRoot:            t.TempDir(),
 		HTTP:               srv.Client(),
 		Now:                func() time.Time { return time.Unix(1714867200, 0).UTC() },
@@ -1040,15 +1042,15 @@ func TestBuildAndWriteManifest_EmitsExpectedSpec(t *testing.T) {
 		t.Errorf("auth_token_env: %s", spec.Environments[0].AuthTokenEnv)
 	}
 	// Token payload exe_ids must equal manifest ids (both order-preserving).
-	payload, err := exectoken.Verify([]byte("hmac-secret"), res.CapToken)
+	claims, err := exectoken.Verify("hmac-secret", res.CapToken)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if len(payload.ExeIDs) != 2 || payload.ExeIDs[0] != "exe_alpha" || payload.ExeIDs[1] != "exe_beta" {
-		t.Errorf("token exe_ids: %v", payload.ExeIDs)
+	if len(claims.ExeIDs) != 2 || claims.ExeIDs[0] != "exe_alpha" || claims.ExeIDs[1] != "exe_beta" {
+		t.Errorf("token exe_ids: %v", claims.ExeIDs)
 	}
-	if payload.TurnID != "trn_xyz" {
-		t.Errorf("token turn_id: %s", payload.TurnID)
+	if claims.TurnID != "trn_xyz" {
+		t.Errorf("token turn_id: %s", claims.TurnID)
 	}
 }
 
@@ -1059,7 +1061,7 @@ func TestBuildAndWriteManifest_NoLiveExecutors_ReturnsEmptyManifest(t *testing.T
 	defer srv.Close()
 	mw := NewManifestWriter(ManifestConfig{
 		ExecGatewayHTTPURL: srv.URL, ExecGatewayWSURL: "ws://x",
-		AuthSecret: "s", HMACSecret: []byte("k"),
+		AuthSecret: "s", HMACSecret: "k",
 		TmpRoot: t.TempDir(), HTTP: srv.Client(),
 		Now: time.Now,
 	})
@@ -1130,7 +1132,7 @@ type ManifestConfig struct {
 	ExecGatewayHTTPURL string        // e.g. "http://codex-exec-gateway:6060"
 	ExecGatewayWSURL   string        // e.g. "ws://codex-exec-gateway:6060"
 	AuthSecret         string        // shared bearer for /api/exec-gateway/*
-	HMACSecret         []byte        // CODEX_EXEC_GATEWAY_TOKEN signing key
+	HMACSecret         string        // CODEX_EXEC_GATEWAY_TOKEN signing key
 	TmpRoot            string        // default "/tmp/codex-app-gateway"
 	HTTP               *http.Client
 	Now                func() time.Time
@@ -1210,12 +1212,13 @@ func (m *ManifestWriter) BuildAndWrite(ctx context.Context, in BuildInput) (Buil
 	}
 
 	now := m.cfg.Now().UTC()
-	tok, err := exectoken.Mint(m.cfg.HMACSecret, exectoken.Payload{
+	tok, err := exectoken.Mint(exectoken.MintInput{
+		Secret:      m.cfg.HMACSecret,
 		TurnID:      in.TurnID,
 		WorkspaceID: in.WorkspaceID,
 		ExeIDs:      exeIDs,
-		IAT:         now.Unix(),
-		EXP:         now.Add(m.cfg.TokenTTL).Unix(),
+		TTL:         m.cfg.TokenTTL,
+		Now:         now,
 	})
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("mint cap token: %w", err)
@@ -2112,6 +2115,7 @@ import (
 
 	codex "github.com/agentserver/codex-agent-sdk-go"
 
+	"github.com/agentserver/agentserver/internal/codexappgateway/protocol"
 	"github.com/agentserver/agentserver/internal/codexappgateway/runner"
 	"github.com/agentserver/agentserver/internal/codexappgateway/store"
 )
@@ -2265,6 +2269,10 @@ func (w *sessionWorker) execute(ctx context.Context, turn *store.AgentTurn) {
 	defer w.deps.Revoker.Revoke(context.Background(), turn.ID)
 	defer runner.CleanupManifest(turn.ID, w.deps.TmpRoot)
 
+	// Emit thread/status/changed=running as soon as the worker takes
+	// ownership of the turn. This is lifecycle metadata pushed to live
+	// connections only — it is NOT persisted to codex_turn_events.
+	w.publishStatus(turn.ThreadID, "running")
 	if err := w.deps.Store.MarkTurnRunning(ctx, turn.ID); err != nil {
 		w.fail(turn, "mark running: "+err.Error())
 		return
@@ -2366,6 +2374,31 @@ func (w *sessionWorker) publishTerminal(turn *store.AgentTurn, kind, msg string)
 		},
 	})
 	w.deps.Broadcaster.Push(turn.ThreadID, body)
+	// Mirror the terminal exit as a thread/status/changed lifecycle
+	// notification. Failed turns surface as `errored`; done/cancelled
+	// both return the thread to `idle`.
+	status := "idle"
+	if kind == "failed" {
+		status = "errored"
+	}
+	w.publishStatus(turn.ThreadID, status)
+}
+
+// publishStatus broadcasts a `thread/status/changed` lifecycle
+// notification keyed by threadID. The envelope is pushed to live
+// connections via the broadcaster but deliberately NOT persisted to
+// `codex_turn_events` — it reflects worker state, not codex history,
+// and is reconstructable from `codex_turns.status` on resume.
+func (w *sessionWorker) publishStatus(threadID, status string) {
+	body, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "thread/status/changed",
+		"params": protocol.ThreadStatusChangedParams{
+			ThreadID: threadID,
+			Status:   status,
+		},
+	})
+	w.deps.Broadcaster.Push(threadID, body)
 }
 
 // decodeInput converts a raw JSON `input` payload (an array of UserInput)
@@ -2901,7 +2934,7 @@ func TestE2E_OneTurnFullRoundTrip(t *testing.T) {
 		ExecGatewayHTTPURL: exgw.URL,
 		ExecGatewayWSURL:   "ws://example",
 		AuthSecret:         "s",
-		HMACSecret:         []byte("k"),
+		HMACSecret:         "k",
 		TmpRoot:            t.TempDir(),
 		HTTP:               exgw.Client(),
 		Now:                time.Now,
@@ -3072,10 +3105,12 @@ defining them:
   json.RawMessage, TurnOptions json.RawMessage, Status, EnqueuedAt,
   StartedAt, FinishedAt}`.
 - `store.TurnEvent{TurnID, SeqNum int64, Payload json.RawMessage}`.
-- `exectoken.Mint(secret []byte, payload Payload) (string, error)`,
-  `exectoken.Verify(secret []byte, token string) (Payload, error)`,
-  `exectoken.Payload{TurnID, WorkspaceID, ExeIDs []string, IAT,
-  EXP int64}`.
+- `exectoken.Mint(MintInput) (string, error)`,
+  `exectoken.Verify(secret string, token string) (Claims, error)`,
+  `exectoken.MintInput{Secret string, TurnID, WorkspaceID string,
+  ExeIDs []string, TTL time.Duration, Now time.Time}`,
+  `exectoken.Claims{TurnID, WorkspaceID string, ExeIDs []string,
+  IssuedAt, ExpiresAt int64}`.
 
 If 2a names any of these differently, search-and-replace in this
 plan's import / type-assertion sites. No structural changes needed.

@@ -1108,10 +1108,14 @@ func (f *Fixtures) NewWorkspace(ctx context.Context, id string) (*Workspace, err
 }
 
 // NewExecutor calls codex-exec-gateway's POST /api/codex-exec/register
-// with the user JWT to mint a fresh exe_id + registration token.
+// with the user JWT to mint a fresh exe_id + registration token. The
+// gateway always generates the exe_id server-side (spec § Executor
+// registration); callers do not propose one. The `id` argument is kept
+// only as a human-readable label that participates in description
+// formatting.
 func (f *Fixtures) NewExecutor(ctx context.Context, id, displayName, defaultCwd string) (*Executor, error) {
+	_ = id // retained for description formatting; not sent over the wire
 	body, _ := json.Marshal(map[string]any{
-		"exe_id":       id, // gateway honors caller-suggested id when set
 		"display_name": displayName,
 		"description":  displayName + " — " + defaultCwd,
 		"default_cwd":  defaultCwd,
@@ -1475,7 +1479,7 @@ func ScriptedTurn(ctx context.Context, stack *harness.Stack, ws *fixtures.Worksp
 		return fmt.Errorf("initialized: %w", err)
 	}
 	threadResp, err := c.Call(ctx, "thread/start", map[string]any{
-		"workspace_id": ws.ID,
+		"workspaceId": ws.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("thread/start: %w", err)
@@ -1489,8 +1493,8 @@ func ScriptedTurn(ctx context.Context, stack *harness.Stack, ws *fixtures.Worksp
 	}
 
 	if _, err := c.Call(ctx, "turn/start", map[string]any{
-		"thread_id": threadOut.Thread.ID,
-		"input": []map[string]string{{"type": "text", "text": "echo hello via shell"}},
+		"threadId": threadOut.Thread.ID,
+		"input":    []map[string]string{{"type": "text", "text": "echo hello via shell"}},
 	}); err != nil {
 		return fmt.Errorf("turn/start: %w", err)
 	}
@@ -1688,16 +1692,16 @@ func MultiExecutor(ctx context.Context, stack *harness.Stack, ws *fixtures.Works
 	if err := c.Notify(ctx, "initialized", map[string]any{}); err != nil {
 		return err
 	}
-	thr, err := c.Call(ctx, "thread/start", map[string]any{"workspace_id": ws.ID})
+	thr, err := c.Call(ctx, "thread/start", map[string]any{"workspaceId": ws.ID})
 	if err != nil {
 		return err
 	}
 	var t struct{ Thread struct{ ID string `json:"id"` } `json:"thread"` }
 	_ = json.Unmarshal(thr, &t)
 	if _, err := c.Call(ctx, "turn/start", map[string]any{
-		"thread_id": t.Thread.ID,
-		"input":     []map[string]string{{"type": "text", "text": "echo on alpha and beta"}},
-		"metadata":  map[string]string{"X-Mock-Scenario": "multi_executor"},
+		"threadId": t.Thread.ID,
+		"input":    []map[string]string{{"type": "text", "text": "echo on alpha and beta"}},
+		"metadata": map[string]string{"X-Mock-Scenario": "multi_executor"},
 	}); err != nil {
 		return err
 	}
@@ -1826,16 +1830,16 @@ func ReconnectReplay(ctx context.Context, stack *harness.Stack, ws *fixtures.Wor
 	if err := c1.Notify(ctx, "initialized", map[string]any{}); err != nil {
 		return err
 	}
-	thrResp, err := c1.Call(ctx, "thread/start", map[string]any{"workspace_id": ws.ID})
+	thrResp, err := c1.Call(ctx, "thread/start", map[string]any{"workspaceId": ws.ID})
 	if err != nil {
 		return err
 	}
 	var thr struct{ Thread struct{ ID string `json:"id"` } `json:"thread"` }
 	_ = json.Unmarshal(thrResp, &thr)
 	if _, err := c1.Call(ctx, "turn/start", map[string]any{
-		"thread_id": thr.Thread.ID,
-		"input":     []map[string]string{{"type": "text", "text": "echo with sleep"}},
-		"metadata":  map[string]string{"X-Mock-Scenario": "reconnect_replay"},
+		"threadId": thr.Thread.ID,
+		"input":    []map[string]string{{"type": "text", "text": "echo with sleep"}},
+		"metadata": map[string]string{"X-Mock-Scenario": "reconnect_replay"},
 	}); err != nil {
 		return err
 	}
@@ -1863,7 +1867,7 @@ func ReconnectReplay(ctx context.Context, stack *harness.Stack, ws *fixtures.Wor
 	if err := c2.Notify(ctx, "initialized", map[string]any{}); err != nil {
 		return err
 	}
-	readResp, err := c2.Call(ctx, "thread/read", map[string]any{"thread_id": thr.Thread.ID})
+	readResp, err := c2.Call(ctx, "thread/read", map[string]any{"threadId": thr.Thread.ID})
 	if err != nil {
 		return fmt.Errorf("thread/read: %w", err)
 	}
