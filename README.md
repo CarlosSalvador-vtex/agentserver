@@ -1,7 +1,7 @@
 <h1 align="center">agentserver</h1>
 
 <p align="center">
-  <strong>Run your coding agent on any machine — access it from the browser.</strong>
+  <strong>Personally command and deploy AI agents across every location and device — from one place.</strong>
 </p>
 
 <p align="center">
@@ -23,53 +23,104 @@
   <img src="assets/screenshot-2.png" alt="agentserver Coding Agent" width="800">
 </p>
 
-agentserver is to [opencode](https://github.com/opencode-ai/opencode) what [code-server](https://github.com/coder/code-server) is to VS Code — a self-hosted platform that lets your team use a coding agent from the browser.
+> 📖 Read the full vision: [Overview of agentserver](Overview%20of%20agentserver.pdf) (slide deck, Apr 2026)
+
+agentserver is a self-hosted platform for **operating a fleet of coding agents from one console** — cloud sandboxes, your laptop, your desktop, even your phone, all reachable through the same Web UI or an IM channel (WeChat / Weixin, Telegram, …).
+
+It is the answer to a question Addy Osmani frames as the path from L1 (no AI) to L8 (build your own orchestrator)*: once you are juggling 10+ agents across machines, you stop being a *conductor* and become an *orchestrator*. agentserver is the orchestration layer.
+
+<sub>* Addy Osmani, Director, Google · Gemini & Cloud AI — <a href="https://talks.addy.ie/oreilly-codecon-march-2026">talks.addy.ie/oreilly-codecon-march-2026</a></sub>
+
+### How it differs from what already exists
+
+| Tool | Local agents | Cloud sandboxes | Cross-device peering |
+|------|:---:|:---:|:---:|
+| OpenClaw / Claude Code Remote | one at a time | — | — |
+| Claude Code on the web | — | ✅ | — |
+| Claude Code Agent Teams | — | ✅ (subagents) | — |
+| **agentserver** | **✅ many** | **✅** | **✅** |
 
 ## Why agentserver?
 
-- **Zero install** — Open a browser, start coding with AI
-- **Sandboxes** — Isolated containers per task; pause, resume, auto-pause on idle
-- **Local tunneling** — Connect a local opencode instance via WebSocket, no public IP needed
-- **Multi-tenancy** — Workspaces with role-based access (owner / maintainer / developer / guest)
-- **Two backends** — Docker (single node) or Kubernetes with [Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) + gVisor isolation
-- **SSO ready** — GitHub OAuth and generic OIDC (Keycloak, Authentik, etc.) out of the box
-- **API key proxy** — Sandboxes never see the real Anthropic key; injected server-side
-- **LLM proxy** — Dedicated proxy service with per-workspace rate limiting (RPD quotas) and usage tracking
-- **Admin panel** — Manage users, quotas, and system settings from the web UI
-- **Batteries included** — Sandbox image ships with Go, Rust, C/C++, Node.js, Python 3, and common tools
-- **Deploy anywhere** — Pre-built binaries, Homebrew, Docker Compose, or Helm for Kubernetes
+- **One console, every device** — Operate cloud sandboxes, local laptops/desktops, and IM-bound agents from the same workspace.
+- **Local tunneling, zero public IP** — A local opencode/Claude Code/Codex instance dials home over WebSocket and appears as a sandbox in the UI.
+- **Sandboxes** — Per-task containers with pause/resume and idle auto-pause; Docker (single node) or Kubernetes with [Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) + gVisor.
+- **Multi-tenancy by workspace** — Cloud and local agents register into the *same* workspace registry; role-based access (owner / maintainer / developer / guest).
+- **Credential & LLM proxy** — Sandboxes never see real provider keys; per-workspace RPD quotas and usage tracking enforced server-side.
+- **IM bridge (WIP)** — Drive agents from WeChat / Weixin or Telegram via `imbridge`; no terminal required.
+- **SSO ready** — GitHub OAuth and generic OIDC (Keycloak, Authentik, …).
+- **Deploy anywhere** — Pre-built binaries, Homebrew, Docker Compose, or Helm for Kubernetes.
+
+## Roadmap: Three Stages
+
+agentserver is being built in three stages. The diagrams and full reasoning live in [Overview of agentserver.pdf](Overview%20of%20agentserver.pdf).
+
+| Stage | Theme | Status | What lands |
+|-------|-------|:---:|------------|
+| **1** | `code-server` for coding agents | ✅ shipping | Sandbox provisioner, agent registry, credential / LLM proxy, agent-proxy ingress, Web Console |
+| **2** | The emergence of OpenClaw | 🚧 in progress | NanoClaw (sandboxed Claude Code), `imbridge` (WeChat / Telegram), agent message bus |
+| **3** | Centralized agent-loop | 🔭 designing | Stateless `cc` worker pool, `cc-broker` provisioner, tool router, durable memory / context store, agent mailboxes |
+
+### Core insights driving Stage 3
+
+- **Stateless harness** — Decouple the *brain* (Claude + harness) from the *hands* (sandboxes and tools). Sessions are append-only event logs that live outside the context window. Workers are *cattle, not pets* — a worker that dies mid-turn loses nothing.
+- **Hybrid cloud-local mesh** — Cloud and local agents share one workspace registry. Discovery happens through agent cards; the LLM picks a tool and a tool router decides where the call goes. *Agent discovery, not network mesh.*
+- **Async collaboration via mailboxes** — Agents hand off work through inboxes in durable storage. The receiver does not need to be alive when the message is sent. The mailbox is the source of truth.
 
 ## Architecture
 
-agentserver consists of three services that can run as a single binary or be deployed independently:
+Today's deployment (Stage 1, with Stage 2 services landing):
 
 ```
-                                                ┌──────────────────┐
-                                                │  sandbox pod /   │
-                                           ┌───▶│  container       │
-                                           │    │  └─ opencode     │
-Browser ──▶ sandbox-proxy (:8082) ─────────┤    └──────────────────┘
-            (subdomain routing)            │        WebSocket tunnel
-                                           └───▶ local agent machine
-                                                  └─ opencode serve
+                  World (Anthropic, GitHub, …)
+                          ▲
+                          │ egress
+              ┌───────────┴────────────┐
+              │  credentialproxy /     │
+              │  llmproxy (:8081)      │
+              │  • key injection       │
+              │  • RPD quota / usage   │
+              └───────────┬────────────┘
+                          │
+WeChat / Telegram ──▶ imbridge ──▶ ┐
+Browser ───────────▶ agentserver  ─┤    ┌──────────────────┐
+                     (:8080)       │    │ sandbox pod /    │
+                     • REST API    ├───▶│ container        │
+                     • admin UI    │    │ └─ opencode /    │
+                     • registry    │    │    nanoclaw      │
+                     • tunnels     │    └──────────────────┘
+                          │        │
+                          │        └──▶ local laptop / desktop / phone
+                          │              └─ agentserver-agent (WS tunnel)
+                          ▼
+                     PostgreSQL
+                  (users, workspaces,
+                   sandboxes, quotas,
+                   sessions, mailboxes)
 
-Browser ──▶ agentserver (:8080) ──────────────▶ PostgreSQL
-            ├─ REST API                         (users, workspaces,
-            ├─ admin panel                       sandboxes, quotas)
-            ├─ agent registration
-            └─ tunnel endpoints
-
-Sandbox ──▶ llmproxy (:8081) ──────────────▶ Anthropic API
-            ├─ token validation                (real key injected
-            ├─ RPD quota enforcement            server-side)
-            └─ usage tracking
+Browser ──▶ sandboxproxy (:8082) ─▶ subdomain routing to sandbox services
+Browser ──▶ cc-broker          ───▶ stateless cc worker pool (Stage 3)
+Sandbox ──▶ executor-registry  ───▶ tool-call dispatch / executor lookup
 ```
 
-| Service | Default Port | Description |
-|---------|-------------|-------------|
-| **agentserver** | `:8080` | Main API server, web UI, tunnel endpoints |
-| **llmproxy** | `:8081` | LLM API proxy with rate limiting and usage tracking |
-| **sandbox-proxy** | `:8082` | Subdomain-based routing to sandbox services |
+| Service | Default Port | Role |
+|---------|-------------|------|
+| **agentserver** | `:8080` | Main API, Web UI, agent registry, tunnel endpoints |
+| **llmproxy** | `:8081` | LLM API proxy with per-workspace rate limiting and usage tracking |
+| **sandboxproxy** | `:8082` | Subdomain-based routing to sandbox services |
+| **credentialproxy** | — | Server-side injection of provider credentials |
+| **imbridge** | — | IM channel bridge (WeChat / Weixin, Telegram) |
+| **cc-broker** | — | Stateless Claude Code / Codex worker pool (Stage 3) |
+| **executor-registry** | — | Tool-call dispatch / executor discovery (Stage 3) |
+
+## Code of Conduct
+
+agentserver follows four house rules that shape every change:
+
+- ❌ **No human-authored code.** All production code is generated by AI agents.
+- ✅ **Open source from day 1.** The repository is public from inception; no closed-source phase.
+- ✅ **Fully automated DevOps.** Build, test, release, and deployment are end-to-end automated.
+- ✅ **Dogfooding & bootstrapping.** agentserver is built (partially) *with* agentserver — every feature is used by our own agents before it ships.
 
 ## Quick Start
 
@@ -316,6 +367,17 @@ go run . serve --db-url "postgres://..." --backend docker
 # Terminal 2: Start frontend dev server
 cd web && pnpm install && pnpm dev
 ```
+
+Per the [Code of Conduct](#code-of-conduct), production code is AI-generated. Pull requests authored by an agent (with a human reviewer) are welcome; the repo is dogfooded against itself.
+
+## Known Limitations
+
+We try to be honest about where this project stands:
+
+- **Likely to be absorbed from above.** The differentiating capabilities — local-agent access, cross-device collaboration — will probably be replicated natively by Claude Code, Codex, and similar tools within roughly 6 months. Technical moats here are shallow.
+- **Monetization is structurally weak.** The natural user base is individual developers conditioned to free tooling; enterprise willingness-to-pay tends to be captured by model providers, not by the harness layer.
+
+We build it anyway because the abstractions (stateless harness, hybrid mesh, mailbox handoff) are interesting in their own right, and because the repo doubles as a working laboratory for the "build your own orchestrator" rung of the autonomy ladder.
 
 ## License
 
