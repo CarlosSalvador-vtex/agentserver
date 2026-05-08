@@ -370,15 +370,6 @@ cd web && pnpm install && pnpm dev
 
 Per the [Code of Conduct](#code-of-conduct), production code is AI-generated. Pull requests authored by an agent (with a human reviewer) are welcome; the repo is dogfooded against itself.
 
-## Known Limitations
-
-We try to be honest about where this project stands:
-
-- **Likely to be absorbed from above.** The differentiating capabilities — local-agent access, cross-device collaboration — will probably be replicated natively by Claude Code, Codex, and similar tools within roughly 6 months. Technical moats here are shallow.
-- **Monetization is structurally weak.** The natural user base is individual developers conditioned to free tooling; enterprise willingness-to-pay tends to be captured by model providers, not by the harness layer.
-
-We build it anyway because the abstractions (stateless harness, hybrid mesh, mailbox handoff) are interesting in their own right, and because the repo doubles as a working laboratory for the "build your own orchestrator" rung of the autonomy ladder.
-
 ## License
 
 [MIT](LICENSE)
