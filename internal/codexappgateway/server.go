@@ -129,7 +129,10 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	childWS, _, err := websocket.Dial(ctx, handle.WSURL, nil)
+	childWS, _, err := websocket.Dial(ctx, handle.WSURL, &websocket.DialOptions{
+		// codex app-server rejects connections that request permessage-deflate.
+		CompressionMode: websocket.CompressionDisabled,
+	})
 	if err != nil {
 		s.logger.Error("dial child", "err", err, "url", handle.WSURL)
 		_ = userWS.Close(websocket.StatusInternalError, "subprocess dial failed")
