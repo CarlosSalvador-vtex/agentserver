@@ -1,5 +1,14 @@
 # codex-app-gateway Runtime Implementation Plan (2b of 4)
 
+> **🪦 OBSOLETE 2026-05-10.** Successor spec:
+> [`2026-05-10-codex-gateway-mcp-rewrite.md`](../specs/2026-05-10-codex-gateway-mcp-rewrite.md).
+> The runtime architecture (handlers, session worker, recovery,
+> revocation, e2e) carries forward, but the runner stack changes:
+> manifest writer → `[mcp_servers]` config writer; spawned codex no
+> longer needs `CODEX_EXEC_SERVERS_JSON`; an env-mcp stdio child is
+> spawned per executor per turn. Do not execute as-is; wait for the
+> rewritten plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Layer the runtime — JSON-RPC handlers, codex driver, event mapper,

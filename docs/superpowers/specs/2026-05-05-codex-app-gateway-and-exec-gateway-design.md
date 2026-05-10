@@ -1,6 +1,20 @@
 # codex-app-gateway + codex-exec-gateway — Design Spec
 
-**Status:** draft
+> **🪦 SUPERSEDED 2026-05-10** by
+> [`2026-05-10-codex-gateway-mcp-rewrite.md`](2026-05-10-codex-gateway-mcp-rewrite.md).
+> The new spec deletes fork patches P1–P4 (~730 LOC) by routing
+> per-environment dispatch through native codex MCP servers (one MCP
+> server per executor, LLM picks via tool name) — a pattern PoC F
+> already validated on the cc side (2026-05-05). Subsystems 2 and 3
+> (codex-app-gateway, codex-exec-gateway) carry forward almost
+> unchanged; only the manifest writer is replaced with an
+> `[mcp_servers]` config writer plus a small env-mcp child. The four
+> 2026-05-05 plan files derived from this spec are obsolete in their
+> current shape and will be rewritten to track the new spec.
+>
+> **Do not implement this spec.** Read it for historical context only.
+
+**Status:** SUPERSEDED. Original status was: draft
 **Date:** 2026-05-05
 **Owner:** agentserver / codex integration
 **Scope:** Three subsystems that together let users run codex locally with a

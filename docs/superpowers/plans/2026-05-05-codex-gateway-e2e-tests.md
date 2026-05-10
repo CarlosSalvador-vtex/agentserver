@@ -1,6 +1,14 @@
 # codex-app-gateway + codex-exec-gateway — End-to-End Acceptance Harness Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **🪦 OBSOLETE 2026-05-10.** Successor spec:
+> [`2026-05-10-codex-gateway-mcp-rewrite.md`](../specs/2026-05-10-codex-gateway-mcp-rewrite.md).
+> Most acceptance scenarios carry forward verbatim, but two new
+> assertions become required: (1) the spawned codex's `tools/list` at
+> turn start contains `exe_xxx__shell` / `exe_xxx__apply_patch` and
+> NOT plain `shell` / `apply_patch` / `unified_exec`; (2) one env-mcp
+> child process per executor exists for the lifetime of the turn. The
+> harness will be re-issued with these additions. Do not execute as-is;
+> wait for the re-issued plan.
 
 **Goal:** Stand up a docker-compose stack — Postgres + codex-app-gateway +
 codex-exec-gateway + a fake `codex-app` ws client + a fake `codex-exec` ws

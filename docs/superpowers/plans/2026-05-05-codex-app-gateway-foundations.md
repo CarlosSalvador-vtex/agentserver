@@ -1,5 +1,16 @@
 # codex-app-gateway — Foundations (Plan 2a of 2)
 
+> **🪦 OBSOLETE 2026-05-10.** This plan was derived from the now-superseded
+> [`2026-05-05-codex-app-gateway-and-exec-gateway-design.md`](../specs/2026-05-05-codex-app-gateway-and-exec-gateway-design.md).
+> The successor spec
+> [`2026-05-10-codex-gateway-mcp-rewrite.md`](../specs/2026-05-10-codex-gateway-mcp-rewrite.md)
+> drops codex fork patches P1–P4 and replaces the per-turn manifest
+> writer with an `[mcp_servers]` config writer plus a small env-mcp
+> child. **Most of this plan's task list still applies** (cmd entry,
+> store/migrations, JSON-RPC envelope, ws listener, protocol types,
+> capability tokens, workspace package) — only the manifest-writer task
+> needs to be reshaped. Do not execute as-is; wait for the rewritten plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up the static foundations of the new `codex-app-gateway`

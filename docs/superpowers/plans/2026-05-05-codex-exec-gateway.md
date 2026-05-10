@@ -1,5 +1,14 @@
 # codex-exec-gateway Implementation Plan
 
+> **🪦 OBSOLETE 2026-05-10 (mostly carries forward unchanged).** Successor
+> spec: [`2026-05-10-codex-gateway-mcp-rewrite.md`](../specs/2026-05-10-codex-gateway-mcp-rewrite.md).
+> Under the new spec, the consumer of `/bridge/{exe_id}` is the env-mcp
+> child instead of the spawned codex itself, but the wire protocol and
+> auth model are unchanged — so almost every task in this plan is still
+> correct. The plan will be re-issued with that single contextual edit
+> rather than rewritten from scratch. Do not execute as-is; wait for
+> the re-issued plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the new `codex-exec-gateway` Go service: a transparent
