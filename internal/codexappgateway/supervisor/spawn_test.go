@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// BuildFakeCodexForTest compiles a small Go program that mimics the bits of
+// buildFakeCodex compiles a small Go program that mimics the bits of
 // `codex app-server` we depend on: print "ws://127.0.0.1:PORT" on
 // stdout, then serve /readyz on that port.
-func BuildFakeCodexForTest(t *testing.T) string {
+func buildFakeCodex(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
@@ -51,7 +51,7 @@ func main() {
 }
 
 func TestSpawnCodexAppServer_HappyPath(t *testing.T) {
-	bin := BuildFakeCodexForTest(t)
+	bin := buildFakeCodex(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	h, err := spawnCodexAppServer(ctx, bin, t.TempDir(), nil)

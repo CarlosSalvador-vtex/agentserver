@@ -50,16 +50,33 @@ func (a *HMAC) Mint(workspaceID, threadID string) string {
 }
 
 // Verify parses and HMAC-verifies a token.
+//
+// Token format: <workspace_id>.<thread_id>.<hex-hmac>
+//
+// The sig is always the last dot-separated field. The workspace_id is
+// always the first dot-separated field in the prefix (everything before
+// the sig); the thread_id is everything between the first and last dots.
+// This means thread_id may contain dots but workspace_id may not.
+//
+// Last dot separates the sig from the (workspace_id, thread_id, ...) prefix.
+// We split into "head" and "sig" instead of 3 fixed parts so thread
+// ids that themselves contain dots verify correctly.
 func (a *HMAC) Verify(token string) (Identity, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+	lastDot := strings.LastIndex(token, ".")
+	if lastDot < 0 || lastDot == 0 || lastDot == len(token)-1 {
 		return Identity{}, errors.New("auth: malformed token")
 	}
-	expected := a.Mint(parts[0], parts[1])
-	if !hmac.Equal([]byte(expected), []byte(token)) {
+	head, sig := token[:lastDot], token[lastDot+1:]
+	sep := strings.IndexByte(head, '.')
+	if sep < 0 || sep == 0 || sep == len(head)-1 {
+		return Identity{}, errors.New("auth: malformed token")
+	}
+	workspaceID, threadID := head[:sep], head[sep+1:]
+	expected := a.Mint(workspaceID, threadID)
+	if !hmac.Equal([]byte(expected), []byte(workspaceID+"."+threadID+"."+sig)) {
 		return Identity{}, errors.New("auth: signature mismatch")
 	}
-	return Identity{WorkspaceID: parts[0], ThreadID: parts[1]}, nil
+	return Identity{WorkspaceID: workspaceID, ThreadID: threadID}, nil
 }
 
 // ExtractBearer pulls the token out of `Authorization: Bearer <tok>`.

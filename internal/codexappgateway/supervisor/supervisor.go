@@ -120,12 +120,13 @@ func (s *Supervisor) Shutdown(ctx context.Context, key Key) error {
 
 	// Continue uploading even if Stop errors — flushed sqlite is still useful.
 	_ = e.handle.Stop(ctx)
+	// Always reclaim disk before returning, even if S3 upload fails.
+	// (S3 upload failure is transient; leaking the tmpdir would compound on
+	// long-running pods with intermittent S3 connectivity.)
+	defer func() { _ = s.cfg.HomeMgr.RemoveTmpDir(e.codexHome) }()
 	backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
 	if err := backend.Upload(ctx, e.codexHome); err != nil {
 		return fmt.Errorf("S3 upload: %w", err)
-	}
-	if err := s.cfg.HomeMgr.RemoveTmpDir(e.codexHome); err != nil {
-		return fmt.Errorf("remove tmpdir: %w", err)
 	}
 	return nil
 }

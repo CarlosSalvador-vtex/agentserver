@@ -147,6 +147,17 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 	s.sup.Touch(key)
 }
 
+// handleAdminRestart shuts down the codex app-server subprocess for a
+// given (workspaceId, threadId), forcing a fresh spawn (and S3 reload)
+// on the next ws connect. Used by operators after executor-binding
+// changes; see spec § Subsystem 2 "Per-turn config refresh".
+//
+// AUTHORIZATION (phase 1): the bearer token's identity is checked only
+// to authenticate the caller as a valid token holder. The (workspaceId,
+// threadId) to restart is taken from the request body, allowing
+// cross-thread restarts by any authenticated caller. This matches the
+// operator-scoped intent of an admin endpoint. Phase 2 may tighten to
+// require token-identity == body-identity for self-service restarts.
 func (s *Server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
 	tok, ok := auth.ExtractBearer(r)
 	if !ok {

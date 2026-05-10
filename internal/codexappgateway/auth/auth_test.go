@@ -40,6 +40,23 @@ func TestHMACAuthenticator_RejectsBadShape(t *testing.T) {
 	}
 }
 
+func TestHMACAuthenticator_RoundTrip_DottedIDs(t *testing.T) {
+	// workspaceID has no dots (first field); threadID may contain dots
+	// (everything between first and last dot in the token prefix).
+	a := NewHMAC([]byte("secret"))
+	tok := a.Mint("ws_alpha", "thr.42.extra")
+	got, err := a.Verify(tok)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if got.WorkspaceID != "ws_alpha" {
+		t.Errorf("WorkspaceID = %q", got.WorkspaceID)
+	}
+	if got.ThreadID != "thr.42.extra" {
+		t.Errorf("ThreadID = %q", got.ThreadID)
+	}
+}
+
 func TestExtractBearer(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer foo.bar.baz")
