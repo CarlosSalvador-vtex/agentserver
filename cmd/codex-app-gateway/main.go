@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,6 +19,20 @@ const usage = `codex-app-gateway — codex gateway binary
 Subcommands:
   env-mcp     Run as a stdio MCP child for one executor (per spawned codex turn)
   serve       Run the gateway HTTP/WS server (not implemented in this plan)
+`
+
+const envMcpHelp = `Usage: codex-app-gateway env-mcp [flags]
+
+Run the binary as a stdio MCP child for one executor (per spawned codex turn).
+
+Required flags:
+  --exe-id     <id>             executor id
+  --bridge-url <ws-url>         ws URL for /bridge/{exe_id}
+  --token-env  <env-var-name>   env var holding the cap token (token never appears in argv)
+
+Optional flags:
+  --exe-desc   <text>           executor description shown to the LLM (default: --exe-id)
+  --turn-id    <id>             turn id (logged to stderr only)
 `
 
 func main() {
@@ -41,6 +57,10 @@ func main() {
 
 func runEnvMcp(rawArgs []string) {
 	args, err := parseEnvMcpArgs(rawArgs)
+	if errors.Is(err, flag.ErrHelp) {
+		fmt.Fprint(os.Stderr, envMcpHelp)
+		os.Exit(0)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "codex-app-gateway env-mcp:", err)
 		os.Exit(2)
@@ -56,6 +76,7 @@ func runEnvMcp(rawArgs []string) {
 
 func parseEnvMcpArgs(rawArgs []string) (envmcp.RunArgs, error) {
 	fs := flag.NewFlagSet("env-mcp", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	exeID := fs.String("exe-id", "", "executor id (required)")
 	bridgeURL := fs.String("bridge-url", "", "ws URL for /bridge/{exe_id} (required)")
 	tokenEnv := fs.String("token-env", "", "env var name holding the cap token (required)")
@@ -63,6 +84,9 @@ func parseEnvMcpArgs(rawArgs []string) (envmcp.RunArgs, error) {
 	turnID := fs.String("turn-id", "", "turn id (logged to stderr only)")
 	if err := fs.Parse(rawArgs); err != nil {
 		return envmcp.RunArgs{}, err
+	}
+	if fs.NArg() > 0 {
+		return envmcp.RunArgs{}, fmt.Errorf("unexpected positional arguments: %v", fs.Args())
 	}
 	if *exeID == "" {
 		return envmcp.RunArgs{}, fmt.Errorf("--exe-id is required")

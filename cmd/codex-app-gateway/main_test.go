@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"strings"
 	"testing"
 )
@@ -72,5 +74,37 @@ func TestParseEnvMcpArgs_DescDefaultsToExeID(t *testing.T) {
 	}
 	if args.ExeDesc != "exe_x" {
 		t.Errorf("ExeDesc default = %q, want exe_x", args.ExeDesc)
+	}
+}
+
+func TestParseEnvMcpArgs_HelpFlag_ReturnsErrHelp(t *testing.T) {
+	_, err := parseEnvMcpArgs([]string{"--help"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("want flag.ErrHelp, got %v", err)
+	}
+}
+
+func TestParseEnvMcpArgs_RejectsTrailingPositional(t *testing.T) {
+	_, err := parseEnvMcpArgs([]string{
+		"--exe-id", "x",
+		"--bridge-url", "ws://x/bridge/y",
+		"--token-env", "T",
+		"unexpected",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("want unexpected-positional error, got %v", err)
+	}
+}
+
+func TestParseEnvMcpArgs_UnknownFlag_NoStderrLeak(t *testing.T) {
+	// Smoke test: parse should error without panicking and the error
+	// should be the FlagSet's own message (i.e., we didn't suppress it
+	// to the point of losing the diagnostic).
+	_, err := parseEnvMcpArgs([]string{"--bogus", "x"})
+	if err == nil {
+		t.Fatal("want error on unknown flag")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("error should name the offending flag: %v", err)
 	}
 }
