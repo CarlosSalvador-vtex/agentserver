@@ -21,10 +21,15 @@ type RunArgs struct {
 // Run dials the bridge, initializes the exec-server session, then runs
 // the stdio MCP server loop until stdin EOF or context cancellation.
 //
-// stderr is reserved for env-mcp's own diagnostic logging; stdout is
-// dedicated to MCP JSON-RPC frames. Anything written to stdout outside
-// of MCPServer.Serve corrupts the MCP stream.
-func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, _ io.Writer, logger *slog.Logger) error {
+// stdout is dedicated to MCP JSON-RPC frames; anything written to it
+// outside MCPServer.Serve corrupts the MCP stream. Diagnostic output
+// goes through `logger`. The `stderr` parameter is accepted for
+// signature symmetry with main.go's `os.Stderr` argument and is
+// reserved for future direct writes (e.g., panic dumps); current code
+// does not write to it. Callers wanting to capture stderr-style
+// diagnostics should configure `logger` accordingly.
+func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, stderr io.Writer, logger *slog.Logger) error {
+	_ = stderr // see doc comment; reserved for future direct writes
 	token := os.Getenv(args.TokenEnv)
 	if token == "" {
 		return fmt.Errorf("env var %s is empty; cannot authenticate to bridge", args.TokenEnv)
