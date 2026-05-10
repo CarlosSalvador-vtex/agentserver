@@ -28,6 +28,9 @@ func TestParseEnvMcpArgs_HappyPath(t *testing.T) {
 	if args.ExeDesc != "Daisy's MacBook" {
 		t.Errorf("ExeDesc = %q", args.ExeDesc)
 	}
+	if args.TurnID != "trn_xxx" {
+		t.Errorf("TurnID = %q", args.TurnID)
+	}
 }
 
 func TestParseEnvMcpArgs_RequiresExeID(t *testing.T) {
