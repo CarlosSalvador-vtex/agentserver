@@ -43,12 +43,9 @@ func (s *Server) Routes() http.Handler {
 	return r
 }
 
-// ConnRegistry stub — replaced in Task 5.
-type ConnRegistry struct{}
+// (real ConnRegistry lives in registry.go; real RevokedSet in revocation.go)
 
-func NewConnRegistry() *ConnRegistry { return &ConnRegistry{} }
-
-// RevokedSet stub — replaced in Task 6.
+// Stub kept until task 6 supplies the real revocation.go.
 type RevokedSet struct{}
 
 func NewRevokedSet(int) *RevokedSet { return &RevokedSet{} }
