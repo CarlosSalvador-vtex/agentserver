@@ -43,9 +43,6 @@ func (s *Server) Routes() http.Handler {
 	return r
 }
 
-// Store is a placeholder until Task 2 implements it.
-type Store struct{}
-
 // ConnRegistry stub — replaced in Task 5.
 type ConnRegistry struct{}
 
