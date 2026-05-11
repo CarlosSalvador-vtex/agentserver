@@ -147,3 +147,81 @@ func (s *Store) UpdateLastSeen(ctx context.Context, exeID string) error {
 
 // Close closes the underlying DB.
 func (s *Store) Close() error { return s.DB.Close() }
+
+// BindWorkspaceExecutor inserts a workspace ↔ executor binding (or upserts is_default).
+func (s *Store) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string, isDefault bool) error {
+	_, err := s.ExecContext(ctx, `
+		INSERT INTO workspace_executors (workspace_id, exe_id, is_default)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (workspace_id, exe_id)
+		DO UPDATE SET is_default = EXCLUDED.is_default`,
+		workspaceID, exeID, isDefault)
+	if err != nil {
+		return fmt.Errorf("bind workspace executor: %w", err)
+	}
+	return nil
+}
+
+// UnbindWorkspaceExecutor removes a binding row.
+func (s *Store) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error {
+	_, err := s.ExecContext(ctx, `
+		DELETE FROM workspace_executors
+		WHERE workspace_id=$1 AND exe_id=$2`, workspaceID, exeID)
+	if err != nil {
+		return fmt.Errorf("unbind workspace executor: %w", err)
+	}
+	return nil
+}
+
+// ListWorkspaceExecutors returns all bindings for a workspace, joined with executor metadata.
+func (s *Store) ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]ConnectedExecutor, error) {
+	rows, err := s.QueryContext(ctx, `
+		SELECT we.exe_id,
+		       COALESCE(e.description, ''),
+		       COALESCE(e.default_cwd, ''),
+		       we.is_default,
+		       e.last_seen_at
+		FROM workspace_executors we
+		JOIN executors e ON e.exe_id = we.exe_id
+		WHERE we.workspace_id = $1
+		ORDER BY we.created_at`, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("list workspace executors: %w", err)
+	}
+	defer rows.Close()
+	var out []ConnectedExecutor
+	for rows.Next() {
+		var c ConnectedExecutor
+		var lastSeen sql.NullTime
+		if err := rows.Scan(&c.ExeID, &c.Description, &c.DefaultCwd, &c.IsDefault, &lastSeen); err != nil {
+			return nil, err
+		}
+		if lastSeen.Valid {
+			t := lastSeen.Time
+			c.LastSeenAt = &t
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ConnectedExecutorsForWorkspace returns the intersection of (workspace's bound
+// executors) ∩ (the connected exe_id list passed in). Used by the internal
+// `/api/exec-gateway/connected` endpoint.
+func (s *Store) ConnectedExecutorsForWorkspace(ctx context.Context, workspaceID string, connectedIDs []string) ([]ConnectedExecutor, error) {
+	all, err := s.ListWorkspaceExecutors(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	connSet := make(map[string]struct{}, len(connectedIDs))
+	for _, id := range connectedIDs {
+		connSet[id] = struct{}{}
+	}
+	var out []ConnectedExecutor
+	for _, c := range all {
+		if _, ok := connSet[c.ExeID]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
