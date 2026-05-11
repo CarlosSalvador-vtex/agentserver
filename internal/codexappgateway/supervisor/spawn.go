@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func (h *ChildHandle) Stop(ctx context.Context) error {
 // streams concurrently and extract the first line containing "ws://".
 func spawnCodexAppServer(ctx context.Context, codexBin, codexHome string, extraEnv []string) (*ChildHandle, error) {
 	cmd := exec.Command(codexBin, "app-server", "--listen", "ws://127.0.0.1:0")
-	cmd.Env = append(append([]string{}, extraEnv...), "CODEX_HOME="+codexHome)
+	cmd.Env = append(append(os.Environ(), extraEnv...), "CODEX_HOME="+codexHome)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)

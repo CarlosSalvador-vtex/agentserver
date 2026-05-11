@@ -22,7 +22,7 @@ func TestReaper_RetiresIdleSubprocess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewIdleReaper(sup, 50*time.Millisecond, 100*time.Millisecond)
+	r := NewIdleReaper(sup, 50*time.Millisecond, 100*time.Millisecond, nil)
 	rctx, rcancel := context.WithCancel(context.Background())
 	defer rcancel()
 	go r.Run(rctx)
@@ -55,7 +55,7 @@ func TestReaper_KeepsActiveSubprocess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewIdleReaper(sup, 30*time.Millisecond, 200*time.Millisecond)
+	r := NewIdleReaper(sup, 30*time.Millisecond, 200*time.Millisecond, nil)
 	rctx, rcancel := context.WithCancel(context.Background())
 	defer rcancel()
 	go r.Run(rctx)

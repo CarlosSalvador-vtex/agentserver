@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -21,12 +22,14 @@ type SupervisorConfig struct {
 	CodexBin string
 	HomeMgr  *codexhome.Manager
 	Store    codexhome.ObjectStore
-	ExtraEnv []string // forwarded to every spawned subprocess
+	ExtraEnv []string     // forwarded to every spawned subprocess
+	Logger   *slog.Logger // defaults to slog.Default() if nil
 }
 
 // Supervisor owns the in-memory (workspace, thread) → subprocess map.
 type Supervisor struct {
-	cfg SupervisorConfig
+	cfg    SupervisorConfig
+	logger *slog.Logger
 
 	mu       sync.Mutex
 	children map[Key]*entry
@@ -43,7 +46,11 @@ type entry struct {
 type ConfigBuilder func() (codexhome.ConfigInput, error)
 
 func NewSupervisor(cfg SupervisorConfig) *Supervisor {
-	return &Supervisor{cfg: cfg, children: map[Key]*entry{}}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Supervisor{cfg: cfg, logger: logger, children: map[Key]*entry{}}
 }
 
 // EnsureSubprocess returns a live ChildHandle for key, spawning one if
@@ -69,8 +76,12 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 		backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
 		// Best-effort: ignore upload error here — the dead-process cleanup
 		// path can't usefully retry, and we'd rather respawn than block.
-		_ = backend.Upload(ctx, deadHome)
-		_ = s.cfg.HomeMgr.RemoveTmpDir(deadHome)
+		if err := backend.Upload(ctx, deadHome); err != nil {
+			s.logger.Warn("dead-subprocess CODEX_HOME upload failed", "key", key, "err", err)
+		}
+		if err := s.cfg.HomeMgr.RemoveTmpDir(deadHome); err != nil {
+			s.logger.Warn("dead-subprocess tmpdir cleanup failed", "key", key, "err", err)
+		}
 		// Fall through to the spawn path below.
 	} else {
 		s.mu.Unlock()
@@ -110,12 +121,10 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 		// during the SIGTERM→SIGKILL window.
 		go func() {
 			if err := handle.Stop(context.Background()); err != nil {
-				// Batch B adds the logger; until then, swallow with a defensive
-				// no-op + a comment noting the discarded error.
-				_ = err
+				s.logger.Warn("race-loser subprocess stop failed", "key", key, "err", err)
 			}
 			if err := s.cfg.HomeMgr.RemoveTmpDir(codexHome); err != nil {
-				_ = err
+				s.logger.Warn("race-loser tmpdir cleanup failed", "key", key, "err", err)
 			}
 		}()
 		return winner, nil
@@ -150,11 +159,17 @@ func (s *Supervisor) Shutdown(ctx context.Context, key Key) error {
 	s.mu.Unlock()
 
 	// Continue uploading even if Stop errors — flushed sqlite is still useful.
-	_ = e.handle.Stop(ctx)
+	if err := e.handle.Stop(ctx); err != nil {
+		s.logger.Warn("subprocess stop failed", "key", key, "err", err)
+	}
 	// Always reclaim disk before returning, even if S3 upload fails.
 	// (S3 upload failure is transient; leaking the tmpdir would compound on
 	// long-running pods with intermittent S3 connectivity.)
-	defer func() { _ = s.cfg.HomeMgr.RemoveTmpDir(e.codexHome) }()
+	defer func() {
+		if err := s.cfg.HomeMgr.RemoveTmpDir(e.codexHome); err != nil {
+			s.logger.Warn("tmpdir cleanup failed", "key", key, "err", err)
+		}
+	}()
 	backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
 	if err := backend.Upload(ctx, e.codexHome); err != nil {
 		return fmt.Errorf("S3 upload: %w", err)
@@ -171,7 +186,9 @@ func (s *Supervisor) ShutdownAll(ctx context.Context) {
 	}
 	s.mu.Unlock()
 	for _, k := range keys {
-		_ = s.Shutdown(ctx, k)
+		if err := s.Shutdown(ctx, k); err != nil {
+			s.logger.Error("ShutdownAll: subprocess shutdown failed (CODEX_HOME may not be saved to S3)", "key", k, "err", err)
+		}
 	}
 }
 

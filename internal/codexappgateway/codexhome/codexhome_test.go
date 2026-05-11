@@ -44,6 +44,26 @@ func TestManager_RemoveTmpDir(t *testing.T) {
 	}
 }
 
+func TestManager_RemoveTmpDir_RejectsOutsideRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(root)
+	// Sibling directory whose name starts with the same prefix as root
+	sibling := root + "-evil"
+	if err := os.MkdirAll(sibling, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RemoveTmpDir(filepath.Join(sibling, "x")); err == nil {
+		t.Fatal("RemoveTmpDir should reject sibling-prefix path")
+	}
+	// Confirm the sibling still exists.
+	if _, err := os.Stat(sibling); err != nil {
+		t.Errorf("sibling unexpectedly removed: %v", err)
+	}
+}
+
 func TestRenderConfigTOML_DisablesBuiltinShellAndRegistersMCPServers(t *testing.T) {
 	cfg := ConfigInput{
 		ModelProvider: "modelserver",
@@ -98,6 +118,20 @@ func TestRenderConfigTOML_DisablesBuiltinShellAndRegistersMCPServers(t *testing.
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderConfigTOML_RejectsActiveProviderNotInMap(t *testing.T) {
+	cfg := ConfigInput{
+		ModelProvider: "missing",
+		Model:         "m",
+		ModelProviders: map[string]ModelProvider{
+			"other": {Name: "other", BaseURL: "http://x", EnvKey: "K", WireAPI: "responses"},
+		},
+	}
+	_, err := RenderConfigTOML(cfg)
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("want error naming missing provider, got %v", err)
 	}
 }
 

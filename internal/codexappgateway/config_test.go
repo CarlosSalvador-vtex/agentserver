@@ -52,6 +52,15 @@ func TestLoadServeConfig_RequiresExecGatewayURL(t *testing.T) {
 	}
 }
 
+func TestLoadServeConfig_RejectsBadS3Endpoint(t *testing.T) {
+	setRequired(t)
+	t.Setenv("CXG_S3_ENDPOINT", "no-scheme.example.com")
+	_, err := LoadServeConfigFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "scheme") {
+		t.Fatalf("want scheme error, got %v", err)
+	}
+}
+
 func TestLoadServeConfig_OverridesIdleShutdown(t *testing.T) {
 	setRequired(t)
 	t.Setenv("CXG_IDLE_SHUTDOWN", "5m")

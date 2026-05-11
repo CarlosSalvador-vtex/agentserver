@@ -59,7 +59,8 @@ func (m *Manager) NewTmpDir(workspaceID, threadID string) (string, error) {
 // RemoveTmpDir removes a previously-created tmpdir tree, but refuses
 // to remove anything outside the manager's root.
 func (m *Manager) RemoveTmpDir(path string) error {
-	if !strings.HasPrefix(path, m.root) {
+	rel, err := filepath.Rel(m.root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("codexhome: refusing to remove %s outside root %s", path, m.root)
 	}
 	return os.RemoveAll(path)
@@ -82,6 +83,11 @@ func RenderConfigTOML(cfg ConfigInput) (string, error) {
 	}
 	if cfg.Model == "" {
 		return "", fmt.Errorf("codexhome: Model required")
+	}
+	if len(cfg.ModelProviders) > 0 {
+		if _, ok := cfg.ModelProviders[cfg.ModelProvider]; !ok {
+			return "", fmt.Errorf("codexhome: ModelProvider %q not in ModelProviders", cfg.ModelProvider)
+		}
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "model_provider = %q\n", cfg.ModelProvider)

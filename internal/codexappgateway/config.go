@@ -3,11 +3,15 @@ package codexappgateway
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 )
 
+// S3Config matches the shape used by internal/ccbroker/workspace/s3store.go;
+// dedup into a shared storage package is a known follow-up. Until then,
+// keep validation here in sync with ccbroker's.
 type S3Config struct {
 	Endpoint        string
 	Region          string
@@ -53,6 +57,11 @@ func LoadServeConfigFromEnv() (ServeConfig, error) {
 	}
 	if cfg.S3.Endpoint == "" {
 		return cfg, fmt.Errorf("CXG_S3_ENDPOINT is required")
+	}
+	if u, err := url.Parse(cfg.S3.Endpoint); err != nil {
+		return cfg, fmt.Errorf("CXG_S3_ENDPOINT not a valid URL: %w", err)
+	} else if u.Scheme != "http" && u.Scheme != "https" {
+		return cfg, fmt.Errorf("CXG_S3_ENDPOINT must use http:// or https:// scheme, got %q", cfg.S3.Endpoint)
 	}
 	if cfg.S3.Bucket == "" {
 		return cfg, fmt.Errorf("CXG_S3_BUCKET is required")

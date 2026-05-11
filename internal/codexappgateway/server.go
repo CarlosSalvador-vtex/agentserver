@@ -67,7 +67,7 @@ func NewServer(cfg ServeConfig, codexBin string, logger *slog.Logger) (*Server, 
 // Run serves HTTP until ctx is done.
 func (s *Server) Run(ctx context.Context, listenAddr string) error {
 	httpSrv := &http.Server{Addr: listenAddr, Handler: s.Routes()}
-	reaper := supervisor.NewIdleReaper(s.sup, 1*time.Minute, s.cfg.IdleShutdown)
+	reaper := supervisor.NewIdleReaper(s.sup, 1*time.Minute, s.cfg.IdleShutdown, s.logger)
 	reaperCtx, reaperCancel := context.WithCancel(context.Background())
 	defer reaperCancel()
 	go reaper.Run(reaperCtx)
