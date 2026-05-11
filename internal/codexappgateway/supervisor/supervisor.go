@@ -49,15 +49,32 @@ func NewSupervisor(cfg SupervisorConfig) *Supervisor {
 // EnsureSubprocess returns a live ChildHandle for key, spawning one if
 // necessary. Concurrent EnsureSubprocess calls for the same key see
 // the same handle (one-spawn-per-key invariant; loser of the race
-// discards their spawn).
+// discards their spawn). If a cached entry's subprocess has crashed,
+// it is evicted and a fresh subprocess is spawned.
 func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build ConfigBuilder) (*ChildHandle, error) {
 	s.mu.Lock()
 	if e, ok := s.children[key]; ok {
-		e.lastActive = time.Now()
+		if e.handle.IsAlive() {
+			e.lastActive = time.Now()
+			s.mu.Unlock()
+			return e.handle, nil
+		}
+		// Subprocess crashed since the entry was last seen. Drop it; we'll
+		// respawn below. Try to upload its CODEX_HOME state first so the
+		// freshly-spawned successor can resume from where the dead one
+		// left off (sqlite WAL may still be flushable).
+		deadHome := e.codexHome
+		delete(s.children, key)
 		s.mu.Unlock()
-		return e.handle, nil
+		backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
+		// Best-effort: ignore upload error here — the dead-process cleanup
+		// path can't usefully retry, and we'd rather respawn than block.
+		_ = backend.Upload(ctx, deadHome)
+		_ = s.cfg.HomeMgr.RemoveTmpDir(deadHome)
+		// Fall through to the spawn path below.
+	} else {
+		s.mu.Unlock()
 	}
-	s.mu.Unlock()
 
 	cfg, err := build()
 	if err != nil {
@@ -84,20 +101,34 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if e, ok := s.children[key]; ok {
 		// Lost the race; discard our spawn and return theirs.
-		_ = handle.Stop(ctx)
-		_ = s.cfg.HomeMgr.RemoveTmpDir(codexHome)
 		e.lastActive = time.Now()
-		return e.handle, nil
+		winner := e.handle
+		s.mu.Unlock()
+		// Clean up our discarded spawn out-of-band so the lock isn't held
+		// during the SIGTERM→SIGKILL window.
+		go func() {
+			if err := handle.Stop(context.Background()); err != nil {
+				// Batch B adds the logger; until then, swallow with a defensive
+				// no-op + a comment noting the discarded error.
+				_ = err
+			}
+			if err := s.cfg.HomeMgr.RemoveTmpDir(codexHome); err != nil {
+				_ = err
+			}
+		}()
+		return winner, nil
 	}
 	s.children[key] = &entry{handle: handle, codexHome: codexHome, lastActive: time.Now()}
+	s.mu.Unlock()
 	return handle, nil
 }
 
-// Touch bumps the last-active timestamp for a key. Called by the proxy
-// pump on every frame so the reaper sees fresh activity.
+// Touch bumps the last-active timestamp for a key. Callers must invoke
+// it on every proxied frame (see proxy.RunProxy's onFrame callback) so
+// the IdleReaper sees fresh activity for the duration of an active
+// session, not just at connect/disconnect.
 func (s *Supervisor) Touch(key Key) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

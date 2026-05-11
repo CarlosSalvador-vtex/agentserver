@@ -10,38 +10,64 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 // ChildHandle is what spawnCodexAppServer returns.
 type ChildHandle struct {
-	Cmd       *exec.Cmd
+	cmd       *exec.Cmd
 	WSURL     string // ws://127.0.0.1:PORT
 	HTTPURL   string // http://127.0.0.1:PORT  (for /readyz, /healthz)
 	CodexHome string
+	done      chan struct{} // closed after cmd.Wait returns
+	waitErr   error        // set before done is closed
+	waitMu    sync.Mutex   // guards waitErr
 }
+
+// IsAlive reports whether the subprocess is still running. Cheap;
+// suitable for calling on every EnsureSubprocess hit.
+func (h *ChildHandle) IsAlive() bool {
+	if h == nil || h.done == nil {
+		return false
+	}
+	select {
+	case <-h.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// Done returns a channel closed after the subprocess exits. Useful for
+// callers that want to be notified of unexpected termination.
+func (h *ChildHandle) Done() <-chan struct{} { return h.done }
 
 // Stop sends SIGTERM, waits up to 10s, then SIGKILLs.
 func (h *ChildHandle) Stop(ctx context.Context) error {
-	if h.Cmd == nil || h.Cmd.Process == nil {
+	if h.cmd == nil || h.cmd.Process == nil {
 		return nil
 	}
-	if err := h.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("SIGTERM: %w", err)
+	if err := h.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		// Process may already have exited; treat as success.
+		select {
+		case <-h.done:
+			return nil
+		default:
+			return fmt.Errorf("SIGTERM: %w", err)
+		}
 	}
-	done := make(chan error, 1)
-	go func() { done <- h.Cmd.Wait() }()
 	select {
-	case <-done:
+	case <-h.done:
 		return nil
 	case <-time.After(10 * time.Second):
-		_ = h.Cmd.Process.Signal(syscall.SIGKILL)
-		<-done
+		_ = h.cmd.Process.Signal(syscall.SIGKILL)
+		<-h.done
 		return nil
 	case <-ctx.Done():
-		_ = h.Cmd.Process.Signal(syscall.SIGKILL)
-		<-done
+		_ = h.cmd.Process.Signal(syscall.SIGKILL)
+		<-h.done
 		return ctx.Err()
 	}
 }
@@ -149,5 +175,19 @@ func spawnCodexAppServer(ctx context.Context, codexBin, codexHome string, extraE
 		}
 	}
 
-	return &ChildHandle{Cmd: cmd, WSURL: wsURL, HTTPURL: httpURL, CodexHome: codexHome}, nil
+	handle := &ChildHandle{
+		cmd:       cmd,
+		WSURL:     wsURL,
+		HTTPURL:   httpURL,
+		CodexHome: codexHome,
+		done:      make(chan struct{}),
+	}
+	go func() {
+		err := cmd.Wait()
+		handle.waitMu.Lock()
+		handle.waitErr = err
+		handle.waitMu.Unlock()
+		close(handle.done)
+	}()
+	return handle, nil
 }

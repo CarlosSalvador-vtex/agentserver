@@ -164,6 +164,46 @@ func TestSupervisor_Ensure_BuildError_PropagatesAndDoesNotSpawn(t *testing.T) {
 	}
 }
 
+func TestSupervisor_EnsureSubprocess_RespawnsAfterCrash(t *testing.T) {
+	bin := buildFakeCodex(t)
+	root := t.TempDir()
+	store := newFakeStore()
+	mgr := codexhome.NewManager(root)
+	sup := NewSupervisor(SupervisorConfig{CodexBin: bin, HomeMgr: mgr, Store: store})
+	defer sup.ShutdownAll(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	build := func() (codexhome.ConfigInput, error) { return defaultConfigInput(), nil }
+	key := Key{WorkspaceID: "ws_a", ThreadID: "thr_crash"}
+
+	h1, err := sup.EnsureSubprocess(ctx, key, build)
+	if err != nil {
+		t.Fatalf("ensure 1: %v", err)
+	}
+	// Simulate crash: SIGKILL the fake-codex process.
+	if err := h1.cmd.Process.Kill(); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	// Wait for the done channel to close (the wait goroutine in spawn.go
+	// observes the exit and closes done).
+	<-h1.Done()
+	if h1.IsAlive() {
+		t.Fatal("IsAlive returned true after kill+Done")
+	}
+
+	h2, err := sup.EnsureSubprocess(ctx, key, build)
+	if err != nil {
+		t.Fatalf("ensure 2 (after crash): %v", err)
+	}
+	if h1.WSURL == h2.WSURL {
+		t.Errorf("expected fresh subprocess, got same URL %s", h1.WSURL)
+	}
+	if !h2.IsAlive() {
+		t.Error("respawned handle should be alive")
+	}
+}
+
 func keysOf(m map[string][]byte) []string {
 	var ks []string
 	for k := range m {

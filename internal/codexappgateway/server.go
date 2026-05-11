@@ -141,10 +141,9 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 	defer childWS.Close(websocket.StatusNormalClosure, "gateway closing")
 
 	s.sup.Touch(key)
-	if err := proxy.RunProxy(ctx, userWS, childWS); err != nil {
+	if err := proxy.RunProxy(ctx, userWS, childWS, func() { s.sup.Touch(key) }); err != nil {
 		s.logger.Info("proxy ended", "err", err, "key", key)
 	}
-	s.sup.Touch(key)
 }
 
 // handleAdminRestart shuts down the codex app-server subprocess for a
