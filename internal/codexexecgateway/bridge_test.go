@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
@@ -173,5 +174,69 @@ func TestBridge_PairsAndForwardsBidirectional(t *testing.T) {
 	}
 	if mt != websocket.MessageText || string(data) != `{"id":1,"result":{}}` {
 		t.Fatalf("got mt=%v data=%q", mt, data)
+	}
+}
+
+// Task 13: Frame-pump close & error propagation tests
+
+func TestBridge_CloseFromBridgeSidePropagates(t *testing.T) {
+	hs, srv := newInboundTestServer(t)
+	inbound := connectInbound(t, srv, hs.URL, "exe_close1")
+	defer inbound.Close(websocket.StatusInternalError, "test cleanup")
+
+	now := time.Now().Unix()
+	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
+		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_close1"},
+		IAT: now, EXP: now + 60,
+	})
+	url := "ws" + hs.URL[len("http"):] + "/bridge/exe_close1?token=" + tok
+
+	beforeG := runtime.NumGoroutine()
+	bridge, _, err := websocket.Dial(context.Background(), url, nil)
+	if err != nil {
+		t.Fatalf("bridge dial: %v", err)
+	}
+	// Active pair: 2 pump goroutines + 1 handler goroutine on the server side.
+	bridge.Close(websocket.StatusNormalClosure, "client done")
+
+	// Give the pumps time to wind down.
+	time.Sleep(200 * time.Millisecond)
+	afterG := runtime.NumGoroutine()
+	// Allow some scheduler slack: assert no NET growth of more than 1.
+	if afterG > beforeG+1 {
+		t.Fatalf("possible goroutine leak: before=%d after=%d", beforeG, afterG)
+	}
+
+	// Inbound conn must still be registered.
+	if _, ok := srv.registry.Lookup("exe_close1"); !ok {
+		t.Fatal("inbound should still be registered after bridge close")
+	}
+}
+
+func TestBridge_CloseFromInboundSidePropagates(t *testing.T) {
+	hs, srv := newInboundTestServer(t)
+	inbound := connectInbound(t, srv, hs.URL, "exe_close2")
+
+	now := time.Now().Unix()
+	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
+		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_close2"},
+		IAT: now, EXP: now + 60,
+	})
+	url := "ws" + hs.URL[len("http"):] + "/bridge/exe_close2?token=" + tok
+	bridge, _, err := websocket.Dial(context.Background(), url, nil)
+	if err != nil {
+		t.Fatalf("bridge dial: %v", err)
+	}
+	defer bridge.Close(websocket.StatusInternalError, "test cleanup")
+
+	// Close inbound; the bridge pump should observe and return.
+	inbound.Close(websocket.StatusNormalClosure, "executor offline")
+
+	// The bridge client should observe close within a short window.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _, err = bridge.Read(ctx)
+	if err == nil {
+		t.Fatal("bridge.Read should have errored after inbound close")
 	}
 }
