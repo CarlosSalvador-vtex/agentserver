@@ -240,3 +240,77 @@ func TestBridge_CloseFromInboundSidePropagates(t *testing.T) {
 		t.Fatal("bridge.Read should have errored after inbound close")
 	}
 }
+
+// Task 14: End-to-end byte-fidelity test
+//
+// Verifies that the gateway preserves frame boundaries and byte contents
+// across multiple frame types and sizes in both directions.
+
+func TestBridge_E2EByteFidelity(t *testing.T) {
+	hs, srv := newInboundTestServer(t)
+	inbound := connectInbound(t, srv, hs.URL, "exe_e2e")
+	defer inbound.Close(websocket.StatusNormalClosure, "")
+
+	now := time.Now().Unix()
+	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
+		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_e2e"},
+		IAT: now, EXP: now + 60,
+	})
+	url := "ws" + hs.URL[len("http"):] + "/bridge/exe_e2e?token=" + tok
+	bridge, _, err := websocket.Dial(context.Background(), url, nil)
+	if err != nil {
+		t.Fatalf("bridge dial: %v", err)
+	}
+	defer bridge.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Bridge -> inbound: 5 distinct JSON-RPC text frames, each must arrive
+	// as ONE frame (boundary preserved) in order.
+	sent := []string{
+		`{"id":1,"method":"initialize","params":{"clientName":"x"}}`,
+		`{"id":1,"result":{}}`,
+		`{"method":"initialized","params":{}}`,
+		`{"id":2,"method":"process/start","params":{"processId":"p1","argv":["bash","-lc","echo hi"]}}`,
+		`{"id":2,"result":{"processId":"p1"}}`,
+	}
+	for _, s := range sent {
+		if err := bridge.Write(ctx, websocket.MessageText, []byte(s)); err != nil {
+			t.Fatalf("bridge.Write %q: %v", s, err)
+		}
+	}
+	for _, want := range sent {
+		mt, data, err := inbound.Read(ctx)
+		if err != nil {
+			t.Fatalf("inbound.Read: %v", err)
+		}
+		if mt != websocket.MessageText {
+			t.Fatalf("frame type drift: got %v want text", mt)
+		}
+		if string(data) != want {
+			t.Fatalf("frame contents drift: got %q want %q", data, want)
+		}
+	}
+
+	// Inbound -> bridge: large binary frame (32 KiB) round-trips intact.
+	big := make([]byte, 32*1024)
+	for i := range big {
+		big[i] = byte(i % 251)
+	}
+	if err := inbound.Write(ctx, websocket.MessageBinary, big); err != nil {
+		t.Fatalf("inbound.Write big: %v", err)
+	}
+	mt, data, err := bridge.Read(ctx)
+	if err != nil {
+		t.Fatalf("bridge.Read big: %v", err)
+	}
+	if mt != websocket.MessageBinary || len(data) != len(big) {
+		t.Fatalf("big frame: mt=%v len=%d", mt, len(data))
+	}
+	for i := range big {
+		if data[i] != big[i] {
+			t.Fatalf("byte %d: got %x want %x", i, data[i], big[i])
+		}
+	}
+}
