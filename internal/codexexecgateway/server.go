@@ -39,6 +39,8 @@ func (s *Server) Routes() http.Handler {
 		w.Write([]byte("ok"))
 	})
 
+	r.Get("/codex-exec/{exe_id}", s.handleInbound)
+
 	// More routes added in later tasks.
 	return r
 }
