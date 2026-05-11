@@ -46,6 +46,12 @@ func (s *Server) Routes() http.Handler {
 
 	r.Post("/api/codex-exec/register", handlers.Register(registerStoreAdapter{s.store}))
 
+	r.Route("/api/codex-exec/workspaces/{wid}/executors", func(r chi.Router) {
+		r.Post("/", handlers.PostBinding(bindingStoreAdapter{s.store}))
+		r.Get("/", handlers.ListBinding(bindingStoreAdapter{s.store}))
+		r.Delete("/{exe_id}", handlers.DeleteBinding(bindingStoreAdapter{s.store}))
+	})
+
 	// More routes added in later tasks.
 	return r
 }
@@ -63,6 +69,36 @@ func (a registerStoreAdapter) CreateExecutor(ctx context.Context, e handlers.Exe
 		DefaultCwd:   e.DefaultCwd,
 		RegisteredAt: e.RegisteredAt,
 	}, hash)
+}
+
+// bindingStoreAdapter bridges *Store to the handlers.BindingStore interface,
+// avoiding an import cycle between the handlers sub-package and its parent.
+type bindingStoreAdapter struct{ s *Store }
+
+func (a bindingStoreAdapter) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string, isDefault bool) error {
+	return a.s.BindWorkspaceExecutor(ctx, workspaceID, exeID, isDefault)
+}
+
+func (a bindingStoreAdapter) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error {
+	return a.s.UnbindWorkspaceExecutor(ctx, workspaceID, exeID)
+}
+
+func (a bindingStoreAdapter) ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]handlers.ConnectedExecutor, error) {
+	rows, err := a.s.ListWorkspaceExecutors(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]handlers.ConnectedExecutor, len(rows))
+	for i, r := range rows {
+		out[i] = handlers.ConnectedExecutor{
+			ExeID:       r.ExeID,
+			Description: r.Description,
+			DefaultCwd:  r.DefaultCwd,
+			IsDefault:   r.IsDefault,
+			LastSeenAt:  r.LastSeenAt,
+		}
+	}
+	return out, nil
 }
 
 // (real ConnRegistry lives in registry.go; real RevokedSet in revocation.go)
