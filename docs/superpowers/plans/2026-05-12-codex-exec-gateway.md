@@ -1,19 +1,38 @@
 # codex-exec-gateway Implementation Plan
 
-> **🪦 OBSOLETE 2026-05-10, REISSUED 2026-05-12.** This plan was a
-> near-verbatim refresh target for
-> [`../plans/2026-05-12-codex-exec-gateway.md`](2026-05-12-codex-exec-gateway.md).
-> The reissue applies three contextual updates (spec reference,
-> `/bridge/{exe_id}` consumer = env-mcp child, single-exe-id cap-token
-> allow-list) and is the live plan to execute. This file is preserved
-> for historical context only.
+> **Reissued 2026-05-12** for execution. This plan is a near-verbatim
+> refresh of the 2026-05-05 plan with three contextual updates aligned
+> to the [2026-05-10 MCP-rewrite spec](../specs/2026-05-10-codex-gateway-mcp-rewrite.md):
+>
+> 1. **Spec reference.** The binding contract is now § Subsystem 3 of
+>    `2026-05-10-codex-gateway-mcp-rewrite.md`; the 2026-05-05 design
+>    spec it superseded is for historical context only.
+> 2. **`/bridge/{exe_id}` consumer.** Under the new design, the bridge
+>    is dialed by the **env-mcp child binary** (shipped in PR #78,
+>    invoked as `codex-app-gateway env-mcp --bridge-url ws://AS/bridge/exe_X --token-env CXG_BRIDGE_TOKEN_EXE_X`),
+>    not by the spawned codex itself. Wire protocol (codex exec-server
+>    JSON-RPC over ws) and auth model (HMAC cap token in
+>    `Authorization: Bearer ...`) are unchanged.
+> 3. **Cap-token allow-list.** Per the 2026-05-10 refinement, each
+>    cap token's `exe_ids` payload is exactly **one element** (one
+>    token per executor per turn) — not the multi-id list the original
+>    2026-05-05 spec called for. Verification logic is unchanged
+>    (still "URL exe_id ∈ payload.exe_ids"); minting is stricter and
+>    happens in codex-app-gateway (not in this service).
+>
+> **Reuse opportunity** (worth taking but not blocking): the bridge
+> frame-pump in Task 8 is structurally identical to the proxy in
+> `internal/codexappgateway/proxy/proxy.go` (already on main). If the
+> implementer factors that out into `internal/wsbridge/` as part of
+> Task 8, both gateways share one tested implementation. If they don't,
+> the duplication is small enough (~30 LOC) to defer to a follow-up.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the new `codex-exec-gateway` Go service: a transparent
 WebSocket frame-level forwarder that pairs inbound `codex exec-server
 --connect` executor connections (`/codex-exec/{exe_id}`) with bridge
-connections from spawned codex subprocesses (`/bridge/{exe_id}`),
+connections from env-mcp child binaries (`/bridge/{exe_id}`),
 authenticates each side once at connect (bcrypt tunnel token / HMAC
 capability token), exposes admin + internal HTTP endpoints, and owns the
 `executors` and `workspace_executors` Postgres tables.
@@ -35,9 +54,10 @@ parsing them. Auth runs once per connection at accept time.
 `golang.org/x/crypto/bcrypt`, stdlib `crypto/hmac`, `crypto/sha256`,
 `encoding/base64`, `encoding/json`. No new top-level deps required.
 
-**Spec:** `/root/agentserver/docs/superpowers/specs/2026-05-05-codex-app-gateway-and-exec-gateway-design.md`
-(Subsystem 3 + cross-cutting "Auth model" + "Capability token" sections
-are the binding contract).
+**Spec:** `/root/agentserver/docs/superpowers/specs/2026-05-10-codex-gateway-mcp-rewrite.md`
+§ Subsystem 3 + cross-cutting "Auth model" + "Capability token" sections
+are the binding contract. (The 2026-05-05 spec it superseded is
+historical only.)
 
 **Module path:** `github.com/agentserver/agentserver/internal/codexexecgateway`
 (matches `module github.com/agentserver/agentserver` in `/root/agentserver/go.mod`).
@@ -2045,10 +2065,10 @@ import (
 	"nhooyr.io/websocket"
 )
 
-// handleBridge accepts a ws connection from a spawned codex subprocess and
-// pairs it with the registered inbound /codex-exec/{exe_id} conn. Auth is
-// verified once at connect time; thereafter forwarding is unconditional
-// until either side closes.
+// handleBridge accepts a ws connection from an env-mcp child binary
+// (codex-app-gateway env-mcp ...) and pairs it with the registered
+// inbound /codex-exec/{exe_id} conn. Auth is verified once at connect
+// time; thereafter forwarding is unconditional until either side closes.
 func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 	exeID := chi.URLParam(r, "exe_id")
 	token := r.URL.Query().Get("token")
