@@ -52,6 +52,11 @@ func (s *Server) Routes() http.Handler {
 		r.Delete("/{exe_id}", handlers.DeleteBinding(bindingStoreAdapter{s.store}))
 	})
 
+	r.Route("/api/exec-gateway", func(r chi.Router) {
+		r.Use(handlers.RequireSharedSecret(s.config.InternalSharedSecret))
+		r.Get("/connected", handlers.Connected(internalStoreAdapter{s.store}, s.registry))
+	})
+
 	// More routes added in later tasks.
 	return r
 }
@@ -85,6 +90,29 @@ func (a bindingStoreAdapter) UnbindWorkspaceExecutor(ctx context.Context, worksp
 
 func (a bindingStoreAdapter) ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]handlers.ConnectedExecutor, error) {
 	rows, err := a.s.ListWorkspaceExecutors(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]handlers.ConnectedExecutor, len(rows))
+	for i, r := range rows {
+		out[i] = handlers.ConnectedExecutor{
+			ExeID:       r.ExeID,
+			Description: r.Description,
+			DefaultCwd:  r.DefaultCwd,
+			IsDefault:   r.IsDefault,
+			LastSeenAt:  r.LastSeenAt,
+		}
+	}
+	return out, nil
+}
+
+// internalStoreAdapter bridges *Store to handlers.InternalConnectedStore, converting
+// []ConnectedExecutor (parent package) → []handlers.ConnectedExecutor (handlers package)
+// to avoid an import cycle.
+type internalStoreAdapter struct{ s *Store }
+
+func (a internalStoreAdapter) ConnectedExecutorsForWorkspace(ctx context.Context, workspaceID string, connectedIDs []string) ([]handlers.ConnectedExecutor, error) {
+	rows, err := a.s.ConnectedExecutorsForWorkspace(ctx, workspaceID, connectedIDs)
 	if err != nil {
 		return nil, err
 	}
