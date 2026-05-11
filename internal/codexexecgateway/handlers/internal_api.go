@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // InternalConnectedStore is the subset of storage required by Connected.
@@ -41,3 +42,39 @@ func Connected(store InternalConnectedStore, reg Registry) http.HandlerFunc {
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }
+
+// RevokedAdder is satisfied by *codexexecgateway.RevokedSet.
+type RevokedAdder interface {
+	Add(turnID string, exp int64)
+}
+
+type revokeRequest struct {
+	TurnID string `json:"turn_id"`
+	Exp    int64  `json:"exp"`
+}
+
+// RevokeTurn adds a turn_id to the in-memory revoked set so future bridge
+// connect attempts presenting that turn's CODEX_EXEC_GATEWAY_TOKEN are
+// rejected even within the token's exp window.
+func RevokeTurn(rev RevokedAdder) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req revokeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+		if req.TurnID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "turn_id required"})
+			return
+		}
+		// If caller omits exp, default to "1 hour from now" (spec turn slack).
+		if req.Exp == 0 {
+			req.Exp = timeNowUnix() + 3600
+		}
+		rev.Add(req.TurnID, req.Exp)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// timeNowUnix exists as a small indirection so tests could later swap time.
+func timeNowUnix() int64 { return time.Now().Unix() }

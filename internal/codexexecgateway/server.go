@@ -55,6 +55,7 @@ func (s *Server) Routes() http.Handler {
 	r.Route("/api/exec-gateway", func(r chi.Router) {
 		r.Use(handlers.RequireSharedSecret(s.config.InternalSharedSecret))
 		r.Get("/connected", handlers.Connected(internalStoreAdapter{s.store}, s.registry))
+		r.Post("/revoke-turn", handlers.RevokeTurn(s.revoked))
 	})
 
 	// More routes added in later tasks.
