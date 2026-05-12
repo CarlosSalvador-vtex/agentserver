@@ -15,8 +15,10 @@ import (
 var migrationsFS embed.FS
 
 // Store provides Postgres access for executors + workspace bindings.
+// The underlying *sql.DB is intentionally private: callers must use the
+// declared business methods and cannot bypass them via Exec/Begin/etc.
 type Store struct {
-	*sql.DB
+	db *sql.DB
 }
 
 // NewStore opens a database connection and runs migrations.
@@ -29,7 +31,7 @@ func NewStore(databaseURL string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
-	s := &Store{DB: db}
+	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
@@ -38,7 +40,7 @@ func NewStore(databaseURL string) (*Store, error) {
 }
 
 func (s *Store) migrate() error {
-	if _, err := s.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version TEXT PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`); err != nil {
@@ -52,7 +54,7 @@ func (s *Store) migrate() error {
 	for _, e := range entries {
 		name := e.Name()
 		var exists bool
-		if err := s.QueryRow("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", name).Scan(&exists); err != nil {
+		if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", name).Scan(&exists); err != nil {
 			return fmt.Errorf("check migration %s: %w", name, err)
 		}
 		if exists {
@@ -62,7 +64,7 @@ func (s *Store) migrate() error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
-		tx, err := s.Begin()
+		tx, err := s.db.Begin()
 		if err != nil {
 			return fmt.Errorf("begin tx for migration %s: %w", name, err)
 		}
@@ -84,7 +86,7 @@ func (s *Store) migrate() error {
 
 // CreateExecutor inserts a new executor row. Caller supplies the bcrypt hash.
 func (s *Store) CreateExecutor(ctx context.Context, e Executor, registrationTokenHash string) error {
-	_, err := s.ExecContext(ctx, `
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO executors (exe_id, user_id, display_name, description, default_cwd,
 		                       registration_token_hash, registered_at)
 		VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), NULLIF($5,''), $6, $7)`,
@@ -98,7 +100,7 @@ func (s *Store) CreateExecutor(ctx context.Context, e Executor, registrationToke
 
 // GetExecutor returns the executor by id, or (nil, nil) if absent.
 func (s *Store) GetExecutor(ctx context.Context, exeID string) (*Executor, error) {
-	row := s.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(ctx, `
 		SELECT exe_id, user_id,
 		       COALESCE(display_name, ''),
 		       COALESCE(description, ''),
@@ -126,7 +128,7 @@ func (s *Store) GetExecutor(ctx context.Context, exeID string) (*Executor, error
 // /codex-exec/{exe_id} ws connections.
 func (s *Store) GetRegistrationTokenHash(ctx context.Context, exeID string) (string, error) {
 	var hash string
-	err := s.QueryRowContext(ctx, `SELECT registration_token_hash FROM executors WHERE exe_id=$1`, exeID).Scan(&hash)
+	err := s.db.QueryRowContext(ctx, `SELECT registration_token_hash FROM executors WHERE exe_id=$1`, exeID).Scan(&hash)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -138,7 +140,7 @@ func (s *Store) GetRegistrationTokenHash(ctx context.Context, exeID string) (str
 
 // UpdateLastSeen sets the last_seen_at timestamp to NOW().
 func (s *Store) UpdateLastSeen(ctx context.Context, exeID string) error {
-	_, err := s.ExecContext(ctx, `UPDATE executors SET last_seen_at=NOW() WHERE exe_id=$1`, exeID)
+	_, err := s.db.ExecContext(ctx, `UPDATE executors SET last_seen_at=NOW() WHERE exe_id=$1`, exeID)
 	if err != nil {
 		return fmt.Errorf("update last_seen: %w", err)
 	}
@@ -146,11 +148,11 @@ func (s *Store) UpdateLastSeen(ctx context.Context, exeID string) error {
 }
 
 // Close closes the underlying DB.
-func (s *Store) Close() error { return s.DB.Close() }
+func (s *Store) Close() error { return s.db.Close() }
 
 // BindWorkspaceExecutor inserts a workspace ↔ executor binding (or upserts is_default).
 func (s *Store) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string, isDefault bool) error {
-	_, err := s.ExecContext(ctx, `
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO workspace_executors (workspace_id, exe_id, is_default)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (workspace_id, exe_id)
@@ -164,7 +166,7 @@ func (s *Store) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID st
 
 // UnbindWorkspaceExecutor removes a binding row.
 func (s *Store) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error {
-	_, err := s.ExecContext(ctx, `
+	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM workspace_executors
 		WHERE workspace_id=$1 AND exe_id=$2`, workspaceID, exeID)
 	if err != nil {
@@ -175,7 +177,7 @@ func (s *Store) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID 
 
 // ListWorkspaceExecutors returns all bindings for a workspace, joined with executor metadata.
 func (s *Store) ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]ConnectedExecutor, error) {
-	rows, err := s.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT we.exe_id,
 		       COALESCE(e.description, ''),
 		       COALESCE(e.default_cwd, ''),
@@ -203,6 +205,13 @@ func (s *Store) ListWorkspaceExecutors(ctx context.Context, workspaceID string) 
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// truncateForTest deletes all executor and workspace_executor rows. It exists
+// solely for test cleanup; it must not be called from production code.
+func (s *Store) truncateForTest() {
+	s.db.Exec(`DELETE FROM workspace_executors`) //nolint:errcheck
+	s.db.Exec(`DELETE FROM executors`)           //nolint:errcheck
 }
 
 // ConnectedExecutorsForWorkspace returns the intersection of (workspace's bound

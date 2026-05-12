@@ -1,6 +1,6 @@
 // Package handlers contains HTTP handler functions for the codex-exec gateway.
 // It must not import the parent codexexecgateway package to avoid import cycles;
-// dependencies are injected via narrow interfaces defined here.
+// shared DTOs are imported from execmodel instead.
 package handlers
 
 import (
@@ -12,23 +12,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/codexexecgateway/execmodel"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Executor is the data needed to create a new executor row.
-type Executor struct {
-	ExeID        string
-	UserID       string
-	DisplayName  string
-	Description  string
-	DefaultCwd   string
-	RegisteredAt time.Time
-}
-
 // Store is the subset of storage required by the register handler.
 type Store interface {
-	CreateExecutor(ctx context.Context, e Executor, registrationTokenHash string) error
+	CreateExecutor(ctx context.Context, e execmodel.Executor, registrationTokenHash string) error
 }
 
 type registerRequest struct {
@@ -67,7 +58,7 @@ func Register(store Store) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 			return
 		}
-		exe := Executor{
+		exe := execmodel.Executor{
 			ExeID:        "exe_" + uuid.NewString(),
 			UserID:       userID,
 			DisplayName:  req.DisplayName,

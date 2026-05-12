@@ -134,6 +134,32 @@ func TestBridge_RejectsRevokedTurn(t *testing.T) {
 	}
 }
 
+func TestBridge_Returns409WhenAnotherSessionActive(t *testing.T) {
+	hs, srv := newBridgeNoDBServer(t)
+	// Register a fake inbound conn so the bridge mutex check is reached.
+	fakeInbound := new(websocket.Conn)
+	srv.registry.Register("exe_409", fakeInbound)
+	// Manually acquire the bridge lock to simulate an active session.
+	if !srv.registry.AcquireBridge("exe_409") {
+		t.Fatal("setup: AcquireBridge should succeed on first call")
+	}
+	t.Cleanup(func() { srv.registry.ReleaseBridge("exe_409") })
+
+	now := time.Now().Unix()
+	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
+		TurnID: "trn_2", WorkspaceID: "ws_1", ExeIDs: []string{"exe_409"},
+		IAT: now, EXP: now + 60,
+	})
+	url := "ws" + hs.URL[len("http"):] + "/bridge/exe_409?token=" + tok
+	_, resp, err := websocket.Dial(context.Background(), url, nil)
+	if err == nil {
+		t.Fatal("dial should fail when another bridge session is active")
+	}
+	if resp == nil || resp.StatusCode != http.StatusConflict {
+		t.Fatalf("want 409 Conflict, got %v", resp)
+	}
+}
+
 func TestBridge_PairsAndForwardsBidirectional(t *testing.T) {
 	hs, srv := newInboundTestServer(t)
 	inbound := connectInbound(t, srv, hs.URL, "exe_pair")

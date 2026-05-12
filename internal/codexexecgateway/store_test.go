@@ -18,8 +18,7 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("NewStore: %v", err)
 	}
 	t.Cleanup(func() {
-		store.Exec(`DELETE FROM workspace_executors`)
-		store.Exec(`DELETE FROM executors`)
+		store.truncateForTest()
 		store.Close()
 	})
 	return store

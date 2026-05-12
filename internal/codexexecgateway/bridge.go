@@ -57,7 +57,17 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Look up registered inbound conn.
+	// 4. Acquire per-exe bridge mutex — prevents two concurrent bridge sessions
+	// from both calling Read on the same inbound conn (nhooyr's Read is not safe
+	// for concurrent use: frames would be stolen between the two pumps).
+	if !s.registry.AcquireBridge(exeID) {
+		s.logger.Warn("bridge: concurrent session rejected", "exe_id", exeID, "turn_id", payload.TurnID)
+		http.Error(w, "another bridge session is active for this executor", http.StatusConflict)
+		return
+	}
+	defer s.registry.ReleaseBridge(exeID)
+
+	// 5. Look up registered inbound conn.
 	inbound, ok := s.registry.Lookup(exeID)
 	if !ok {
 		s.logger.Warn("bridge: no inbound conn", "exe_id", exeID, "turn_id", payload.TurnID)
@@ -65,7 +75,7 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Upgrade caller to ws.
+	// 6. Upgrade caller to ws.
 	bridge, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true, // skip HTTP Origin check; auth is enforced by token verification above
 	})
@@ -76,7 +86,7 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 	bridge.SetReadLimit(-1) // codex exec-server streams large process/read responses
 	s.logger.Info("bridge: paired", "exe_id", exeID, "turn_id", payload.TurnID)
 
-	// 6. Run paired frame pumps. Cancel propagates to both pumps so the
+	// 7. Run paired frame pumps. Cancel propagates to both pumps so the
 	// second one exits when the first returns. Derived from r.Context() so
 	// graceful shutdown (httpServer.Shutdown) drains active sessions instead
 	// of leaking pump goroutines.

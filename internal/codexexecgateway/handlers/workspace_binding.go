@@ -4,27 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
+	"github.com/agentserver/agentserver/internal/codexexecgateway/execmodel"
 	"github.com/go-chi/chi/v5"
 )
-
-// ConnectedExecutor is the join shape returned by workspace listing endpoints.
-// It mirrors codexexecgateway.ConnectedExecutor without importing the parent package
-// (which would create an import cycle).
-type ConnectedExecutor struct {
-	ExeID       string     `json:"exe_id"`
-	Description string     `json:"description"`
-	DefaultCwd  string     `json:"default_cwd"`
-	IsDefault   bool       `json:"is_default"`
-	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
-}
 
 // BindingStore is the subset of storage required by the workspace binding handlers.
 type BindingStore interface {
 	BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string, isDefault bool) error
 	UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error
-	ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]ConnectedExecutor, error)
+	ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]execmodel.ConnectedExecutor, error)
 }
 
 type bindRequest struct {
@@ -76,7 +65,7 @@ func ListBinding(store BindingStore) http.HandlerFunc {
 			return
 		}
 		if rows == nil {
-			rows = []ConnectedExecutor{}
+			rows = []execmodel.ConnectedExecutor{}
 		}
 		writeJSON(w, http.StatusOK, rows)
 	}

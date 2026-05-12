@@ -1,31 +1,12 @@
+// Package codexexecgateway: types are defined in execmodel to avoid an import
+// cycle with the handlers sub-package. Type aliases here re-export them under
+// the parent package name so existing code outside this package is unaffected.
 package codexexecgateway
 
-import "time"
+import "github.com/agentserver/agentserver/internal/codexexecgateway/execmodel"
 
-// Executor is the persistent identity of a codex-exec node.
-type Executor struct {
-	ExeID        string     `json:"exe_id"`
-	UserID       string     `json:"user_id"`
-	DisplayName  string     `json:"display_name,omitempty"`
-	Description  string     `json:"description,omitempty"`
-	DefaultCwd   string     `json:"default_cwd,omitempty"`
-	RegisteredAt time.Time  `json:"registered_at"`
-	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
-}
-
-// WorkspaceExecutor is a row in workspace_executors.
-type WorkspaceExecutor struct {
-	WorkspaceID string    `json:"workspace_id"`
-	ExeID       string    `json:"exe_id"`
-	IsDefault   bool      `json:"is_default"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-// ConnectedExecutor is the join shape returned by /api/exec-gateway/connected.
-type ConnectedExecutor struct {
-	ExeID       string     `json:"exe_id"`
-	Description string     `json:"description"`
-	DefaultCwd  string     `json:"default_cwd"`
-	IsDefault   bool       `json:"is_default"`
-	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
-}
+// Re-export aliases preserve the package's external API.
+// *Executor and *execmodel.Executor are the same type — aliases are zero-cost.
+type Executor = execmodel.Executor
+type WorkspaceExecutor = execmodel.WorkspaceExecutor
+type ConnectedExecutor = execmodel.ConnectedExecutor

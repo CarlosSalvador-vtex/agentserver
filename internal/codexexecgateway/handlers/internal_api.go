@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/agentserver/agentserver/internal/codexexecgateway/execmodel"
 )
 
 // InternalConnectedStore is the subset of storage required by Connected.
-// It uses the local ConnectedExecutor type (defined in workspace_binding.go)
-// to avoid an import cycle with the parent codexexecgateway package.
 type InternalConnectedStore interface {
-	ConnectedExecutorsForWorkspace(ctx context.Context, workspaceID string, connectedIDs []string) ([]ConnectedExecutor, error)
+	ConnectedExecutorsForWorkspace(ctx context.Context, workspaceID string, connectedIDs []string) ([]execmodel.ConnectedExecutor, error)
 }
 
 // Registry is satisfied by *codexexecgateway.ConnRegistry.
@@ -37,7 +37,7 @@ func Connected(store InternalConnectedStore, reg Registry) http.HandlerFunc {
 			return
 		}
 		if rows == nil {
-			rows = []ConnectedExecutor{}
+			rows = []execmodel.ConnectedExecutor{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck

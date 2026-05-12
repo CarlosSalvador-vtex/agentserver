@@ -77,3 +77,36 @@ func TestConnRegistry_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestConnRegistry_AcquireBridge_RejectsConcurrent(t *testing.T) {
+	r := NewConnRegistry()
+	if !r.AcquireBridge("exe_a") {
+		t.Fatal("first acquire should succeed")
+	}
+	if r.AcquireBridge("exe_a") {
+		t.Fatal("second acquire should be rejected")
+	}
+	r.ReleaseBridge("exe_a")
+	if !r.AcquireBridge("exe_a") {
+		t.Fatal("acquire after release should succeed")
+	}
+}
+
+func TestConnRegistry_AcquireBridge_AllowsDifferentExeIDs(t *testing.T) {
+	r := NewConnRegistry()
+	if !r.AcquireBridge("exe_a") || !r.AcquireBridge("exe_b") {
+		t.Fatal("acquires for distinct exe_ids should both succeed")
+	}
+}
+
+func TestConnRegistry_Register_EvictsBridgeLock(t *testing.T) {
+	r := NewConnRegistry()
+	r.AcquireBridge("exe_a")
+	// Register a new inbound conn — should clear the bridge lock.
+	c1 := new(websocket.Conn)
+	r.Register("exe_a", c1)
+	// After Register, AcquireBridge should succeed (lock was cleared).
+	if !r.AcquireBridge("exe_a") {
+		t.Fatal("AcquireBridge after Register should succeed; bridge lock was not cleared on eviction")
+	}
+}
