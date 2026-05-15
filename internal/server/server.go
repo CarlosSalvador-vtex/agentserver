@@ -187,6 +187,19 @@ func (s *Server) Router() http.Handler {
 		s.handleWorkspaceProxyToken(w, r)
 	})
 
+	// Internal API for codex-app-gateway to verify a remote-access bearer.
+	// Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
+	r.Post("/api/internal/codex/tokens/verify", func(w http.ResponseWriter, r *http.Request) {
+		secret := os.Getenv("INTERNAL_API_SECRET")
+		if secret != "" {
+			if r.Header.Get("X-Internal-Secret") != secret {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		s.handleVerifyCodexToken(w, r)
+	})
+
 	// Internal API for ModelServer token retrieval (no cookie auth).
 	r.Get("/internal/workspaces/{id}/modelserver-token", s.handleInternalModelserverToken)
 
@@ -314,6 +327,11 @@ func (s *Server) Router() http.Handler {
 		r.Get("/api/workspaces/{id}/llm-config", s.handleGetWorkspaceLLMConfig)
 		r.Put("/api/workspaces/{id}/llm-config", s.handleSetWorkspaceLLMConfig)
 		r.Delete("/api/workspaces/{id}/llm-config", s.handleDeleteWorkspaceLLMConfig)
+
+		// Codex remote-access tokens (per-user, per-workspace, DB-backed).
+		r.Post("/api/codex/tokens", s.handleMintCodexToken)
+		r.Get("/api/codex/tokens", s.handleListCodexTokens)
+		r.Delete("/api/codex/tokens/{id}", s.handleRevokeCodexToken)
 
 		// ModelServer OAuth
 		r.Get("/api/workspaces/{id}/modelserver/connect", s.handleModelserverConnect)
