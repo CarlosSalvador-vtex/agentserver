@@ -2,7 +2,7 @@
 FROM node:25-slim AS frontend
 RUN npm install -g pnpm
 WORKDIR /app/web
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
