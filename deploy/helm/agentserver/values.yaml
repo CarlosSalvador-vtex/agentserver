@@ -260,6 +260,92 @@ executorRegistry:
   replicaCount: 1
   port: 8084
 
+# codexGateway: shared secrets for the codex-app-gateway / codex-exec-gateway
+# pair. Both pods read from the same auto-generated k8s Secret so the cap
+# tokens app-gw mints are verifiable by exec-gw, and the internal API
+# Bearer is in agreement on both sides.
+#
+# Override any of these to pin values across reinstalls; leave empty for
+# auto-generated 48-char alphanum (preserved on upgrade via lookup).
+codexGateway:
+  inboundHmacSecret: ""
+  capTokenHmacSecret: ""
+  internalSharedSecret: ""
+
+# codex-app-gateway: per-thread codex app-server subprocess manager + ws
+# frame proxy. Spawns codex app-server children, fetches workspace executor
+# bindings from codex-exec-gateway, mints per-turn cap tokens, and writes
+# config.toml entries that route remote tool calls through the env-mcp
+# child binary.
+codexAppGateway:
+  enabled: false
+  image:
+    repository: ghcr.io/agentserver/codex-app-gateway
+    tag: latest
+    pullPolicy: Always
+  replicaCount: 1
+  port: 8086
+  logLevel: info
+  # Idle-shutdown timer: spawned codex app-server child gets reaped this
+  # long after the last proxied frame. Cap-token TTL should be at least
+  # this long so a long-idle session can resume without re-mint.
+  idleShutdown: 30m
+  capTokenTtl: 1h
+  # Model + provider info written verbatim into each per-thread
+  # config.toml's [model_providers.X] block. Defaults assume llmproxy
+  # in-cluster.
+  model: gpt-5.5
+  modelProvider: modelserver
+  modelProviderBaseUrl: ""        # default: http://{release}-llmproxy:{port}/v1
+  modelProviderEnvKey: CODEX_API_KEY
+  modelProviderWireApi: responses
+  # API key the spawned codex uses to authenticate to the model provider.
+  # Required for the subprocess to make any LLM call.
+  codexApiKey: ""
+  # Comma-separated paths marked trust_level="trusted" in config.toml.
+  # Empty defaults to "/tmp" inside the gateway code.
+  projectTrustedPaths: ""
+  # Where per-thread CODEX_HOME tmpdirs live. Should be on a fast local
+  # volume; emptyDir is fine since state is round-tripped to S3.
+  tmpRoot: /tmp/codex-app-gateway
+  # External hostname for the codex TUI to reach this gateway.
+  # Empty defaults to "codex-app.<ingress.host>" (or .<gateway.host>).
+  # Only used when ingress.enabled or gateway.enabled is true.
+  externalHost: ""
+  # S3-compatible store for per-thread CODEX_HOME tarballs (sqlite +
+  # session jsonl). Required.
+  s3:
+    endpoint: ""
+    region: ""
+    bucket: ""
+    pathStyle: false
+    existingSecret: ""            # k8s secret with keys: access_key_id, secret_access_key
+  resources: {}
+
+# codex-exec-gateway: pairs inbound /codex-exec/{exe_id} executor connections
+# with /bridge/{exe_id} env-mcp child connections, owns executors +
+# workspace_executors Postgres tables, exposes register/binding HTTP API.
+codexExecGateway:
+  enabled: false
+  image:
+    repository: ghcr.io/agentserver/codex-exec-gateway
+    tag: latest
+    pullPolicy: Always
+  replicaCount: 1
+  port: 6060
+  logLevel: info
+  pingInterval: 30s
+  idleTimeout: 5m
+  database:
+    name: codexexecgateway
+    externalUrl: ""
+  # External hostname for remote `codex exec-server --connect` workers
+  # and operators calling /api/codex-exec/*. Empty defaults to
+  # "codex-exec.<ingress.host>" (or .<gateway.host>). Only used when
+  # ingress.enabled or gateway.enabled is true.
+  externalHost: ""
+  resources: {}
+
 service:
   type: ClusterIP
   port: 8080

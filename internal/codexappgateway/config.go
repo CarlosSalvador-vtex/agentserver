@@ -30,13 +30,31 @@ type ServeConfig struct {
 	ExecGatewayInternalURL    string
 	ExecGatewayInternalSecret string
 	CapTokenHMACSecret        []byte
+	CapTokenTTL               time.Duration
 	LogLevel                  slog.Level
+
+	// Model provider config — written verbatim into each per-thread
+	// config.toml. The codex subprocess reads ModelProviderEnvKey from its
+	// own env (forwarded from CodexAPIKey here) to authenticate to the
+	// LLM gateway (typically llmproxy in-cluster).
+	ModelProvider        string
+	Model                string
+	ModelProviderBaseURL string
+	ModelProviderEnvKey  string
+	ModelProviderWireAPI string
+	CodexAPIKey          string
+
+	// ProjectTrustedPaths is the list of paths marked `trust_level = "trusted"`
+	// in config.toml. Without at least one, codex refuses to run shell-side
+	// operations on the project root.
+	ProjectTrustedPaths []string
 }
 
 func LoadServeConfigFromEnv() (ServeConfig, error) {
 	cfg := ServeConfig{
 		TmpRoot:      envOr("CXG_TMP_ROOT", "/tmp/codex-app-gateway"),
 		IdleShutdown: 30 * time.Minute,
+		CapTokenTTL:  1 * time.Hour,
 		LogLevel:     slog.LevelInfo,
 		S3: S3Config{
 			Endpoint:        os.Getenv("CXG_S3_ENDPOINT"),
@@ -51,6 +69,19 @@ func LoadServeConfigFromEnv() (ServeConfig, error) {
 		ExecGatewayInternalURL:    os.Getenv("CXG_EXEC_GATEWAY_INTERNAL_URL"),
 		ExecGatewayInternalSecret: os.Getenv("CXG_EXEC_GATEWAY_INTERNAL_SECRET"),
 		CapTokenHMACSecret:        []byte(os.Getenv("CXG_CAPTOKEN_HMAC_SECRET")),
+		ModelProvider:             envOr("CXG_MODEL_PROVIDER", "modelserver"),
+		Model:                     envOr("CXG_MODEL", "gpt-5.5"),
+		ModelProviderBaseURL:      envOr("CXG_MODEL_PROVIDER_BASE_URL", "http://llmproxy:8085/v1"),
+		ModelProviderEnvKey:       envOr("CXG_MODEL_PROVIDER_ENV_KEY", "CODEX_API_KEY"),
+		ModelProviderWireAPI:      envOr("CXG_MODEL_PROVIDER_WIRE_API", "responses"),
+		CodexAPIKey:               os.Getenv("CXG_CODEX_API_KEY"),
+	}
+	if v := os.Getenv("CXG_PROJECT_TRUSTED_PATHS"); v != "" {
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				cfg.ProjectTrustedPaths = append(cfg.ProjectTrustedPaths, p)
+			}
+		}
 	}
 	if len(cfg.InboundHMACSecret) == 0 {
 		return cfg, fmt.Errorf("CXG_INBOUND_HMAC_SECRET is required")
@@ -84,6 +115,13 @@ func LoadServeConfigFromEnv() (ServeConfig, error) {
 			return cfg, fmt.Errorf("parse CXG_IDLE_SHUTDOWN: %w", err)
 		}
 		cfg.IdleShutdown = d
+	}
+	if v := os.Getenv("CXG_CAPTOKEN_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return cfg, fmt.Errorf("parse CXG_CAPTOKEN_TTL: %w", err)
+		}
+		cfg.CapTokenTTL = d
 	}
 	if v := strings.ToLower(os.Getenv("CXG_LOG_LEVEL")); v != "" {
 		switch v {

@@ -7,6 +7,8 @@ variables:
   IMAGE: registry.nj.cs.ac.cn/mryao/agentserver
   AGENT_IMAGE: registry.nj.cs.ac.cn/mryao/agentserver-agent
   CREDPROXY_IMAGE: registry.nj.cs.ac.cn/mryao/credentialproxy
+  CODEX_APP_GATEWAY_IMAGE: registry.nj.cs.ac.cn/mryao/codex-app-gateway
+  CODEX_EXEC_GATEWAY_IMAGE: registry.nj.cs.ac.cn/mryao/codex-exec-gateway
 
 test:
   stage: test
@@ -56,6 +58,62 @@ build-credentialproxy:
   rules:
     - if: $CI_COMMIT_BRANCH == "master"
 
+build-codex-app-gateway:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  script:
+    - docker build -f Dockerfile.codex-app-gateway -t $CODEX_APP_GATEWAY_IMAGE:$CI_COMMIT_SHORT_SHA -t $CODEX_APP_GATEWAY_IMAGE:latest .
+    - |
+      if [ "$PUSH_IMAGES" = "true" ]; then
+        docker push $CODEX_APP_GATEWAY_IMAGE:$CI_COMMIT_SHORT_SHA
+        docker push $CODEX_APP_GATEWAY_IMAGE:latest
+      else
+        echo "MR build: skipping push (set PUSH_IMAGES=true on master to enable)"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      variables:
+        PUSH_IMAGES: "true"
+    - if: $CI_MERGE_REQUEST_ID
+      changes:
+        - Dockerfile.codex-app-gateway
+        - cmd/codex-app-gateway/**/*
+        - internal/codexappgateway/**/*
+        - internal/codexexecgateway/execmodel/**/*
+        - internal/codexexecgateway/auth.go
+        - internal/wsbridge/**/*
+        - internal/shortid/**/*
+        - go.mod
+        - go.sum
+
+build-codex-exec-gateway:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  script:
+    - docker build -f Dockerfile.codex-exec-gateway -t $CODEX_EXEC_GATEWAY_IMAGE:$CI_COMMIT_SHORT_SHA -t $CODEX_EXEC_GATEWAY_IMAGE:latest .
+    - |
+      if [ "$PUSH_IMAGES" = "true" ]; then
+        docker push $CODEX_EXEC_GATEWAY_IMAGE:$CI_COMMIT_SHORT_SHA
+        docker push $CODEX_EXEC_GATEWAY_IMAGE:latest
+      else
+        echo "MR build: skipping push (set PUSH_IMAGES=true on master to enable)"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      variables:
+        PUSH_IMAGES: "true"
+    - if: $CI_MERGE_REQUEST_ID
+      changes:
+        - Dockerfile.codex-exec-gateway
+        - cmd/codex-exec-gateway/**/*
+        - internal/codexexecgateway/**/*
+        - go.mod
+        - go.sum
+
 deploy:
   stage: deploy
   image: alpine/helm:3.17.3
@@ -64,6 +122,10 @@ deploy:
       --set image.repository=$IMAGE
       --set image.tag=$CI_COMMIT_SHORT_SHA
       --set agent.image=$AGENT_IMAGE:$CI_COMMIT_SHORT_SHA
+      --set codexAppGateway.image.repository=$CODEX_APP_GATEWAY_IMAGE
+      --set codexAppGateway.image.tag=$CI_COMMIT_SHORT_SHA
+      --set codexExecGateway.image.repository=$CODEX_EXEC_GATEWAY_IMAGE
+      --set codexExecGateway.image.tag=$CI_COMMIT_SHORT_SHA
       --namespace agentserver
       --create-namespace
   rules:

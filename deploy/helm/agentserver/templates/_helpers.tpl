@@ -73,3 +73,17 @@ Construct the executor-registry DATABASE_URL.
 postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ $dbName }}?sslmode=disable
 {{- end -}}
 {{- end -}}
+
+{{/*
+Construct the codex-exec-gateway DATABASE_URL. Same shape as ccbroker /
+executor-registry: shared PG by default, override via externalUrl.
+*/}}
+{{- define "agentserver.codexExecGatewayDatabaseUrl" -}}
+{{- $extUrl := (dig "database" "externalUrl" "" .Values.codexExecGateway) -}}
+{{- $dbName := (dig "database" "name" "codexexecgateway" .Values.codexExecGateway) -}}
+{{- if $extUrl -}}
+{{ $extUrl }}
+{{- else -}}
+postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ $dbName }}?sslmode=disable
+{{- end -}}
+{{- end -}}

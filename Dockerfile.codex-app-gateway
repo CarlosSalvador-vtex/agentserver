@@ -7,10 +7,32 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
     -o /out/codex-app-gateway ./cmd/codex-app-gateway
 
+# codex stage: pulls a pinned upstream codex release. The gateway spawns
+# `codex app-server` per thread, so the runtime image must carry it.
+# Override at build time with --build-arg CODEX_VERSION=...
+FROM debian:trixie-slim AS codex
+ARG CODEX_VERSION=0.130.0
+ARG TARGETARCH
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) arch_tag=x86_64-unknown-linux-musl ;; \
+      arm64) arch_tag=aarch64-unknown-linux-musl ;; \
+      *) echo "unsupported arch: ${TARGETARCH}"; exit 1 ;; \
+    esac; \
+    url="https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${arch_tag}.tar.gz"; \
+    curl -fsSL "$url" -o /tmp/codex.tgz; \
+    tar -xzf /tmp/codex.tgz -C /tmp; \
+    install -m 0755 /tmp/codex-${arch_tag} /usr/local/bin/codex; \
+    rm -rf /tmp/codex.tgz /tmp/codex-${arch_tag}
+
 FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
 COPY --from=build /out/codex-app-gateway /usr/local/bin/codex-app-gateway
 ENTRYPOINT ["/usr/local/bin/codex-app-gateway"]
 CMD ["serve"]

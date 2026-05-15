@@ -1,4 +1,13 @@
 {{- if .Values.ingress.enabled }}
+{{- /*
+Resolve the codex gateway hostnames once. Default to subdomains of the
+main ingress host so a single wildcard cert (or a SAN cert from
+cert-manager) can cover everything.
+*/}}
+{{- $codexAppHost := .Values.codexAppGateway.externalHost }}
+{{- if and .Values.codexAppGateway.enabled (not $codexAppHost) }}{{- $codexAppHost = printf "codex-app.%s" .Values.ingress.host }}{{- end }}
+{{- $codexExecHost := .Values.codexExecGateway.externalHost }}
+{{- if and .Values.codexExecGateway.enabled (not $codexExecHost) }}{{- $codexExecHost = printf "codex-exec.%s" .Values.ingress.host }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -18,6 +27,12 @@ spec:
         {{- end }}
         {{- range .Values.sandbox.additionalBaseDomains }}
         - {{ printf "*.%s" . | quote }}
+        {{- end }}
+        {{- if .Values.codexAppGateway.enabled }}
+        - {{ $codexAppHost | quote }}
+        {{- end }}
+        {{- if .Values.codexExecGateway.enabled }}
+        - {{ $codexExecHost | quote }}
         {{- end }}
       secretName: {{ .Release.Name }}-tls
   {{- end }}
@@ -55,5 +70,29 @@ spec:
                 name: {{ $.Release.Name }}-sandboxproxy
                 port:
                   number: {{ $.Values.sandboxProxy.port }}
+    {{- end }}
+    {{- if .Values.codexAppGateway.enabled }}
+    - host: {{ $codexAppHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-codex-app-gateway
+                port:
+                  number: {{ .Values.codexAppGateway.port }}
+    {{- end }}
+    {{- if .Values.codexExecGateway.enabled }}
+    - host: {{ $codexExecHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-codex-exec-gateway
+                port:
+                  number: {{ .Values.codexExecGateway.port }}
     {{- end }}
 {{- end }}

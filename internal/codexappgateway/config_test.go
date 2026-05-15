@@ -32,6 +32,29 @@ func TestLoadServeConfig_Defaults(t *testing.T) {
 	if cfg.S3.Region != "us-east-1" {
 		t.Errorf("S3 default region = %q", cfg.S3.Region)
 	}
+	if cfg.CapTokenTTL != time.Hour {
+		t.Errorf("CapTokenTTL = %v", cfg.CapTokenTTL)
+	}
+	if cfg.ModelProvider != "modelserver" || cfg.Model != "gpt-5.5" {
+		t.Errorf("model defaults: provider=%q model=%q", cfg.ModelProvider, cfg.Model)
+	}
+	if cfg.ModelProviderEnvKey != "CODEX_API_KEY" {
+		t.Errorf("ModelProviderEnvKey = %q", cfg.ModelProviderEnvKey)
+	}
+}
+
+func TestLoadServeConfig_ParsesProjectTrustedPaths(t *testing.T) {
+	setRequired(t)
+	t.Setenv("CXG_PROJECT_TRUSTED_PATHS", "/workspace, /data, ")
+	cfg, err := LoadServeConfigFromEnv()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.ProjectTrustedPaths) != 2 ||
+		cfg.ProjectTrustedPaths[0] != "/workspace" ||
+		cfg.ProjectTrustedPaths[1] != "/data" {
+		t.Errorf("ProjectTrustedPaths = %v", cfg.ProjectTrustedPaths)
+	}
 }
 
 func TestLoadServeConfig_RequiresInboundSecret(t *testing.T) {

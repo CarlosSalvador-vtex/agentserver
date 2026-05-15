@@ -92,7 +92,12 @@ func runServe(rawArgs []string) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	srv, err := codexappgateway.NewServer(cfg, args.CodexBin, logger)
+	selfBin, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "codex-app-gateway serve: resolve self path:", err)
+		os.Exit(1)
+	}
+	srv, err := codexappgateway.NewServer(cfg, args.CodexBin, selfBin, logger)
 	if err != nil {
 		logger.Error("NewServer failed", "err", err)
 		os.Exit(1)
