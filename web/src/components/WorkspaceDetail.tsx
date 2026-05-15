@@ -850,9 +850,7 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
       )}
 
       {/* Codex Remote Access Tokens */}
-      <section className="mt-6 p-4 border rounded">
-        <CodexTokensPanel workspaceId={workspaceId} />
-      </section>
+      <CodexTokensPanel workspaceId={workspaceId} />
     </div>
   )
 }

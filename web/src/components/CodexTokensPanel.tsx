@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Copy, Check, X } from 'lucide-react'
+import { Plus, Trash2, Copy, Check, X, Key } from 'lucide-react'
 import {
   type CodexToken, type MintCodexTokenResponse,
   listCodexTokens, mintCodexToken, revokeCodexToken,
 } from '../lib/api'
+import { ConfirmModal } from './Modals'
 
 interface Props {
   workspaceId: string
@@ -20,6 +21,7 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
   const [newTTL, setNewTTL] = useState<number>(90)
   const [generated, setGenerated] = useState<MintCodexTokenResponse | null>(null)
   const [copied, setCopied] = useState(false)
+  const [revokeTarget, setRevokeTarget] = useState<CodexToken | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -37,10 +39,11 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
   useEffect(() => { void refresh() }, [refresh])
 
   const onMint = async () => {
+    if (!newName.trim()) return
     try {
       const resp = await mintCodexToken({
         workspace_id: workspaceId,
-        name: newName,
+        name: newName.trim(),
         ttl_days: newTTL,
       })
       setGenerated(resp)
@@ -54,9 +57,9 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
   }
 
   const onRevoke = async (id: string) => {
-    if (!confirm('Revoke this token? Any active codex --remote sessions using it will be cut at next reconnect.')) return
     try {
       await revokeCodexToken(id)
+      setRevokeTarget(null)
       void refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -71,140 +74,184 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">Codex Remote Access</h3>
-          <p className="text-sm text-gray-500">
-            Use these tokens with{' '}
-            <code className="px-1 bg-gray-100 rounded">
-              codex --remote wss://&lt;host&gt;/codex-app/ws --remote-auth-token-env &lt;ENV_VAR&gt;
-            </code>
-          </p>
+    <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--card)]">
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
+        <div className="flex items-center gap-2">
+          <Key size={14} className="text-blue-400" />
+          <span className="text-sm font-medium text-[var(--foreground)]">Codex Remote Access</span>
         </div>
         <button
           onClick={() => setShowMint(true)}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
         >
-          <Plus size={16} />
+          <Plus size={12} />
           Generate token
         </button>
       </div>
 
-      {error && <div className="p-2 bg-red-50 text-red-700 text-sm rounded">{error}</div>}
+      <div className="px-5 py-4">
+        <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+          Use these tokens with{' '}
+          <code className="rounded bg-[var(--background)] px-1 py-0.5 font-mono text-[11px] text-[var(--foreground)]">
+            codex --remote wss://&lt;host&gt;/codex-app/ws --remote-auth-token-env &lt;ENV_VAR&gt;
+          </code>
+        </p>
 
-      {loading ? (
-        <div className="text-gray-500">Loading…</div>
-      ) : tokens.length === 0 ? (
-        <div className="text-gray-500 italic">No tokens yet.</div>
-      ) : (
-        <table className="w-full text-sm">
-          <thead className="text-left text-gray-500 border-b">
-            <tr>
-              <th className="py-2">Name</th>
-              <th className="py-2">Created</th>
-              <th className="py-2">Expires</th>
-              <th className="py-2">Last used</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
+        {error && (
+          <div className="mb-3 rounded-md border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="text-xs text-[var(--muted-foreground)]">Loading…</div>
+        ) : tokens.length === 0 ? (
+          <div className="text-xs italic text-[var(--muted-foreground)]">No tokens yet.</div>
+        ) : (
+          <div className="flex flex-col gap-2">
             {tokens.map(t => (
-              <tr key={t.id} className="border-b last:border-0">
-                <td className="py-2">{t.name}</td>
-                <td className="py-2">{new Date(t.created_at).toLocaleDateString()}</td>
-                <td className="py-2">{new Date(t.expires_at).toLocaleDateString()}</td>
-                <td className="py-2">
-                  {t.last_used_at ? new Date(t.last_used_at).toLocaleString() : <span className="text-gray-400">never</span>}
-                </td>
-                <td className="py-2 text-right">
-                  <button
-                    onClick={() => onRevoke(t.id)}
-                    className="text-red-600 hover:text-red-800"
-                    aria-label="Revoke token"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </td>
-              </tr>
+              <div
+                key={t.id}
+                className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="truncate text-xs font-medium text-[var(--foreground)]">{t.name}</span>
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    Created {new Date(t.created_at).toLocaleDateString()}
+                  </span>
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    Expires {new Date(t.expires_at).toLocaleDateString()}
+                  </span>
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    Last used {t.last_used_at
+                      ? new Date(t.last_used_at).toLocaleString()
+                      : 'never'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setRevokeTarget(t)}
+                  className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--destructive)]"
+                  aria-label="Revoke token"
+                  title="Revoke token"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             ))}
-          </tbody>
-        </table>
-      )}
+          </div>
+        )}
+      </div>
 
       {showMint && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
-          <div className="bg-white rounded shadow-lg p-6 w-96 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="font-semibold">Generate codex token</h4>
-              <button onClick={() => setShowMint(false)}><X size={16} /></button>
-            </div>
-            <label className="block text-sm">
-              Name
-              <input
-                type="text"
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                className="mt-1 w-full border rounded px-2 py-1"
-                placeholder="my mac"
-              />
-            </label>
-            <label className="block text-sm">
-              TTL (days)
-              <select
-                value={newTTL}
-                onChange={e => setNewTTL(parseInt(e.target.value, 10))}
-                className="mt-1 w-full border rounded px-2 py-1"
-              >
-                {TTL_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </label>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setShowMint(false)} className="px-3 py-1 border rounded">Cancel</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowMint(false)}>
+          <div
+            className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-[var(--foreground)]">Generate codex token</h2>
               <button
-                onClick={onMint}
-                disabled={!newName.trim()}
-                className="px-3 py-1 bg-blue-600 text-white rounded disabled:opacity-50"
+                onClick={() => setShowMint(false)}
+                className="rounded p-1 hover:bg-[var(--secondary)]"
               >
-                Generate
+                <X size={16} />
               </button>
             </div>
+            <form onSubmit={(e) => { e.preventDefault(); void onMint() }} className="flex flex-col gap-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Name</label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="my mac"
+                  className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Expires in</label>
+                <select
+                  value={newTTL}
+                  onChange={(e) => setNewTTL(parseInt(e.target.value, 10))}
+                  className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                >
+                  {TTL_OPTIONS.map(d => <option key={d} value={d}>{d} day{d === 1 ? '' : 's'}</option>)}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMint(false)}
+                  className="rounded-md border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--secondary)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newName.trim()}
+                  className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50"
+                >
+                  Generate
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
       {generated && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
-          <div className="bg-white rounded shadow-lg p-6 w-[36rem] space-y-3">
-            <h4 className="font-semibold text-green-700">&#10003; Token generated</h4>
-            <p className="text-sm text-gray-700">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-[var(--foreground)]">Token generated</h2>
+              <button
+                onClick={() => setGenerated(null)}
+                className="rounded p-1 hover:bg-[var(--secondary)]"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="mb-3 text-sm text-[var(--muted-foreground)]">
               Copy it now — you won't see it again.
             </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 px-2 py-2 bg-gray-100 rounded font-mono text-xs break-all">
+            <div className="mb-4 flex items-center gap-2">
+              <code className="flex-1 break-all rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs text-[var(--foreground)]">
                 {generated.token}
               </code>
               <button
                 onClick={copyToken}
-                className="p-2 border rounded hover:bg-gray-50"
+                className="rounded-md border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--secondary)]"
                 aria-label="Copy token"
+                title="Copy"
               >
-                {copied ? <Check size={16} /> : <Copy size={16} />}
+                {copied ? <Check size={14} /> : <Copy size={14} />}
               </button>
             </div>
-            <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto">{`export AGENTSERVER_TOKEN='${generated.token}'
-codex --remote wss://<host>/codex-app/ws \\
+            <pre className="mb-4 overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-[11px] text-[var(--foreground)]">{`export AGENTSERVER_TOKEN='${generated.token}'
+codex --remote wss://${typeof window !== 'undefined' ? window.location.host : '<host>'}/codex-app/ws \\
       --remote-auth-token-env AGENTSERVER_TOKEN`}</pre>
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end">
               <button
                 onClick={() => setGenerated(null)}
-                className="px-3 py-1 bg-blue-600 text-white rounded"
+                className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)] hover:opacity-90"
               >
                 I've saved it
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {revokeTarget && (
+        <ConfirmModal
+          title="Revoke codex token"
+          message={`Revoke "${revokeTarget.name}"? Active codex --remote sessions using it will be cut at next reconnect.`}
+          confirmLabel="Revoke"
+          destructive
+          onConfirm={() => onRevoke(revokeTarget.id)}
+          onCancel={() => setRevokeTarget(null)}
+        />
       )}
     </div>
   )
