@@ -74,7 +74,7 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 		deadHome := e.codexHome
 		delete(s.children, key)
 		s.mu.Unlock()
-		backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
+		backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID)
 		// Best-effort: ignore upload error here — the dead-process cleanup
 		// path can't usefully retry, and we'd rather respawn than block.
 		if err := backend.Upload(ctx, deadHome); err != nil {
@@ -92,11 +92,11 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 	if err != nil {
 		return nil, fmt.Errorf("config builder: %w", err)
 	}
-	codexHome, err := s.cfg.HomeMgr.NewTmpDir(key.WorkspaceID, key.ThreadID)
+	codexHome, err := s.cfg.HomeMgr.NewTmpDir(key.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("new tmpdir: %w", err)
 	}
-	backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
+	backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID)
 	if err := backend.Download(ctx, codexHome); err != nil && !errors.Is(err, codexhome.ErrObjectNotFound) {
 		_ = s.cfg.HomeMgr.RemoveTmpDir(codexHome)
 		return nil, fmt.Errorf("S3 download: %w", err)
@@ -171,7 +171,7 @@ func (s *Supervisor) Shutdown(ctx context.Context, key Key) error {
 			s.logger.Warn("tmpdir cleanup failed", "key", key, "err", err)
 		}
 	}()
-	backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID, key.ThreadID)
+	backend := codexhome.NewS3Backend(s.cfg.Store, key.WorkspaceID)
 	if err := backend.Upload(ctx, e.codexHome); err != nil {
 		return fmt.Errorf("S3 upload: %w", err)
 	}
