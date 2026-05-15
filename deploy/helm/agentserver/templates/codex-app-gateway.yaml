@@ -3,6 +3,7 @@
 {{- $_ := required "codexAppGateway.s3.endpoint is required when codexAppGateway.enabled is true" .Values.codexAppGateway.s3.endpoint }}
 {{- $_ := required "codexAppGateway.s3.bucket is required when codexAppGateway.enabled is true" .Values.codexAppGateway.s3.bucket }}
 {{- $_ := required "codexAppGateway.codexApiKey is required when codexAppGateway.enabled is true (LLM provider API key forwarded to spawned codex)" .Values.codexAppGateway.codexApiKey }}
+{{- $_ := required "internal.apiSecret is required when codexAppGateway.enabled is true" .Values.internal.apiSecret }}
 {{- /*
 Default model-provider base URL points at the in-cluster llmproxy unless
 explicitly overridden. Pre-resolved here so the env block stays tidy.
@@ -116,6 +117,10 @@ spec:
             - name: CXG_LOG_LEVEL
               value: {{ .Values.codexAppGateway.logLevel | quote }}
             {{- end }}
+            - name: CXG_AGENTSERVER_INTERNAL_URL
+              value: "http://{{ .Release.Name }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}"
+            - name: CXG_AGENTSERVER_INTERNAL_SECRET
+              value: {{ required "internal.apiSecret is required when codexAppGateway.enabled is true" .Values.internal.apiSecret | quote }}
           # CODEX_HOME tmpdirs (sqlite + session jsonl) live here. emptyDir
           # is sufficient because state is round-tripped to S3 on idle
           # shutdown — pod restart loses no data.
