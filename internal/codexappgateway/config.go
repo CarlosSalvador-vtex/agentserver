@@ -48,6 +48,15 @@ type ServeConfig struct {
 	// in config.toml. Without at least one, codex refuses to run shell-side
 	// operations on the project root.
 	ProjectTrustedPaths []string
+
+	// AgentserverInternalURL is the http base for codex token verification
+	// (e.g. "http://release-agentserver.namespace.svc:8080"). Required when
+	// the gateway uses RemoteVerifier (production default).
+	AgentserverInternalURL string
+
+	// AgentserverInternalSecret matches the agentserver's INTERNAL_API_SECRET
+	// env. Sent in every verify request as X-Internal-Secret.
+	AgentserverInternalSecret string
 }
 
 func LoadServeConfigFromEnv() (ServeConfig, error) {
@@ -83,9 +92,8 @@ func LoadServeConfigFromEnv() (ServeConfig, error) {
 			}
 		}
 	}
-	if len(cfg.InboundHMACSecret) == 0 {
-		return cfg, fmt.Errorf("CXG_INBOUND_HMAC_SECRET is required")
-	}
+	cfg.AgentserverInternalURL = os.Getenv("CXG_AGENTSERVER_INTERNAL_URL")
+	cfg.AgentserverInternalSecret = os.Getenv("CXG_AGENTSERVER_INTERNAL_SECRET")
 	if cfg.S3.Endpoint == "" {
 		return cfg, fmt.Errorf("CXG_S3_ENDPOINT is required")
 	}
@@ -108,6 +116,12 @@ func LoadServeConfigFromEnv() (ServeConfig, error) {
 	}
 	if len(cfg.CapTokenHMACSecret) == 0 {
 		return cfg, fmt.Errorf("CXG_CAPTOKEN_HMAC_SECRET is required")
+	}
+	if cfg.AgentserverInternalURL == "" {
+		return cfg, fmt.Errorf("CXG_AGENTSERVER_INTERNAL_URL is required")
+	}
+	if cfg.AgentserverInternalSecret == "" {
+		return cfg, fmt.Errorf("CXG_AGENTSERVER_INTERNAL_SECRET is required")
 	}
 	if v := os.Getenv("CXG_IDLE_SHUTDOWN"); v != "" {
 		d, err := time.ParseDuration(v)
