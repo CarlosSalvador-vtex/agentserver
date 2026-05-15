@@ -35,9 +35,9 @@ type Server struct {
 	homeMgr *codexhome.Manager
 	logger  *slog.Logger
 
-	// buildConfig produces the per-thread config.toml input. Allowed to
+	// buildConfig produces the per-session config.toml input. Allowed to
 	// hit the network. Errors abort the spawn.
-	buildConfig func(ctx context.Context, workspaceID, threadID string) (codexhome.ConfigInput, error)
+	buildConfig func(ctx context.Context, workspaceID string) (codexhome.ConfigInput, error)
 }
 
 // NewServer wires up the production server. selfBin is the absolute path
@@ -64,7 +64,7 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 	execClient := NewExecGatewayClient(cfg.ExecGatewayInternalURL, cfg.ExecGatewayInternalSecret)
 	s := &Server{
 		cfg:     cfg,
-		auth:    auth.NewHMAC(cfg.InboundHMACSecret),
+		auth:    auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
 		sup:     sup,
 		homeMgr: mgr,
 		logger:  logger,
@@ -75,8 +75,8 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 
 // makeBuildConfig returns the per-spawn ConfigInput producer. Split out
 // so server_test.go can construct a Server with a stub connectedClient.
-func makeBuildConfig(cfg ServeConfig, client connectedClient, selfBin string, logger *slog.Logger) func(context.Context, string, string) (codexhome.ConfigInput, error) {
-	return func(ctx context.Context, workspaceID, threadID string) (codexhome.ConfigInput, error) {
+func makeBuildConfig(cfg ServeConfig, client connectedClient, selfBin string, logger *slog.Logger) func(context.Context, string) (codexhome.ConfigInput, error) {
+	return func(ctx context.Context, workspaceID string) (codexhome.ConfigInput, error) {
 		executors, err := client.Connected(ctx, workspaceID)
 		if err != nil {
 			// Fail-soft: a spawn with no executors still gives the user a
@@ -163,7 +163,7 @@ func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	r.Get("/codex-app/ws", s.handleCodexAppWS)
-	r.Post("/admin/threads/restart", s.handleAdminRestart)
+	r.Post("/admin/sessions/restart", s.handleAdminRestart)
 	return r
 }
 
@@ -173,9 +173,9 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing Bearer", http.StatusUnauthorized)
 		return
 	}
-	id, err := s.auth.Verify(tok)
+	id, err := s.auth.Verify(r.Context(), tok)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	userWS, err := websocket.Accept(w, r, nil)
@@ -185,10 +185,10 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer userWS.Close(websocket.StatusNormalClosure, "client closing")
 
-	key := supervisor.Key{WorkspaceID: id.WorkspaceID, ThreadID: id.ThreadID}
+	key := supervisor.Key{WorkspaceID: id.WorkspaceID}
 	ctx := r.Context()
 	handle, err := s.sup.EnsureSubprocess(ctx, key, func() (codexhome.ConfigInput, error) {
-		return s.buildConfig(ctx, id.WorkspaceID, id.ThreadID)
+		return s.buildConfig(ctx, id.WorkspaceID)
 	})
 	if err != nil {
 		s.logger.Error("ensure subprocess", "err", err, "key", key)
@@ -197,7 +197,6 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	childWS, _, err := websocket.Dial(ctx, handle.WSURL, &websocket.DialOptions{
-		// codex app-server rejects connections that request permessage-deflate.
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
@@ -214,39 +213,31 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAdminRestart shuts down the codex app-server subprocess for a
-// given (workspaceId, threadId), forcing a fresh spawn (and S3 reload)
-// on the next ws connect. Used by operators after executor-binding
-// changes; see spec § Subsystem 2 "Per-turn config refresh".
-//
-// AUTHORIZATION (phase 1): the bearer token's identity is checked only
-// to authenticate the caller as a valid token holder. The (workspaceId,
-// threadId) to restart is taken from the request body, allowing
-// cross-thread restarts by any authenticated caller. This matches the
-// operator-scoped intent of an admin endpoint. Phase 2 may tighten to
-// require token-identity == body-identity for self-service restarts.
+// given workspaceId, forcing a fresh spawn (and S3 reload) on the next
+// ws connect. Used by operators after executor-binding changes; see spec
+// § Subsystem 2 "Per-session config refresh".
 func (s *Server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
 	tok, ok := auth.ExtractBearer(r)
 	if !ok {
 		http.Error(w, "missing Bearer", http.StatusUnauthorized)
 		return
 	}
-	if _, err := s.auth.Verify(tok); err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+	if _, err := s.auth.Verify(r.Context(), tok); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var body struct {
 		WorkspaceID string `json:"workspaceId"`
-		ThreadID    string `json:"threadId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
-	if body.WorkspaceID == "" || body.ThreadID == "" {
-		http.Error(w, "workspaceId and threadId required", http.StatusBadRequest)
+	if body.WorkspaceID == "" {
+		http.Error(w, "workspaceId required", http.StatusBadRequest)
 		return
 	}
-	if err := s.sup.Shutdown(r.Context(), supervisor.Key{WorkspaceID: body.WorkspaceID, ThreadID: body.ThreadID}); err != nil {
+	if err := s.sup.Shutdown(r.Context(), supervisor.Key{WorkspaceID: body.WorkspaceID}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
