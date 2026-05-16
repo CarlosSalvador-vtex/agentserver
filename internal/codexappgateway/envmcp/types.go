@@ -66,12 +66,18 @@ type MCPToolContent struct {
 
 // Method names — must match codex-rs/exec-server/src/protocol.rs.
 const (
-	ExecMethodInitialize    = "initialize"
-	ExecMethodInitialized   = "initialized"    // notification
-	ExecMethodProcessStart  = "process/start"
-	ExecMethodProcessRead   = "process/read"
-	ExecMethodProcessExited = "process/exited" // notification (informational; we poll instead)
-	ExecMethodProcessClosed = "process/closed" // notification (informational)
+	ExecMethodInitialize       = "initialize"
+	ExecMethodInitialized      = "initialized" // notification
+	ExecMethodProcessStart     = "process/start"
+	ExecMethodProcessRead      = "process/read"
+	ExecMethodProcessWrite     = "process/write"
+	ExecMethodProcessTerminate = "process/terminate"
+	ExecMethodProcessExited    = "process/exited" // notification (informational; we poll instead)
+	ExecMethodProcessClosed    = "process/closed" // notification (informational)
+	ExecMethodFsReadFile       = "fs/readFile"
+	ExecMethodFsWriteFile      = "fs/writeFile"
+	ExecMethodFsRemove         = "fs/remove"
+	ExecMethodFsCopy           = "fs/copy"
 )
 
 // ExecInitializeParams matches codex-rs's InitializeParams (camelCase).
@@ -120,4 +126,49 @@ type ProcessOutputChunk struct {
 	Seq    uint64 `json:"seq"`
 	Stream string `json:"stream"` // "stdout" | "stderr"
 	Chunk  string `json:"chunk"`
+}
+
+// ProcessWriteParams is the request body for process/write.
+type ProcessWriteParams struct {
+	ProcessID string `json:"processId"`
+	Data      string `json:"data"` // base64 raw bytes
+}
+
+// ProcessTerminateParams is the request body for process/terminate.
+type ProcessTerminateParams struct {
+	ProcessID string `json:"processId"`
+}
+
+// FsReadFileParams is the request body for fs/readFile.
+type FsReadFileParams struct {
+	Path string `json:"path"`
+}
+
+// FsReadFileResult: dataBase64 is the file's full content
+// (codex returns the entire file; we expose offset/limit slicing
+// in the MCP tool wrapper).
+type FsReadFileResult struct {
+	DataBase64 string `json:"dataBase64"`
+}
+
+// FsWriteFileParams is the request body for fs/writeFile.
+type FsWriteFileParams struct {
+	Path       string `json:"path"`
+	DataBase64 string `json:"dataBase64"`
+	// CreateMissing controls whether intermediate directories are
+	// created. Codex's default is true.
+	CreateMissing bool `json:"createMissing,omitempty"`
+}
+
+// FsRemoveParams is the request body for fs/remove.
+type FsRemoveParams struct {
+	Path      string `json:"path"`
+	Recursive bool   `json:"recursive,omitempty"`
+}
+
+// FsCopyParams is the request body for fs/copy.
+type FsCopyParams struct {
+	SourcePath      string `json:"sourcePath"`
+	DestinationPath string `json:"destinationPath"`
+	Recursive       bool   `json:"recursive,omitempty"`
 }

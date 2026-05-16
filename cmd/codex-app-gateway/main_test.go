@@ -9,71 +9,53 @@ import (
 
 func TestParseEnvMcpArgs_HappyPath(t *testing.T) {
 	args, err := parseEnvMcpArgs([]string{
-		"--exe-id", "exe_alpha",
-		"--bridge-url", "ws://exec-gateway:6060/bridge/exe_alpha",
-		"--token-env", "CXG_BRIDGE_TOKEN_EXE_ALPHA",
-		"--exe-desc", "Daisy's MacBook",
-		"--turn-id", "trn_xxx",
+		"--workspace-id", "ws_a",
+		"--exec-gateway-url", "wss://exec-gw/bridge",
+		"--app-gateway-internal", "http://127.0.0.1:8086",
+		"--workspace-token-env", "CXG_WORKSPACE_TOKEN",
+		"--loopback-token-env", "CXG_LOOPBACK_TOKEN",
 	})
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if args.ExeID != "exe_alpha" {
-		t.Errorf("ExeID = %q", args.ExeID)
+	if args.WorkspaceID != "ws_a" {
+		t.Errorf("WorkspaceID = %q", args.WorkspaceID)
 	}
-	if args.BridgeURL != "ws://exec-gateway:6060/bridge/exe_alpha" {
-		t.Errorf("BridgeURL = %q", args.BridgeURL)
+	if args.ExecGatewayURL != "wss://exec-gw/bridge" {
+		t.Errorf("ExecGatewayURL = %q", args.ExecGatewayURL)
 	}
-	if args.TokenEnv != "CXG_BRIDGE_TOKEN_EXE_ALPHA" {
-		t.Errorf("TokenEnv = %q", args.TokenEnv)
+	if args.AppGatewayInternal != "http://127.0.0.1:8086" {
+		t.Errorf("AppGatewayInternal = %q", args.AppGatewayInternal)
 	}
-	if args.ExeDesc != "Daisy's MacBook" {
-		t.Errorf("ExeDesc = %q", args.ExeDesc)
+	if args.WorkspaceTokenEnv != "CXG_WORKSPACE_TOKEN" {
+		t.Errorf("WorkspaceTokenEnv = %q", args.WorkspaceTokenEnv)
 	}
-	if args.TurnID != "trn_xxx" {
-		t.Errorf("TurnID = %q", args.TurnID)
-	}
-}
-
-func TestParseEnvMcpArgs_RequiresExeID(t *testing.T) {
-	_, err := parseEnvMcpArgs([]string{
-		"--bridge-url", "ws://x/bridge/y",
-		"--token-env", "T",
-	})
-	if err == nil || !strings.Contains(err.Error(), "--exe-id") {
-		t.Fatalf("want --exe-id required error, got %v", err)
+	if args.LoopbackTokenEnv != "CXG_LOOPBACK_TOKEN" {
+		t.Errorf("LoopbackTokenEnv = %q", args.LoopbackTokenEnv)
 	}
 }
 
-func TestParseEnvMcpArgs_RequiresBridgeURL(t *testing.T) {
-	_, err := parseEnvMcpArgs([]string{
-		"--exe-id", "x", "--token-env", "T",
-	})
-	if err == nil || !strings.Contains(err.Error(), "--bridge-url") {
-		t.Fatalf("want --bridge-url required error, got %v", err)
+// TestParseEnvMcpArgs_MissingRequired sweeps the required-flag check.
+func TestParseEnvMcpArgs_MissingRequired(t *testing.T) {
+	full := map[string]string{
+		"--workspace-id":         "w",
+		"--exec-gateway-url":     "wss://x/bridge",
+		"--app-gateway-internal": "http://127.0.0.1:8086",
+		"--workspace-token-env":  "WT",
+		"--loopback-token-env":   "LT",
 	}
-}
-
-func TestParseEnvMcpArgs_RequiresTokenEnv(t *testing.T) {
-	_, err := parseEnvMcpArgs([]string{
-		"--exe-id", "x", "--bridge-url", "ws://x/bridge/y",
-	})
-	if err == nil || !strings.Contains(err.Error(), "--token-env") {
-		t.Fatalf("want --token-env required error, got %v", err)
-	}
-}
-
-func TestParseEnvMcpArgs_DescDefaultsToExeID(t *testing.T) {
-	args, err := parseEnvMcpArgs([]string{
-		"--exe-id", "exe_x",
-		"--bridge-url", "ws://x/bridge/y",
-		"--token-env", "T",
-	})
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if args.ExeDesc != "exe_x" {
-		t.Errorf("ExeDesc default = %q, want exe_x", args.ExeDesc)
+	for missing := range full {
+		argv := make([]string, 0, len(full)*2)
+		for k, v := range full {
+			if k == missing {
+				continue
+			}
+			argv = append(argv, k, v)
+		}
+		_, err := parseEnvMcpArgs(argv)
+		if err == nil || !strings.Contains(err.Error(), missing) {
+			t.Errorf("missing %s: want error naming the flag, got %v", missing, err)
+		}
 	}
 }
 
@@ -86,10 +68,12 @@ func TestParseEnvMcpArgs_HelpFlag_ReturnsErrHelp(t *testing.T) {
 
 func TestParseEnvMcpArgs_RejectsTrailingPositional(t *testing.T) {
 	_, err := parseEnvMcpArgs([]string{
-		"--exe-id", "x",
-		"--bridge-url", "ws://x/bridge/y",
-		"--token-env", "T",
-		"unexpected",
+		"--workspace-id", "w",
+		"--exec-gateway-url", "wss://x/bridge",
+		"--app-gateway-internal", "http://127.0.0.1:8086",
+		"--workspace-token-env", "WT",
+		"--loopback-token-env", "LT",
+		"trailing",
 	})
 	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
 		t.Fatalf("want unexpected-positional error, got %v", err)
@@ -97,9 +81,6 @@ func TestParseEnvMcpArgs_RejectsTrailingPositional(t *testing.T) {
 }
 
 func TestParseEnvMcpArgs_UnknownFlag_NoStderrLeak(t *testing.T) {
-	// Smoke test: parse should error without panicking and the error
-	// should be the FlagSet's own message (i.e., we didn't suppress it
-	// to the point of losing the diagnostic).
 	_, err := parseEnvMcpArgs([]string{"--bogus", "x"})
 	if err == nil {
 		t.Fatal("want error on unknown flag")

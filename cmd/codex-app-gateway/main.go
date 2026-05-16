@@ -123,35 +123,33 @@ Flags:
 func parseEnvMcpArgs(rawArgs []string) (envmcp.RunArgs, error) {
 	fs := flag.NewFlagSet("env-mcp", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	exeID := fs.String("exe-id", "", "executor id (required)")
-	bridgeURL := fs.String("bridge-url", "", "ws URL for /bridge/{exe_id} (required)")
-	tokenEnv := fs.String("token-env", "", "env var name holding the cap token (required)")
-	exeDesc := fs.String("exe-desc", "", "executor description shown to the LLM (defaults to --exe-id)")
-	turnID := fs.String("turn-id", "", "turn id (logged to stderr only)")
+	workspaceID := fs.String("workspace-id", "", "workspace id (required)")
+	execGatewayURL := fs.String("exec-gateway-url", "", "ws base URL for codex-exec-gateway /bridge (required)")
+	appGatewayInternal := fs.String("app-gateway-internal", "", "http base URL for codex-app-gateway loopback (required, typically http://127.0.0.1:8086)")
+	workspaceTokenEnv := fs.String("workspace-token-env", "", "env var name holding the workspace cap token (required)")
+	loopbackTokenEnv := fs.String("loopback-token-env", "", "env var name holding the loopback token (required)")
 	if err := fs.Parse(rawArgs); err != nil {
 		return envmcp.RunArgs{}, err
 	}
 	if fs.NArg() > 0 {
 		return envmcp.RunArgs{}, fmt.Errorf("unexpected positional arguments: %v", fs.Args())
 	}
-	if *exeID == "" {
-		return envmcp.RunArgs{}, fmt.Errorf("--exe-id is required")
-	}
-	if *bridgeURL == "" {
-		return envmcp.RunArgs{}, fmt.Errorf("--bridge-url is required")
-	}
-	if *tokenEnv == "" {
-		return envmcp.RunArgs{}, fmt.Errorf("--token-env is required")
-	}
-	desc := *exeDesc
-	if desc == "" {
-		desc = *exeID
+	for name, val := range map[string]string{
+		"--workspace-id":         *workspaceID,
+		"--exec-gateway-url":     *execGatewayURL,
+		"--app-gateway-internal": *appGatewayInternal,
+		"--workspace-token-env":  *workspaceTokenEnv,
+		"--loopback-token-env":   *loopbackTokenEnv,
+	} {
+		if val == "" {
+			return envmcp.RunArgs{}, fmt.Errorf("%s is required", name)
+		}
 	}
 	return envmcp.RunArgs{
-		ExeID:     *exeID,
-		BridgeURL: *bridgeURL,
-		TokenEnv:  *tokenEnv,
-		ExeDesc:   desc,
-		TurnID:    *turnID,
+		WorkspaceID:        *workspaceID,
+		ExecGatewayURL:     *execGatewayURL,
+		AppGatewayInternal: *appGatewayInternal,
+		WorkspaceTokenEnv:  *workspaceTokenEnv,
+		LoopbackTokenEnv:   *loopbackTokenEnv,
 	}, nil
 }

@@ -12,29 +12,46 @@ import (
 	"unicode/utf8"
 )
 
-// ShellRunner is the slice of Translator that MCPServer uses.
-// Defined as an interface so mcp_server tests don't need a real bridge.
-type ShellRunner interface {
-	RunShell(ctx context.Context, argv []string, cwd string) (ShellResult, error)
+// Tool is implemented by every MCP tool env-mcp exposes. tools/list
+// builds its response by querying each registered Tool's metadata;
+// tools/call dispatches by Name.
+type Tool interface {
+	Name() string
+	Description() string
+	InputSchema() json.RawMessage
+	Call(ctx context.Context, args json.RawMessage) (MCPCallToolResult, error)
 }
 
 // MCPServer is a minimal newline-delimited JSON-RPC stdio MCP server
-// that exposes a single `shell` tool. Concurrency: requests are handled
-// sequentially in the order they arrive; this matches the MCP stdio
-// model and keeps the server free of intra-process synchronization
-// other than the write-mutex.
+// that exposes a fixed set of tools through a registry. Concurrency:
+// requests are handled sequentially in the order they arrive; this
+// matches the MCP stdio model and keeps the server free of
+// intra-process synchronization other than the write-mutex.
 type MCPServer struct {
-	exeDesc string
-	tr      ShellRunner
+	name    string // surfaces in initialize/serverInfo
+	tools   map[string]Tool
+	order   []string // stable tools/list ordering
 	writeMu sync.Mutex
 	logger  *slog.Logger
 }
 
-func NewMCPServer(exeDesc string, tr ShellRunner, logger *slog.Logger) *MCPServer {
+// NewMCPServer constructs a server bound to a registry. Tool order is
+// preserved as supplied (LLM clients sometimes rely on consistent
+// ordering for caching).
+func NewMCPServer(name string, tools []Tool, logger *slog.Logger) *MCPServer {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &MCPServer{exeDesc: exeDesc, tr: tr, logger: logger}
+	reg := make(map[string]Tool, len(tools))
+	order := make([]string, 0, len(tools))
+	for _, t := range tools {
+		if _, dup := reg[t.Name()]; dup {
+			logger.Warn("mcp: duplicate tool name; later registration wins", "name", t.Name())
+		}
+		reg[t.Name()] = t
+		order = append(order, t.Name())
+	}
+	return &MCPServer{name: name, tools: reg, order: order, logger: logger}
 }
 
 // previewLine returns up to 200 bytes of line as a string, truncating safely.
@@ -43,7 +60,6 @@ func previewLine(line []byte) string {
 	if len(line) <= max {
 		return string(line)
 	}
-	// Truncate at a valid UTF-8 boundary.
 	truncated := line[:max]
 	for !utf8.Valid(truncated) {
 		truncated = truncated[:len(truncated)-1]
@@ -82,55 +98,41 @@ func (s *MCPServer) dispatch(ctx context.Context, req *JSONRPCMessage, out io.Wr
 		return s.respond(out, req.ID, MCPInitializeResult{
 			ProtocolVersion: "2025-06-18",
 			Capabilities:    map[string]any{"tools": map[string]any{}},
-			ServerInfo:      MCPServerInfo{Name: "codex-env-mcp", Version: "0.1"},
+			ServerInfo:      MCPServerInfo{Name: s.name, Version: "0.2"},
 		}, nil)
 
 	case "notifications/initialized":
 		return nil // notification
 
 	case "tools/list":
-		schema := json.RawMessage(`{"type":"object","properties":{` +
-			`"command":{"type":"array","items":{"type":"string"},"description":"argv as a list of strings"},` +
-			`"cwd":{"type":"string","description":"Working directory; defaults to /tmp"}` +
-			`},"required":["command"]}`)
-		desc := fmt.Sprintf(
-			"Run a shell command on `%s`. Use this tool for any shell operation in this environment.",
-			s.exeDesc,
-		)
-		return s.respond(out, req.ID, MCPListToolsResult{
-			Tools: []MCPTool{{Name: "shell", Description: desc, InputSchema: schema}},
-		}, nil)
+		list := make([]MCPTool, 0, len(s.order))
+		for _, name := range s.order {
+			t := s.tools[name]
+			list = append(list, MCPTool{
+				Name:        t.Name(),
+				Description: t.Description(),
+				InputSchema: t.InputSchema(),
+			})
+		}
+		return s.respond(out, req.ID, MCPListToolsResult{Tools: list}, nil)
 
 	case "tools/call":
 		var p MCPCallToolParams
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return s.respond(out, req.ID, nil, &JSONRPCError{Code: -32602, Message: "invalid params: " + err.Error()})
 		}
-		if p.Name != "shell" {
+		t, ok := s.tools[p.Name]
+		if !ok {
 			return s.respond(out, req.ID, nil, &JSONRPCError{Code: -32601, Message: "unknown tool: " + p.Name})
 		}
-		var args struct {
-			Command []string `json:"command"`
-			Cwd     string   `json:"cwd"`
-		}
-		if err := json.Unmarshal(p.Arguments, &args); err != nil {
-			return s.respond(out, req.ID, nil, &JSONRPCError{Code: -32602, Message: "invalid arguments: " + err.Error()})
-		}
-		if len(args.Command) == 0 {
-			return s.respond(out, req.ID, nil, &JSONRPCError{Code: -32602, Message: "command must be a non-empty array"})
-		}
-		cwd := args.Cwd
-		if cwd == "" {
-			cwd = "/tmp"
-		}
-		res, err := s.tr.RunShell(ctx, args.Command, cwd)
+		res, err := t.Call(ctx, p.Arguments)
 		if err != nil {
-			return s.respond(out, req.ID, nil, &JSONRPCError{Code: -32000, Message: "shell failed: " + err.Error()})
+			// Tool returned a hard error (not an isError content) — surface
+			// as JSON-RPC error so the LLM sees a clear protocol failure
+			// rather than a silently-empty content list.
+			return s.respond(out, req.ID, nil, &JSONRPCError{Code: -32000, Message: p.Name + ": " + err.Error()})
 		}
-		return s.respond(out, req.ID, MCPCallToolResult{
-			Content: []MCPToolContent{{Type: "text", Text: res.Text}},
-			IsError: res.IsError,
-		}, nil)
+		return s.respond(out, req.ID, res, nil)
 
 	case "prompts/list":
 		return s.respond(out, req.ID, map[string]any{"prompts": []any{}}, nil)
