@@ -102,8 +102,10 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- pumpFrames(pumpCtx, bridge, inbound) }()
-	go func() { errCh <- pumpFrames(pumpCtx, inbound, bridge) }()
+	// Diagnostic pumps log each frame's direction + truncated payload.
+	// Strictly debugging the MCP startup flow; gated on log level.
+	go func() { errCh <- s.pumpFramesDebug(pumpCtx, bridge, inbound, "env-mcp→exec", exeID) }()
+	go func() { errCh <- s.pumpFramesDebug(pumpCtx, inbound, bridge, "exec→env-mcp", exeID) }()
 
 	// Wait for either pump to return; cancel so the other pump unblocks.
 	first := <-errCh
@@ -121,5 +123,37 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("bridge: pump ended with error", "exe_id", exeID, "error", first)
 	} else {
 		s.logger.Info("bridge: pump ended cleanly", "exe_id", exeID)
+	}
+}
+
+// pumpFramesDebug wraps pumpFrames with per-frame logging. Each frame's
+// direction (env-mcp→exec / exec→env-mcp), type, byte length, and first
+// 240 bytes of payload are logged at INFO level. Temporary diagnostic
+// for the MCP-startup-timeout investigation; remove (or gate behind a
+// config flag) after the root cause is found.
+func (s *Server) pumpFramesDebug(ctx context.Context, src, dst *websocket.Conn, dir, exeID string) error {
+	for {
+		mt, data, err := src.Read(ctx)
+		if err != nil {
+			closeErr := websocket.CloseStatus(err)
+			if closeErr == websocket.StatusNormalClosure || closeErr == websocket.StatusGoingAway {
+				return nil
+			}
+			return err
+		}
+		preview := data
+		if len(preview) > 240 {
+			preview = preview[:240]
+		}
+		s.logger.Info("bridge: frame",
+			"dir", dir,
+			"exe_id", exeID,
+			"type", mt.String(),
+			"len", len(data),
+			"preview", string(preview),
+		)
+		if err := dst.Write(ctx, mt, data); err != nil {
+			return err
+		}
 	}
 }
