@@ -17,9 +17,12 @@ type CloudRegisterStore interface {
 }
 
 // cloudRegisterResponse mirrors the upstream codex exec-server registry
-// response shape (see `RemoteExecutorRegistrationResponse` in
-// codex-rs/exec-server/src/remote.rs).
+// response shape. Codex v0.130 expects {id, executor_id, url}; main has
+// dropped `id`. We include all three so both shapes deserialize cleanly.
+// The `id` field is only used by upstream for log messages — we reuse
+// executor_id since we don't track per-attempt registration IDs.
 type cloudRegisterResponse struct {
+	ID         string `json:"id"`
 	ExecutorID string `json:"executor_id"`
 	URL        string `json:"url"`
 }
@@ -74,6 +77,7 @@ func CloudRegister(store CloudRegisterStore, publicWSBaseURL string) http.Handle
 		wsURL := base + "/codex-exec/" + url.PathEscape(exeID) + "?token=" + url.QueryEscape(bearer)
 
 		writeJSON(w, http.StatusOK, cloudRegisterResponse{
+			ID:         exeID,
 			ExecutorID: exeID,
 			URL:        wsURL,
 		})
