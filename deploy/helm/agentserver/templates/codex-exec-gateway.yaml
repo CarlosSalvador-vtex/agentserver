@@ -88,6 +88,12 @@ spec:
               value: {{ .Values.codexExecGateway.idleTimeout | quote }}
             - name: CXG_AGENTSERVER_INTERNAL_SECRET
               value: {{ required "internal.apiSecret is required when codexExecGateway.enabled is true" .Values.internal.apiSecret | quote }}
+            {{- if .Values.codexExecGateway.publicHost }}
+            # Returned in POST /cloud/executor/{id}/register response (the
+            # upstream codex --remote compat endpoint). Format: wss://host:port
+            - name: CXG_PUBLIC_WS_BASE_URL
+              value: "wss://{{ .Values.codexExecGateway.publicHost }}:443"
+            {{- end }}
             {{- if .Values.codexExecGateway.logLevel }}
             - name: CXG_LOG_LEVEL
               value: {{ .Values.codexExecGateway.logLevel | quote }}

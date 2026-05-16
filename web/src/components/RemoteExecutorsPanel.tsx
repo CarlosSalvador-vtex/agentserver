@@ -103,7 +103,7 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
       <div className="px-5 py-4">
         <p className="mb-3 text-xs text-[var(--muted-foreground)]">
           Register a machine to expose its shell to codex sessions in this workspace.
-          Run the printed <code className="rounded bg-[var(--background)] px-1 py-0.5 font-mono text-[11px] text-[var(--foreground)]">codex exec-server --connect ...</code> command on that machine to bring it online.
+          Run the printed <code className="rounded bg-[var(--background)] px-1 py-0.5 font-mono text-[11px] text-[var(--foreground)]">codex exec-server --remote ...</code> command on that machine to bring it online.
         </p>
 
         {error && (

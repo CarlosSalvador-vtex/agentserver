@@ -72,8 +72,16 @@ func TestHandleRegisterExecutor_HappyPath(t *testing.T) {
 	if resp.ExeID != "exe_test" || resp.RegistrationToken != "tok_abc" {
 		t.Errorf("resp = %+v", resp)
 	}
-	if !strings.Contains(resp.ConnectCommand, "codex-exec.example.com:443/codex-exec/exe_test?token=tok_abc") {
-		t.Errorf("connect_command = %q", resp.ConnectCommand)
+	// Upstream-compat command: bearer in env + register POST. codex
+	// auto-derives the ws URL from the /cloud/executor/.../register response.
+	if !strings.Contains(resp.ConnectCommand, "CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN='tok_abc'") {
+		t.Errorf("connect_command missing bearer token: %q", resp.ConnectCommand)
+	}
+	if !strings.Contains(resp.ConnectCommand, "--remote 'https://codex-exec.example.com'") {
+		t.Errorf("connect_command missing --remote: %q", resp.ConnectCommand)
+	}
+	if !strings.Contains(resp.ConnectCommand, "--executor-id 'exe_test'") {
+		t.Errorf("connect_command missing --executor-id: %q", resp.ConnectCommand)
 	}
 	if registerCalls != 1 || bindCalls != 1 {
 		t.Errorf("register=%d bind=%d", registerCalls, bindCalls)

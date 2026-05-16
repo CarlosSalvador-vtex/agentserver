@@ -9,12 +9,18 @@ import (
 
 // WebSocket keepalive (ping interval + idle timeout) is phase-2; nhooyr's defaults govern for now.
 type Config struct {
-	Port                     string
-	DatabaseURL              string
-	CapTokenHMACSecret       []byte
-	InternalSharedSecret     string
+	Port                      string
+	DatabaseURL               string
+	CapTokenHMACSecret        []byte
+	InternalSharedSecret      string
 	AgentserverInternalSecret string
-	LogLevel                 slog.Level
+	// PublicWSBaseURL is the wss:// origin used in the response of the
+	// upstream-compat `POST /cloud/executor/{exe_id}/register` endpoint.
+	// Example: "wss://codex-exec.agent.cs.ac.cn:443". When empty, the
+	// endpoint synthesises a URL from the incoming request's Host header
+	// (less reliable behind proxies but useful in dev).
+	PublicWSBaseURL string
+	LogLevel        slog.Level
 }
 
 // Validate checks that security-critical fields are populated. NewServer calls
@@ -36,6 +42,7 @@ func LoadConfigFromEnv() (Config, error) {
 		CapTokenHMACSecret:        []byte(os.Getenv("CXG_CAPTOKEN_HMAC_SECRET")),
 		InternalSharedSecret:      os.Getenv("CXG_INTERNAL_SHARED_SECRET"),
 		AgentserverInternalSecret: os.Getenv("CXG_AGENTSERVER_INTERNAL_SECRET"),
+		PublicWSBaseURL:           os.Getenv("CXG_PUBLIC_WS_BASE_URL"),
 		LogLevel:                  slog.LevelInfo,
 	}
 	if cfg.DatabaseURL == "" {

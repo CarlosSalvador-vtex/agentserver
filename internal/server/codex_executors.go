@@ -77,9 +77,22 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 		RegistrationToken: reg.RegistrationToken,
 	}
 	if s.CodexExecGatewayPublicHost != "" {
+		// Upstream codex `exec-server --remote` contract:
+		//   1. POST <base_url>/cloud/executor/{id}/register with Bearer <token>
+		//      (token from CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN env)
+		//   2. Server returns {executor_id, url}, codex then ws-dials url.
+		// Our /cloud/executor/{id}/register handler returns the existing
+		// /codex-exec/{id}?token=... URL — the shim makes that transparent.
+		exeName := req.Description
+		if exeName == "" {
+			exeName = req.DisplayName
+		}
+		if exeName == "" {
+			exeName = reg.ExeID
+		}
 		resp.ConnectCommand = fmt.Sprintf(
-			"codex exec-server --connect 'wss://%s:443/codex-exec/%s?token=%s'",
-			s.CodexExecGatewayPublicHost, reg.ExeID, reg.RegistrationToken,
+			"export CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN='%s' && \\\ncodex exec-server --remote 'https://%s' --executor-id '%s' --name '%s'",
+			reg.RegistrationToken, s.CodexExecGatewayPublicHost, reg.ExeID, exeName,
 		)
 	}
 

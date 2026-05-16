@@ -47,6 +47,10 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/codex-exec/{exe_id}", s.handleInbound)
 	r.Get("/bridge/{exe_id}", s.handleBridge)
 
+	// Upstream codex `exec-server --remote` compat: clients POST here
+	// with bearer auth, get back the ws URL above.
+	r.Post("/cloud/executor/{exe_id}/register", handlers.CloudRegister(s.store, s.config.PublicWSBaseURL))
+
 	// *Store satisfies handlers.Store, handlers.BindingStore, and
 	// handlers.InternalConnectedStore directly — no adapter needed because
 	// all three interfaces now use execmodel types, which *Store also uses
