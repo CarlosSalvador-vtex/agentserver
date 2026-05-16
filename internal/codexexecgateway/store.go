@@ -164,6 +164,20 @@ func (s *Store) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID st
 	return nil
 }
 
+// OwnsExecutor reports whether exeID is bound to workspaceID in the
+// workspace_executors table. Used by /bridge to enforce workspace
+// boundary on workspace-scoped cap tokens.
+func (s *Store) OwnsExecutor(ctx context.Context, workspaceID, exeID string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM workspace_executors WHERE workspace_id=$1 AND exe_id=$2`,
+		workspaceID, exeID).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("OwnsExecutor: %w", err)
+	}
+	return n > 0, nil
+}
+
 // UnbindWorkspaceExecutor removes a binding row.
 func (s *Store) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error {
 	_, err := s.db.ExecContext(ctx, `

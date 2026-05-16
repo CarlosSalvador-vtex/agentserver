@@ -9,32 +9,31 @@ import (
 	"time"
 )
 
-// MintCapToken produces a capability token consumed by codex-exec-gateway's
-// VerifyCapabilityToken. Format and HMAC are kept identical (HS256 over
-// "headerB64.payloadB64", base64url-no-pad) — see
-// internal/codexexecgateway/auth.go for the verifier.
+// MintCapToken produces a workspace-scoped capability token consumed
+// by codex-exec-gateway's VerifyCapabilityToken. Format and HMAC are
+// kept identical (HS256 over "headerB64.payloadB64",
+// base64url-no-pad) — see internal/codexexecgateway/auth.go for the
+// verifier.
 //
-// Per the 2026-05-10 refinement, each minted token authorises exactly one
-// exe_id (one bridge connection per executor per turn). Verifier still
-// accepts multi-id payloads for forward compat.
-func MintCapToken(secret []byte, turnID, workspaceID, exeID string, ttl time.Duration) (string, error) {
+// Per the 2026-05-16 fixed-tools redesign, one token covers any
+// executor in the workspace; /bridge enforces workspace ownership at
+// request time via the workspace_executors table.
+func MintCapToken(secret []byte, turnID, workspaceID string, ttl time.Duration) (string, error) {
 	if len(secret) == 0 {
 		return "", fmt.Errorf("captoken: empty secret")
 	}
-	if turnID == "" || workspaceID == "" || exeID == "" {
-		return "", fmt.Errorf("captoken: turnID/workspaceID/exeID required")
+	if turnID == "" || workspaceID == "" {
+		return "", fmt.Errorf("captoken: turnID/workspaceID required")
 	}
 	now := time.Now().UTC().Unix()
 	payload := struct {
-		TurnID      string   `json:"turn_id"`
-		WorkspaceID string   `json:"workspace_id"`
-		ExeIDs      []string `json:"exe_ids"`
-		IAT         int64    `json:"iat"`
-		EXP         int64    `json:"exp"`
+		TurnID      string `json:"turn_id"`
+		WorkspaceID string `json:"workspace_id"`
+		IAT         int64  `json:"iat"`
+		EXP         int64  `json:"exp"`
 	}{
 		TurnID:      turnID,
 		WorkspaceID: workspaceID,
-		ExeIDs:      []string{exeID},
 		IAT:         now,
 		EXP:         now + int64(ttl.Seconds()),
 	}

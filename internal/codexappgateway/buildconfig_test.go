@@ -84,19 +84,23 @@ func TestBuildConfig_PopulatesExecutorsAndMintsValidTokens(t *testing.T) {
 	if got.Config.Executors[0].TurnID == "" || got.Config.Executors[0].TurnID != got.Config.Executors[1].TurnID {
 		t.Errorf("turn ids should match: %q %q", got.Config.Executors[0].TurnID, got.Config.Executors[1].TurnID)
 	}
-	// Each token must verify at the exec-gateway with its OWN exe_id and
-	// reject other executors' ids.
+	// Per the 2026-05-16 redesign, all executors in a workspace share
+	// one workspace-scoped token. Each must verify with the same
+	// workspace_id and turn_id; /bridge enforces exe_id ownership
+	// separately via workspace_executors lookup.
+	var first codexexecgateway.CapPayload
 	for i, e := range got.Config.Executors {
 		p, err := codexexecgateway.VerifyCapabilityToken(e.TokenVal, cfg.CapTokenHMACSecret)
 		if err != nil {
 			t.Fatalf("verify[%d]: %v", i, err)
 		}
-		if !p.AllowsExeID(e.ID) {
-			t.Errorf("token[%d] does not allow its own exe_id", i)
+		if p.WorkspaceID != "ws_a" {
+			t.Errorf("token[%d].workspace_id = %q", i, p.WorkspaceID)
 		}
-		other := got.Config.Executors[(i+1)%len(got.Config.Executors)].ID
-		if p.AllowsExeID(other) {
-			t.Errorf("token[%d] leaks access to %s", i, other)
+		if i == 0 {
+			first = p
+		} else if p.TurnID != first.TurnID {
+			t.Errorf("token[%d].turn_id = %q, want %q (all-share)", i, p.TurnID, first.TurnID)
 		}
 	}
 	// Default trusted path applied when none configured.

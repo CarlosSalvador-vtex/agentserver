@@ -104,23 +104,24 @@ func makeBuildConfig(cfg ServeConfig, client connectedClient, modelClient models
 			executors = nil
 		}
 		entries := make([]codexhome.ExecutorEntry, 0, len(executors))
-		// One token per executor per turn. turn_id ties them together so
-		// /api/exec-gateway/revoke-turn cancels them as a unit.
+		// One workspace-scoped token per turn covers every executor in
+		// the workspace; /bridge enforces ownership per call. turn_id
+		// ties revocations together for /api/exec-gateway/revoke-turn.
 		turnID := "trn_" + shortid.Generate()
 		ttl := cfg.CapTokenTTL
 		if ttl <= 0 {
 			ttl = time.Hour
 		}
+		workspaceTok, err := MintCapToken(cfg.CapTokenHMACSecret, turnID, workspaceID, ttl)
+		if err != nil {
+			return supervisor.SpawnConfig{}, fmt.Errorf("mint workspace cap token: %w", err)
+		}
 		for _, e := range executors {
-			tok, err := MintCapToken(cfg.CapTokenHMACSecret, turnID, workspaceID, e.ExeID, ttl)
-			if err != nil {
-				return supervisor.SpawnConfig{}, fmt.Errorf("mint cap token for %s: %w", e.ExeID, err)
-			}
 			entries = append(entries, codexhome.ExecutorEntry{
 				ID:        e.ExeID,
 				BridgeURL: strings.TrimRight(cfg.ExecGatewayWSURL, "/") + "/bridge/" + e.ExeID,
 				TokenEnv:  "CXG_BRIDGE_TOKEN_" + strings.ToUpper(strings.ReplaceAll(e.ExeID, "-", "_")),
-				TokenVal:  tok,
+				TokenVal:  workspaceTok,
 				Desc:      e.Description,
 				CodexBin:  selfBin,
 				TurnID:    turnID,

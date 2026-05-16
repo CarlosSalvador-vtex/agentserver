@@ -35,14 +35,19 @@ func mintBridgeToken(secret []byte, p CapPayload) string {
 	return si + "." + enc.EncodeToString(mac.Sum(nil))
 }
 
-// connectInbound registers an executor (db row + bcrypt hash), dials the
-// inbound endpoint, and waits until the registry shows a live conn for exeID.
+// connectInbound registers an executor (db row + bcrypt hash + workspace
+// binding to "ws_1" so bridge ownership checks pass), dials the inbound
+// endpoint, and waits until the registry shows a live conn for exeID.
 func connectInbound(t *testing.T, srv *Server, baseURL, exeID string) *websocket.Conn {
 	t.Helper()
 	hash, _ := bcrypt.GenerateFromPassword([]byte("rt"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(context.Background(), Executor{
 		ExeID: exeID, UserID: "u", RegisteredAt: time.Now().UTC(),
 	}, string(hash))
+	// Bind to ws_1 — all bridge tests mint tokens with WorkspaceID="ws_1".
+	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, false); err != nil {
+		t.Fatalf("BindWorkspaceExecutor: %v", err)
+	}
 	url := "ws" + baseURL[len("http"):] + "/codex-exec/" + exeID + "?token=rt"
 	c, _, err := websocket.Dial(context.Background(), url, nil)
 	if err != nil {
@@ -86,11 +91,18 @@ func TestBridge_Rejects401OnBadToken(t *testing.T) {
 	}
 }
 
-func TestBridge_Rejects403WhenExeIDNotInAllowList(t *testing.T) {
-	hs, srv := newBridgeNoDBServer(t)
+func TestBridge_Rejects403WhenExeIDNotInWorkspace(t *testing.T) {
+	// DB-backed: token's workspace_id has no binding to the URL's exe_id
+	// → /bridge returns 403 via the workspace_executors ownership check.
+	hs, srv := newInboundTestServer(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("rt"), bcrypt.DefaultCost)
+	srv.store.CreateExecutor(context.Background(), Executor{
+		ExeID: "exe_target", UserID: "u", RegisteredAt: time.Now().UTC(),
+	}, string(hash))
+	// Intentionally no BindWorkspaceExecutor — ws_1 does not own exe_target.
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_other"},
+		TurnID: "trn_1", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	_, resp, err := dialBridge(context.Background(), hs.URL, "exe_target", tok)
@@ -106,7 +118,7 @@ func TestBridge_Rejects503WhenExecutorOffline(t *testing.T) {
 	hs, srv := newBridgeNoDBServer(t)
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_offline"},
+		TurnID: "trn_1", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	// exe_offline is not in the registry → 503
@@ -127,7 +139,7 @@ func TestBridge_RejectsRevokedTurn(t *testing.T) {
 	now := time.Now().Unix()
 	srv.revoked.Add("trn_revoked", now+60)
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_revoked", WorkspaceID: "ws_1", ExeIDs: []string{"exe_rev"},
+		TurnID: "trn_revoked", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	_, resp, err := dialBridge(context.Background(), hs.URL, "exe_rev", tok)
@@ -152,7 +164,7 @@ func TestBridge_Returns409WhenAnotherSessionActive(t *testing.T) {
 
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_2", WorkspaceID: "ws_1", ExeIDs: []string{"exe_409"},
+		TurnID: "trn_2", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	_, resp, err := dialBridge(context.Background(), hs.URL, "exe_409", tok)
@@ -171,7 +183,7 @@ func TestBridge_PairsAndForwardsBidirectional(t *testing.T) {
 
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_pair"},
+		TurnID: "trn_1", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_pair", tok)
@@ -217,7 +229,7 @@ func TestBridge_CloseFromBridgeSidePropagates(t *testing.T) {
 
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_close1"},
+		TurnID: "trn_1", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	beforeG := runtime.NumGoroutine()
@@ -248,7 +260,7 @@ func TestBridge_CloseFromInboundSidePropagates(t *testing.T) {
 
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_close2"},
+		TurnID: "trn_1", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_close2", tok)
@@ -281,7 +293,7 @@ func TestBridge_E2EByteFidelity(t *testing.T) {
 
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1", ExeIDs: []string{"exe_e2e"},
+		TurnID: "trn_1", WorkspaceID: "ws_1",
 		IAT: now, EXP: now + 60,
 	})
 	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_e2e", tok)

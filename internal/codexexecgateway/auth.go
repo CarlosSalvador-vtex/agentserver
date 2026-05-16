@@ -11,25 +11,17 @@ import (
 )
 
 // CapPayload is the parsed JSON payload from a CODEX_EXEC_GATEWAY_TOKEN.
-// Under the 2026-05-10 refinement, tokens minted by codex-app-gateway
-// contain exactly one exe_id. The verification logic accepts any-length
-// exe_ids for forward-compatibility.
+//
+// Per the 2026-05-16 fixed-tools redesign, tokens are workspace-scoped:
+// a single token authorises any exe_id bound to the named workspace.
+// The /bridge handler verifies workspace ownership against the
+// workspace_executors table at request time, replacing the prior
+// exe_ids[] allow-list shipped in the payload.
 type CapPayload struct {
-	TurnID      string   `json:"turn_id"`
-	WorkspaceID string   `json:"workspace_id"`
-	ExeIDs      []string `json:"exe_ids"`
-	IAT         int64    `json:"iat"`
-	EXP         int64    `json:"exp"`
-}
-
-// AllowsExeID reports whether the named exe_id is in the token's allow set.
-func (p CapPayload) AllowsExeID(exeID string) bool {
-	for _, id := range p.ExeIDs {
-		if id == exeID {
-			return true
-		}
-	}
-	return false
+	TurnID      string `json:"turn_id"`
+	WorkspaceID string `json:"workspace_id"`
+	IAT         int64  `json:"iat"`
+	EXP         int64  `json:"exp"`
 }
 
 var (
@@ -44,7 +36,7 @@ var (
 //
 //	token   = base64url(header) "." base64url(payload) "." base64url(sig)
 //	header  = '{"alg":"HS256","typ":"CXG"}'
-//	payload = '{"turn_id":"...","workspace_id":"...","exe_ids":[...],"iat":...,"exp":...}'
+//	payload = '{"turn_id":"...","workspace_id":"...","iat":...,"exp":...}'
 //	sig     = HMAC-SHA256(secret, base64url(header) "." base64url(payload))
 //
 // base64url encoding uses no padding (RFC 7515 / JWT convention).

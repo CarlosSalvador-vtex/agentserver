@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"nhooyr.io/websocket"
@@ -51,18 +52,40 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Check URL exe_id is in the token's allow-list.
-	if !payload.AllowsExeID(exeID) {
-		s.logger.Warn("bridge: forbidden", "exe_id", exeID, "reason", "exe_id_not_in_token_allow_list", "turn_id", payload.TurnID)
-		http.Error(w, "exe_id not in token allow set", http.StatusForbidden)
-		return
-	}
-
-	// 3. Check revocation — TurnID is only available from the decoded payload, so this must come after signature verification.
+	// 2. Check revocation — TurnID is only available from the decoded
+	// payload, so this must come after signature verification. Cheap
+	// in-memory check; runs before the DB ownership query.
 	if s.revoked.Contains(payload.TurnID) {
 		s.logger.Warn("bridge: rejected revoked turn", "exe_id", exeID, "turn_id", payload.TurnID)
 		http.Error(w, "turn revoked", http.StatusUnauthorized)
 		return
+	}
+
+	// 3. Workspace ownership check. Cap tokens are workspace-scoped
+	// (2026-05-16 redesign); /bridge enforces that the URL exe_id is
+	// bound to the token's workspace via the workspace_executors table.
+	// Production wiring always has a store; the nil-store branch
+	// supports the auth-rejection-focused tests in newBridgeNoDBServer
+	// that don't carry a DB but still need to reach later steps.
+	if s.store == nil {
+		s.logger.Warn("bridge: skipping ownership check — store is nil (test wiring)")
+	} else {
+		ownsCtx, ownsCancel := context.WithTimeout(r.Context(), 2*time.Second)
+		owns, err := s.store.OwnsExecutor(ownsCtx, payload.WorkspaceID, exeID)
+		ownsCancel()
+		if err != nil {
+			s.logger.Error("bridge: ownership check failed",
+				"workspace_id", payload.WorkspaceID, "exe_id", exeID, "error", err)
+			http.Error(w, "ownership check failed", http.StatusInternalServerError)
+			return
+		}
+		if !owns {
+			s.logger.Warn("bridge: forbidden",
+				"workspace_id", payload.WorkspaceID, "exe_id", exeID,
+				"reason", "exe_id_not_in_workspace", "turn_id", payload.TurnID)
+			http.Error(w, "exe_id not in workspace", http.StatusForbidden)
+			return
+		}
 	}
 
 	// 4. Acquire per-exe bridge mutex — prevents two concurrent bridge sessions
