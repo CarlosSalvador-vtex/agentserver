@@ -117,8 +117,10 @@ func spawnCodexAppServer(ctx context.Context, codexBin, codexHome string, extraE
 				case urlCh <- result{url: trimmed[idx:]}:
 				default:
 				}
-				// Drain remainder in background.
-				go func() { _, _ = io.Copy(io.Discard, br) }()
+				// Pipe remainder to gateway's stderr so codex app-server
+				// + env-mcp child logs surface in `kubectl logs`. Each
+				// line is prefixed for grep-ability.
+				go func() { _, _ = io.Copy(prefixedWriter{prefix: "[codex-subproc] ", w: os.Stderr}, br) }()
 				return
 			}
 			if err != nil {
@@ -191,4 +193,44 @@ func spawnCodexAppServer(ctx context.Context, codexBin, codexHome string, extraE
 		close(handle.done)
 	}()
 	return handle, nil
+}
+
+// prefixedWriter writes each newline-terminated chunk to w with a fixed
+// prefix. Used to tag spawned subprocess output (codex app-server +
+// env-mcp child) in the gateway pod's stderr so `kubectl logs` is
+// grep-friendly when diagnosing per-spawn issues.
+type prefixedWriter struct {
+	prefix string
+	w      io.Writer
+}
+
+func (p prefixedWriter) Write(b []byte) (int, error) {
+	// Simple line-buffered: split on '\n', prefix each non-empty line.
+	// Imperfect across partial reads (mid-line splits) but adequate for
+	// rough diagnostic visibility — full structured forwarding is a
+	// follow-up.
+	n := len(b)
+	for {
+		idx := indexByte(b, '\n')
+		if idx < 0 {
+			if len(b) > 0 {
+				_, _ = p.w.Write([]byte(p.prefix))
+				_, _ = p.w.Write(b)
+				_, _ = p.w.Write([]byte{'\n'})
+			}
+			return n, nil
+		}
+		_, _ = p.w.Write([]byte(p.prefix))
+		_, _ = p.w.Write(b[:idx+1])
+		b = b[idx+1:]
+	}
+}
+
+func indexByte(b []byte, c byte) int {
+	for i := range b {
+		if b[i] == c {
+			return i
+		}
+	}
+	return -1
 }
