@@ -189,6 +189,14 @@ spec:
             - name: INTERNAL_API_SECRET
               value: {{ .Values.internal.apiSecret | quote }}
             {{- end }}
+            {{- if .Values.codexExecGateway.enabled }}
+            - name: CODEX_EXEC_GATEWAY_INTERNAL_URL
+              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
+            {{- end }}
+            {{- if .Values.codexExecGateway.publicHost }}
+            - name: CODEX_EXEC_GATEWAY_PUBLIC_HOST
+              value: {{ .Values.codexExecGateway.publicHost | quote }}
+            {{- end }}
             - name: OPENCODE_SUBDOMAIN_PREFIX
               value: {{ .Values.sandbox.opencode.subdomainPrefix | default "code" | quote }}
             - name: OPENCLAW_SUBDOMAIN_PREFIX

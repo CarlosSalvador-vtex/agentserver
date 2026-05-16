@@ -344,6 +344,11 @@ codexExecGateway:
   # "codex-exec.<ingress.host>" (or .<gateway.host>). Only used when
   # ingress.enabled or gateway.enabled is true.
   externalHost: ""
+  # External hostname for `codex exec-server --connect ...` URLs shown
+  # in the workspace UI (e.g. "codex-exec.agent.cs.ac.cn"). Empty omits
+  # the convenience copy-command in the registration response — UI then
+  # tells the user to ask their operator for the URL.
+  publicHost: ""
   resources: {}
 
 service:
