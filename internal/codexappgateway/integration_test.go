@@ -63,15 +63,15 @@ func TestServer_RealCodexAppServer_FullRPCRoundtrip(t *testing.T) {
 		sup:     sup,
 		homeMgr: mgr,
 		logger:  logger,
-		buildConfig: func(_ context.Context, ws string) (codexhome.ConfigInput, error) {
-			return codexhome.ConfigInput{
+		buildConfig: func(_ context.Context, ws string) (supervisor.SpawnConfig, error) {
+			return supervisor.SpawnConfig{Config: codexhome.ConfigInput{
 				ModelProvider: "modelserver",
 				Model:         "gpt-5.5",
 				ModelProviders: map[string]codexhome.ModelProvider{
 					"modelserver": {Name: "modelserver", BaseURL: "https://code.ai.cs.ac.cn/v1", EnvKey: "OPENAI_API_KEY", WireAPI: "responses"},
 				},
 				ProjectTrustedPaths: []string{"/tmp"},
-			}, nil
+			}}, nil
 		},
 	}
 	srv := httptest.NewServer(s.Routes())

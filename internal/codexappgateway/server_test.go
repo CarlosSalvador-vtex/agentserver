@@ -120,11 +120,11 @@ func makeTestServer(t *testing.T) *httptest.Server {
 		sup:     sup,
 		homeMgr: mgr,
 		logger:  logger,
-		buildConfig: func(_ context.Context, ws string) (codexhome.ConfigInput, error) {
-			return codexhome.ConfigInput{
+		buildConfig: func(_ context.Context, ws string) (supervisor.SpawnConfig, error) {
+			return supervisor.SpawnConfig{Config: codexhome.ConfigInput{
 				ModelProvider:  "p", Model: "m",
 				ModelProviders: map[string]codexhome.ModelProvider{"p": {Name: "p", BaseURL: "http://x", EnvKey: "K", WireAPI: "responses"}},
-			}, nil
+			}}, nil
 		},
 	}
 	return httptest.NewServer(srv.Routes())

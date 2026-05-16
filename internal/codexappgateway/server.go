@@ -35,9 +35,16 @@ type Server struct {
 	homeMgr *codexhome.Manager
 	logger  *slog.Logger
 
-	// buildConfig produces the per-session config.toml input. Allowed to
-	// hit the network. Errors abort the spawn.
-	buildConfig func(ctx context.Context, workspaceID string) (codexhome.ConfigInput, error)
+	// buildConfig produces the per-spawn config + env vars (e.g. a
+	// workspace-scoped LLM API key). Allowed to hit the network. Errors
+	// abort the spawn.
+	buildConfig func(ctx context.Context, workspaceID string) (supervisor.SpawnConfig, error)
+}
+
+// modelserverTokenFetcher is the subset of *ModelserverClient buildConfig
+// needs. Defined here so tests can stub.
+type modelserverTokenFetcher interface {
+	FetchToken(ctx context.Context, workspaceID string) (string, error)
 }
 
 // NewServer wires up the production server. selfBin is the absolute path
@@ -50,6 +57,8 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 		return nil, fmt.Errorf("s3 store: %w", err)
 	}
 	mgr := codexhome.NewManager(cfg.TmpRoot)
+	// Static fallback env: only used if the per-spawn ModelServer token
+	// fetch returns empty (e.g. workspace hasn't connected ModelServer yet).
 	supEnv := []string{}
 	if cfg.CodexAPIKey != "" && cfg.ModelProviderEnvKey != "" {
 		supEnv = append(supEnv, cfg.ModelProviderEnvKey+"="+cfg.CodexAPIKey)
@@ -62,6 +71,7 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 		Logger:   logger,
 	})
 	execClient := NewExecGatewayClient(cfg.ExecGatewayInternalURL, cfg.ExecGatewayInternalSecret)
+	modelClient := NewModelserverClient(cfg.AgentserverInternalURL)
 	s := &Server{
 		cfg:     cfg,
 		auth:    auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
@@ -69,14 +79,14 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 		homeMgr: mgr,
 		logger:  logger,
 	}
-	s.buildConfig = makeBuildConfig(cfg, execClient, selfBin, logger)
+	s.buildConfig = makeBuildConfig(cfg, execClient, modelClient, selfBin, logger)
 	return s, nil
 }
 
-// makeBuildConfig returns the per-spawn ConfigInput producer. Split out
-// so server_test.go can construct a Server with a stub connectedClient.
-func makeBuildConfig(cfg ServeConfig, client connectedClient, selfBin string, logger *slog.Logger) func(context.Context, string) (codexhome.ConfigInput, error) {
-	return func(ctx context.Context, workspaceID string) (codexhome.ConfigInput, error) {
+// makeBuildConfig returns the per-spawn SpawnConfig producer. Split out
+// so server_test.go can construct a Server with stub clients.
+func makeBuildConfig(cfg ServeConfig, client connectedClient, modelClient modelserverTokenFetcher, selfBin string, logger *slog.Logger) func(context.Context, string) (supervisor.SpawnConfig, error) {
+	return func(ctx context.Context, workspaceID string) (supervisor.SpawnConfig, error) {
 		executors, err := client.Connected(ctx, workspaceID)
 		if err != nil {
 			// Fail-soft: a spawn with no executors still gives the user a
@@ -98,7 +108,7 @@ func makeBuildConfig(cfg ServeConfig, client connectedClient, selfBin string, lo
 		for _, e := range executors {
 			tok, err := MintCapToken(cfg.CapTokenHMACSecret, turnID, workspaceID, e.ExeID, ttl)
 			if err != nil {
-				return codexhome.ConfigInput{}, fmt.Errorf("mint cap token for %s: %w", e.ExeID, err)
+				return supervisor.SpawnConfig{}, fmt.Errorf("mint cap token for %s: %w", e.ExeID, err)
 			}
 			entries = append(entries, codexhome.ExecutorEntry{
 				ID:        e.ExeID,
@@ -114,19 +124,41 @@ func makeBuildConfig(cfg ServeConfig, client connectedClient, selfBin string, lo
 		if len(trusted) == 0 {
 			trusted = []string{"/tmp"}
 		}
-		return codexhome.ConfigInput{
-			ModelProvider: cfg.ModelProvider,
-			Model:         cfg.Model,
-			ModelProviders: map[string]codexhome.ModelProvider{
-				cfg.ModelProvider: {
-					Name:    cfg.ModelProvider,
-					BaseURL: cfg.ModelProviderBaseURL,
-					EnvKey:  cfg.ModelProviderEnvKey,
-					WireAPI: cfg.ModelProviderWireAPI,
+
+		// Per-spawn env: fetch this workspace's ModelServer OAuth token.
+		// Empty result → fall back to static SupervisorConfig.ExtraEnv
+		// (cfg.CodexAPIKey from chart) so dev / pre-OAuth workspaces still
+		// work.
+		var spawnEnv []string
+		if cfg.ModelProviderEnvKey != "" {
+			tok, err := modelClient.FetchToken(ctx, workspaceID)
+			if err != nil {
+				logger.Warn("modelserver: token fetch failed; falling back to static CodexAPIKey",
+					"workspace_id", workspaceID, "err", err)
+			} else if tok != "" {
+				spawnEnv = append(spawnEnv, cfg.ModelProviderEnvKey+"="+tok)
+			} else {
+				logger.Warn("modelserver: workspace has no connection; falling back to static CodexAPIKey",
+					"workspace_id", workspaceID)
+			}
+		}
+
+		return supervisor.SpawnConfig{
+			Config: codexhome.ConfigInput{
+				ModelProvider: cfg.ModelProvider,
+				Model:         cfg.Model,
+				ModelProviders: map[string]codexhome.ModelProvider{
+					cfg.ModelProvider: {
+						Name:    cfg.ModelProvider,
+						BaseURL: cfg.ModelProviderBaseURL,
+						EnvKey:  cfg.ModelProviderEnvKey,
+						WireAPI: cfg.ModelProviderWireAPI,
+					},
 				},
+				Executors:           entries,
+				ProjectTrustedPaths: trusted,
 			},
-			Executors:           entries,
-			ProjectTrustedPaths: trusted,
+			Env: spawnEnv,
 		}, nil
 	}
 }
@@ -195,7 +227,7 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 
 	key := supervisor.Key{WorkspaceID: id.WorkspaceID}
 	ctx := r.Context()
-	handle, err := s.sup.EnsureSubprocess(ctx, key, func() (codexhome.ConfigInput, error) {
+	handle, err := s.sup.EnsureSubprocess(ctx, key, func() (supervisor.SpawnConfig, error) {
 		return s.buildConfig(ctx, id.WorkspaceID)
 	})
 	if err != nil {

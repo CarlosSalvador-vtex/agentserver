@@ -42,9 +42,18 @@ type entry struct {
 	lastActive time.Time
 }
 
-// ConfigBuilder produces a fresh ConfigInput at spawn time. Allowed to
+// SpawnConfig is what a ConfigBuilder returns: the per-thread CODEX_HOME
+// config.toml input plus per-spawn process env vars (e.g. a workspace-
+// scoped LLM API key fetched from agentserver at spawn time). The env
+// list is concatenated with SupervisorConfig.ExtraEnv when launching.
+type SpawnConfig struct {
+	Config codexhome.ConfigInput
+	Env    []string
+}
+
+// ConfigBuilder produces a fresh SpawnConfig at spawn time. Allowed to
 // hit the network; errors propagate.
-type ConfigBuilder func() (codexhome.ConfigInput, error)
+type ConfigBuilder func() (SpawnConfig, error)
 
 func NewSupervisor(cfg SupervisorConfig) *Supervisor {
 	logger := cfg.Logger
@@ -88,7 +97,7 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 		s.mu.Unlock()
 	}
 
-	cfg, err := build()
+	spawnCfg, err := build()
 	if err != nil {
 		return nil, fmt.Errorf("config builder: %w", err)
 	}
@@ -101,12 +110,16 @@ func (s *Supervisor) EnsureSubprocess(ctx context.Context, key Key, build Config
 		_ = s.cfg.HomeMgr.RemoveTmpDir(codexHome)
 		return nil, fmt.Errorf("S3 download: %w", err)
 	}
-	if err := s.cfg.HomeMgr.WriteConfig(codexHome, cfg); err != nil {
+	if err := s.cfg.HomeMgr.WriteConfig(codexHome, spawnCfg.Config); err != nil {
 		_ = s.cfg.HomeMgr.RemoveTmpDir(codexHome)
 		return nil, fmt.Errorf("write config: %w", err)
 	}
 
-	handle, err := spawnCodexAppServer(ctx, s.cfg.CodexBin, codexHome, s.cfg.ExtraEnv)
+	// Static SupervisorConfig.ExtraEnv first, per-spawn env last so the
+	// per-spawn values win on duplicate keys (e.g. a workspace-scoped
+	// CODEX_API_KEY overriding a static fallback).
+	extraEnv := append(append([]string{}, s.cfg.ExtraEnv...), spawnCfg.Env...)
+	handle, err := spawnCodexAppServer(ctx, s.cfg.CodexBin, codexHome, extraEnv)
 	if err != nil {
 		_ = s.cfg.HomeMgr.RemoveTmpDir(codexHome)
 		return nil, fmt.Errorf("spawn: %w", err)
