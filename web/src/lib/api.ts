@@ -1028,3 +1028,49 @@ export async function revokeCodexToken(id: string): Promise<void> {
   const res = await fetch(`/api/codex/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to revoke codex token')
 }
+
+// Remote Executor API
+
+export interface RemoteExecutor {
+  exe_id: string
+  description: string
+  default_cwd: string
+  is_default: boolean
+  last_seen_at?: string
+}
+
+export interface RegisterExecutorRequest {
+  description?: string
+  default_cwd?: string
+  display_name?: string
+}
+
+export interface RegisterExecutorResponse {
+  exe_id: string
+  registration_token: string
+  connect_command?: string
+}
+
+export async function listRemoteExecutors(workspaceId: string): Promise<RemoteExecutor[]> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/executors`)
+  if (!res.ok) throw new Error('Failed to list remote executors')
+  return res.json()
+}
+
+export async function registerRemoteExecutor(workspaceId: string, req: RegisterExecutorRequest): Promise<RegisterExecutorResponse> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/executors`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(t || 'Failed to register executor')
+  }
+  return res.json()
+}
+
+export async function unbindRemoteExecutor(workspaceId: string, exeId: string): Promise<void> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/executors/${encodeURIComponent(exeId)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to unbind executor')
+}

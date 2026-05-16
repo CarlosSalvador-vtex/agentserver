@@ -56,6 +56,7 @@ import { WeixinLoginModal } from './WeixinLoginModal'
 import { TelegramConfigModal } from './TelegramConfigModal'
 import { MatrixConfigModal } from './MatrixConfigModal'
 import CodexTokensPanel from './CodexTokensPanel'
+import RemoteExecutorsPanel from './RemoteExecutorsPanel'
 
 export type Tab = 'overview' | 'members' | 'traces' | 'credentials' | 'settings'
 
@@ -851,6 +852,7 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
 
       {/* Codex Remote Access Tokens */}
       <CodexTokensPanel workspaceId={workspaceId} />
+      <RemoteExecutorsPanel workspaceId={workspaceId} />
     </div>
   )
 }
