@@ -16,7 +16,8 @@ import (
 )
 
 // fakeBridgeServer answers initialize, then a single process/start +
-// process/read with canned stdout, then closes.
+// process/read with canned stdout, then closes. Speaks the relay-wrapped
+// binary protocol (RelayMessageFrame_Data) via runFakeRelayLoop.
 func fakeBridgeServer(t *testing.T, wantAuth string, sawAuth *string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +27,6 @@ func fakeBridgeServer(t *testing.T, wantAuth string, sawAuth *string) *httptest.
 			return
 		}
 		defer c.Close(websocket.StatusNormalClosure, "")
-		ctx := r.Context()
 		exit := 0
 		read := ProcessReadResult{
 			Chunks: []ProcessOutputChunk{
@@ -37,19 +37,11 @@ func fakeBridgeServer(t *testing.T, wantAuth string, sawAuth *string) *httptest.
 			ExitCode: &exit,
 			Closed:   true,
 		}
-		for {
-			_, data, err := c.Read(ctx)
-			if err != nil {
-				return
-			}
-			var msg JSONRPCMessage
-			_ = json.Unmarshal(data, &msg)
+		runFakeRelayLoop(r.Context(), c, func(msg JSONRPCMessage) *JSONRPCMessage {
 			if msg.ID == nil {
-				continue
+				return nil
 			}
-			var resp JSONRPCMessage
-			resp.JSONRPC = "2.0"
-			resp.ID = msg.ID
+			resp := &JSONRPCMessage{JSONRPC: "2.0", ID: msg.ID}
 			switch msg.Method {
 			case ExecMethodInitialize:
 				out, _ := json.Marshal(ExecInitializeResult{SessionID: "fake-session"})
@@ -63,9 +55,8 @@ func fakeBridgeServer(t *testing.T, wantAuth string, sawAuth *string) *httptest.
 			default:
 				resp.Error = &JSONRPCError{Code: -32601, Message: "no"}
 			}
-			payload, _ := json.Marshal(&resp)
-			_ = c.Write(ctx, websocket.MessageText, payload)
-		}
+			return resp
+		})
 	}))
 }
 
