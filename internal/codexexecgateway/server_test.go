@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+func TestCodexExec_Register_RequiresInternalSecret(t *testing.T) {
+	srv, err := NewServer(Config{
+		AgentserverInternalSecret: "s3cret",
+		CapTokenHMACSecret:        []byte("k"),
+		InternalSharedSecret:      "is",
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/codex-exec/register",
+		strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestServer_HealthZ(t *testing.T) {
 	cfg := Config{
 		CapTokenHMACSecret:   []byte("test-hmac-key"),

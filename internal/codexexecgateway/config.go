@@ -9,11 +9,12 @@ import (
 
 // WebSocket keepalive (ping interval + idle timeout) is phase-2; nhooyr's defaults govern for now.
 type Config struct {
-	Port                 string
-	DatabaseURL          string
-	CapTokenHMACSecret   []byte
-	InternalSharedSecret string
-	LogLevel             slog.Level
+	Port                     string
+	DatabaseURL              string
+	CapTokenHMACSecret       []byte
+	InternalSharedSecret     string
+	AgentserverInternalSecret string
+	LogLevel                 slog.Level
 }
 
 // Validate checks that security-critical fields are populated. NewServer calls
@@ -30,11 +31,12 @@ func (cfg Config) Validate() error {
 
 func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
-		Port:                 envOr("CXG_PORT", "6060"),
-		DatabaseURL:          os.Getenv("CXG_DATABASE_URL"),
-		CapTokenHMACSecret:   []byte(os.Getenv("CXG_CAPTOKEN_HMAC_SECRET")),
-		InternalSharedSecret: os.Getenv("CXG_INTERNAL_SHARED_SECRET"),
-		LogLevel:             slog.LevelInfo,
+		Port:                      envOr("CXG_PORT", "6060"),
+		DatabaseURL:               os.Getenv("CXG_DATABASE_URL"),
+		CapTokenHMACSecret:        []byte(os.Getenv("CXG_CAPTOKEN_HMAC_SECRET")),
+		InternalSharedSecret:      os.Getenv("CXG_INTERNAL_SHARED_SECRET"),
+		AgentserverInternalSecret: os.Getenv("CXG_AGENTSERVER_INTERNAL_SECRET"),
+		LogLevel:                  slog.LevelInfo,
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("CXG_DATABASE_URL is required")

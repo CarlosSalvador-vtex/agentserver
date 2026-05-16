@@ -51,12 +51,14 @@ func (s *Server) Routes() http.Handler {
 	// handlers.InternalConnectedStore directly — no adapter needed because
 	// all three interfaces now use execmodel types, which *Store also uses
 	// (via the type aliases in models.go).
-	r.Post("/api/codex-exec/register", handlers.Register(s.store))
-
-	r.Route("/api/codex-exec/workspaces/{wid}/executors", func(r chi.Router) {
-		r.Post("/", handlers.PostBinding(s.store))
-		r.Get("/", handlers.ListBinding(s.store))
-		r.Delete("/{exe_id}", handlers.DeleteBinding(s.store))
+	r.Route("/api/codex-exec", func(r chi.Router) {
+		r.Use(handlers.RequireAgentserverSecret(s.config.AgentserverInternalSecret))
+		r.Post("/register", handlers.Register(s.store))
+		r.Route("/workspaces/{wid}/executors", func(r chi.Router) {
+			r.Post("/", handlers.PostBinding(s.store))
+			r.Get("/", handlers.ListBinding(s.store))
+			r.Delete("/{exe_id}", handlers.DeleteBinding(s.store))
+		})
 	})
 
 	r.Route("/api/exec-gateway", func(r chi.Router) {
