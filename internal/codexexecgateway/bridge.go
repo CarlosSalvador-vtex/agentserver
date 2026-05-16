@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/wsbridge"
 	"github.com/go-chi/chi/v5"
 	"nhooyr.io/websocket"
 )
@@ -129,6 +130,10 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 	// Strictly debugging the MCP startup flow; gated on log level.
 	go func() { errCh <- s.pumpFramesDebug(pumpCtx, bridge, inbound, "env-mcp→exec", exeID) }()
 	go func() { errCh <- s.pumpFramesDebug(pumpCtx, inbound, bridge, "exec→env-mcp", exeID) }()
+	// Keep both sides alive through middlebox idle timeouts (~240s for
+	// istio, ~300s common). LLM-bound waits often exceed that.
+	go wsbridge.KeepAlive(pumpCtx, bridge, 30*time.Second)
+	go wsbridge.KeepAlive(pumpCtx, inbound, 30*time.Second)
 
 	// Wait for either pump to return; cancel so the other pump unblocks.
 	first := <-errCh

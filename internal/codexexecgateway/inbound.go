@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/agentserver/agentserver/internal/wsbridge"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 	"nhooyr.io/websocket"
@@ -59,10 +61,18 @@ func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("inbound: connected", "exe_id", exeID)
 
+	// Send pings every 30s so middlebox idle timeouts (istio envoy
+	// upstream ~240s, common SP/Cloudflare ~300s) don't silently kill
+	// the long-lived inbound TCP during quiet periods between bridge
+	// sessions. nhooyr.io/websocket only RESPONDS to pings; it does
+	// not originate them.
+	keepAliveCtx, stopKeepAlive := context.WithCancel(r.Context())
+	go wsbridge.KeepAlive(keepAliveCtx, ws, 30*time.Second)
+	defer stopKeepAlive()
+
 	// Block until the client disconnects or the bridge pump closes the conn.
 	// We do not parse frames here — the bridge pump in /bridge/{exe_id}
-	// will read from this conn while it is paired. While unpaired, we just
-	// hold the conn open and respond to keepalive pings (handled by nhooyr).
+	// will read from this conn while it is paired.
 	<-r.Context().Done()
 	_ = ws.Close(websocket.StatusNormalClosure, "")
 	s.registry.Unregister(exeID, ws)

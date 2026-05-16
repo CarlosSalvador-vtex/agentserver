@@ -8,20 +8,33 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"nhooyr.io/websocket"
 )
+
+// keepAliveInterval is how often we send a ws ping on the public-facing
+// connection to defeat middlebox idle timeouts. Istio's envoy default
+// upstream idle_timeout is ~240s; LLM responses regularly cross that
+// when the model takes minutes to answer, leading to silent TCP RST.
+const keepAliveInterval = 30 * time.Second
 
 // RunProxy starts two pumps in parallel and returns when either side
 // closes or errors. Both ws conns are left open for the caller to close.
 // onFrame is called on every successfully read frame (from either direction);
 // pass nil if no callback is needed.
+//
+// A background ping is sent on `a` every keepAliveInterval to keep
+// idle-killing middleboxes from severing the connection during long
+// quiet periods (e.g. the LLM taking minutes to respond before any
+// frame flows).
 func RunProxy(ctx context.Context, a, b *websocket.Conn, onFrame func()) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	errCh := make(chan error, 2)
 	go func() { errCh <- pump(ctx, a, b, onFrame) }()
 	go func() { errCh <- pump(ctx, b, a, onFrame) }()
+	go keepAlive(ctx, a)
 	err := <-errCh
 	cancel()
 	<-errCh
@@ -29,6 +42,35 @@ func RunProxy(ctx context.Context, a, b *websocket.Conn, onFrame func()) error {
 		return nil
 	}
 	return err
+}
+
+// keepAlive sends a ws ping on conn every keepAliveInterval until ctx
+// is cancelled. Ping failures are silent — if the connection is dead,
+// the pump goroutine will surface the real error.
+func keepAlive(ctx context.Context, conn *websocket.Conn) {
+	KeepAlive(ctx, conn, keepAliveInterval)
+}
+
+// KeepAlive sends a ws ping on conn every interval until ctx is
+// cancelled. Exported so the codex-exec-gateway /bridge and inbound
+// handlers (which run their own custom pumps and don't go through
+// RunProxy) can install the same anti-idle behavior.
+func KeepAlive(ctx context.Context, conn *websocket.Conn, interval time.Duration) {
+	if interval <= 0 {
+		interval = keepAliveInterval
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			_ = conn.Ping(pingCtx)
+			cancel()
+		}
+	}
 }
 
 // PumpFrames reads one frame at a time from src and writes the exact same
