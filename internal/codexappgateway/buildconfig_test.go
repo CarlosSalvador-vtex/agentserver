@@ -58,7 +58,7 @@ func TestBuildConfig_PopulatesExecutorsAndMintsValidTokens(t *testing.T) {
 	cfg := newTestCfg()
 	build := makeBuildConfig(cfg, stub, stubTokenFetcher{}, "/usr/local/bin/codex-app-gateway", newDiscardLogger())
 
-	got, err := build(context.Background(), "ws_a")
+	got, err := build(context.Background(), "ws_a", "lbtok")
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestBuildConfig_FailSoftWhenExecGatewayDown(t *testing.T) {
 	cfg := newTestCfg()
 	build := makeBuildConfig(cfg, stub, stubTokenFetcher{}, "/codex-app-gateway", newDiscardLogger())
 
-	got, err := build(context.Background(), "ws_a")
+	got, err := build(context.Background(), "ws_a", "lbtok")
 	if err != nil {
 		t.Fatalf("build should fail-soft, got %v", err)
 	}
@@ -130,7 +130,7 @@ func TestBuildConfig_NoExecutorsStillProducesValidConfig(t *testing.T) {
 	stub := &stubConnected{rows: nil}
 	cfg := newTestCfg()
 	build := makeBuildConfig(cfg, stub, stubTokenFetcher{}, "/codex-app-gateway", newDiscardLogger())
-	got, err := build(context.Background(), "ws_a")
+	got, err := build(context.Background(), "ws_a", "lbtok")
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestBuildConfig_RespectsConfiguredTrustedPaths(t *testing.T) {
 	cfg := newTestCfg()
 	cfg.ProjectTrustedPaths = []string{"/workspace", "/data"}
 	build := makeBuildConfig(cfg, stub, stubTokenFetcher{}, "/codex-app-gateway", newDiscardLogger())
-	got, err := build(context.Background(), "ws_a")
+	got, err := build(context.Background(), "ws_a", "lbtok")
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestBuildConfig_ExeIDWithDashesNormalisesEnvVar(t *testing.T) {
 	}}
 	cfg := newTestCfg()
 	build := makeBuildConfig(cfg, stub, stubTokenFetcher{}, "/codex-app-gateway", newDiscardLogger())
-	got, err := build(context.Background(), "ws_a")
+	got, err := build(context.Background(), "ws_a", "lbtok")
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}

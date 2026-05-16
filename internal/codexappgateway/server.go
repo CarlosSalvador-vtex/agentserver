@@ -36,9 +36,12 @@ type Server struct {
 	logger  *slog.Logger
 
 	// buildConfig produces the per-spawn config + env vars (e.g. a
-	// workspace-scoped LLM API key). Allowed to hit the network. Errors
-	// abort the spawn.
-	buildConfig func(ctx context.Context, workspaceID string) (supervisor.SpawnConfig, error)
+	// workspace-scoped LLM API key). Receives the per-spawn loopback
+	// token so the agentserver MCP entry in config.toml can embed it.
+	// Allowed to hit the network. Errors abort the spawn.
+	buildConfig func(ctx context.Context, workspaceID, loopbackToken string) (supervisor.SpawnConfig, error)
+
+	execClient connectedClient // exposed for the loopback /internal/connected handler
 }
 
 // modelserverTokenFetcher is the subset of *ModelserverClient buildConfig
@@ -79,11 +82,12 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 	execClient := NewExecGatewayClient(cfg.ExecGatewayInternalURL, cfg.ExecGatewayInternalSecret)
 	modelClient := NewModelserverClient(cfg.AgentserverInternalURL)
 	s := &Server{
-		cfg:     cfg,
-		auth:    auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
-		sup:     sup,
-		homeMgr: mgr,
-		logger:  logger,
+		cfg:        cfg,
+		auth:       auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
+		sup:        sup,
+		homeMgr:    mgr,
+		logger:     logger,
+		execClient: execClient,
 	}
 	s.buildConfig = makeBuildConfig(cfg, execClient, modelClient, selfBin, logger)
 	return s, nil
@@ -91,8 +95,9 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 
 // makeBuildConfig returns the per-spawn SpawnConfig producer. Split out
 // so server_test.go can construct a Server with stub clients.
-func makeBuildConfig(cfg ServeConfig, client connectedClient, modelClient modelserverTokenFetcher, selfBin string, logger *slog.Logger) func(context.Context, string) (supervisor.SpawnConfig, error) {
-	return func(ctx context.Context, workspaceID string) (supervisor.SpawnConfig, error) {
+func makeBuildConfig(cfg ServeConfig, client connectedClient, modelClient modelserverTokenFetcher, selfBin string, logger *slog.Logger) func(context.Context, string, string) (supervisor.SpawnConfig, error) {
+	return func(ctx context.Context, workspaceID, loopbackToken string) (supervisor.SpawnConfig, error) {
+		_ = loopbackToken // Threaded through for codexhome to embed; current per-executor codexhome ignores it. Wired up in Task 7.
 		executors, err := client.Connected(ctx, workspaceID)
 		if err != nil {
 			// Fail-soft: a spawn with no executors still gives the user a
@@ -211,6 +216,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/", s.handleCodexAppWS)
 	r.Get("/codex-app/ws", s.handleCodexAppWS)
 	r.Post("/admin/sessions/restart", s.handleAdminRestart)
+	r.Get("/internal/connected", s.handleInternalConnected)
 	return r
 }
 
@@ -240,8 +246,8 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 
 	key := supervisor.Key{WorkspaceID: id.WorkspaceID}
 	ctx := r.Context()
-	handle, err := s.sup.EnsureSubprocess(ctx, key, func() (supervisor.SpawnConfig, error) {
-		return s.buildConfig(ctx, id.WorkspaceID)
+	handle, err := s.sup.EnsureSubprocess(ctx, key, func(loopbackToken string) (supervisor.SpawnConfig, error) {
+		return s.buildConfig(ctx, id.WorkspaceID, loopbackToken)
 	})
 	if err != nil {
 		s.logger.Error("ensure subprocess", "err", err, "key", key)
