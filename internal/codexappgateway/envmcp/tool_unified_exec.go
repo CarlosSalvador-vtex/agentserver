@@ -194,7 +194,7 @@ func (t *WriteStdinTool) Call(ctx context.Context, raw json.RawMessage) (MCPCall
 	}
 	params, _ := json.Marshal(ProcessWriteParams{
 		ProcessID: sess.processID,
-		Data:      base64.StdEncoding.EncodeToString([]byte(a.Chars)),
+		Chunk:     base64.StdEncoding.EncodeToString([]byte(a.Chars)),
 	})
 	if _, err := bc.Call(ctx, ExecMethodProcessWrite, params); err != nil {
 		return errResult(fmt.Sprintf("write failed: %v", err)), nil

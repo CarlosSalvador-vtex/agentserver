@@ -298,7 +298,7 @@ func pumpChunks(ctx context.Context, srcBC *BridgeClient, srcPID string, dstBC *
 			}
 			writeParams, _ := json.Marshal(ProcessWriteParams{
 				ProcessID: dstPID,
-				Data:      base64.StdEncoding.EncodeToString(decoded),
+				Chunk:     base64.StdEncoding.EncodeToString(decoded),
 			})
 			if _, err := dstBC.Call(ctx, ExecMethodProcessWrite, writeParams); err != nil {
 				return totalBytes, fmt.Errorf("destination: write failed at %d bytes: %w", totalBytes, err)

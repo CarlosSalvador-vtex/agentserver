@@ -128,10 +128,13 @@ type ProcessOutputChunk struct {
 	Chunk  string `json:"chunk"`
 }
 
-// ProcessWriteParams is the request body for process/write.
+// ProcessWriteParams is the request body for process/write. The
+// `chunk` field name matches upstream codex's WriteParams (see
+// codex-rs/exec-server/src/protocol.rs); writing with `data` here
+// would 400 with "missing field `chunk`".
 type ProcessWriteParams struct {
 	ProcessID string `json:"processId"`
-	Data      string `json:"data"` // base64 raw bytes
+	Chunk     string `json:"chunk"` // base64 raw bytes
 }
 
 // ProcessTerminateParams is the request body for process/terminate.
