@@ -4,11 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/agentserver/agentserver/internal/auth"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// executorNameRe is the allowed name shape: alphanumeric + dot, dash,
+// underscore, 1–64 chars. Names go directly into a shell single-quoted
+// argument in the connect command we surface to users (see line ~95);
+// restricting the charset blocks any escape attempt without needing
+// shell-aware quoting.
+var executorNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 type registerExecutorReq struct {
 	// Name is workspace-unique, surfaced to the LLM (via env-mcp's
@@ -59,6 +67,10 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
+	if !executorNameRe.MatchString(req.Name) {
+		http.Error(w, "name must be 1-64 chars of [A-Za-z0-9._-]", http.StatusBadRequest)
+		return
+	}
 	if s.ExecutorsClient == nil {
 		http.Error(w, "executors integration not configured", http.StatusServiceUnavailable)
 		return
@@ -73,8 +85,17 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Auto-bind to the workspace this request was issued under, with
-	// the user-supplied name and description.
+	// the user-supplied name and description. On bind failure (e.g.
+	// duplicate name), tear down the freshly-registered executor so we
+	// don't leak an orphan row with a wasted exe_id + registration
+	// token. The cleanup is best-effort — if it also fails we log
+	// (via the bridge error message) but the partial state will at
+	// worst occupy a UUID + a never-bound bcrypt hash.
 	if err := s.ExecutorsClient.Bind(r.Context(), userID, wid, reg.ExeID, req.Name, req.Description, false); err != nil {
+		if cleanupErr := s.ExecutorsClient.Unregister(r.Context(), userID, reg.ExeID); cleanupErr != nil {
+			http.Error(w, fmt.Sprintf("bind failed (%v); cleanup of orphan executor also failed (%v)", err, cleanupErr), http.StatusBadGateway)
+			return
+		}
 		http.Error(w, "bind: "+err.Error(), http.StatusBadGateway)
 		return
 	}

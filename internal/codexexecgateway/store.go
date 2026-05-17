@@ -184,6 +184,19 @@ func (s *Store) OwnsExecutor(ctx context.Context, workspaceID, exeID string) (bo
 	return n > 0, nil
 }
 
+// DeleteExecutor removes the executor row and (via ON DELETE CASCADE)
+// any of its workspace_executors bindings. Used by the orphan-cleanup
+// path in agentserver's Register handler when Bind fails after
+// Register. Idempotent: deleting an absent exe_id is a no-op.
+func (s *Store) DeleteExecutor(ctx context.Context, exeID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM executors WHERE exe_id=$1`, exeID)
+	if err != nil {
+		return fmt.Errorf("delete executor: %w", err)
+	}
+	return nil
+}
+
 // UnbindWorkspaceExecutor removes a binding row.
 func (s *Store) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error {
 	_, err := s.db.ExecContext(ctx, `

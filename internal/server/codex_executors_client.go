@@ -113,6 +113,28 @@ func (c *ExecutorsClient) Bind(ctx context.Context, userID, workspaceID, exeID, 
 	return nil
 }
 
+// Unregister deletes an executor row (and any of its bindings via
+// CASCADE) from the gateway store. Used by the agentserver Register
+// handler to clean up after a failed Bind so we don't leak orphan
+// executors. Idempotent: 404 is treated as success.
+func (c *ExecutorsClient) Unregister(ctx context.Context, userID, exeID string) error {
+	url := fmt.Sprintf("/api/codex-exec/executors/%s", exeID)
+	httpReq, err := c.newRequest(ctx, http.MethodDelete, url, userID, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("unregister call: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("unregister: status=%d body=%q", resp.StatusCode, b)
+	}
+	return nil
+}
+
 // Unbind removes an executor from a workspace.
 func (c *ExecutorsClient) Unbind(ctx context.Context, userID, workspaceID, exeID string) error {
 	url := fmt.Sprintf("/api/codex-exec/workspaces/%s/executors/%s", workspaceID, exeID)

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // connectedEntry mirrors the JSON shape codex-exec-gateway's
@@ -39,9 +41,14 @@ type NameResolver struct {
 	logger     *slog.Logger
 	cacheTTL   time.Duration
 
-	mu        sync.Mutex
-	cache     map[string]string // name → exe_id
-	cachedAt  time.Time
+	mu       sync.Mutex
+	cache    map[string]string // name → exe_id
+	cachedAt time.Time
+
+	// sf coalesces concurrent refresh() calls into one in-flight
+	// HTTP fetch — protects /internal/connected from N parallel tool
+	// calls that all miss cache at once.
+	sf singleflight.Group
 }
 
 const nameResolverCacheTTL = 10 * time.Second
@@ -89,24 +96,37 @@ func (r *NameResolver) fetch(ctx context.Context) ([]connectedEntry, error) {
 	return entries, nil
 }
 
-// refresh fetches and overwrites the cache. Returns the entries so the
-// caller (e.g. list_environments) can reuse the result.
+// refresh fetches and overwrites the cache. Concurrent callers
+// share a single in-flight HTTP request via singleflight, so a tight
+// loop of Resolve() misses doesn't fan out N requests to the loopback
+// endpoint. cachedAt is bumped on EVERY refresh attempt (success or
+// fail) so a steady stream of misses on an unknown name still
+// throttles to one fetch per cacheTTL.
 func (r *NameResolver) refresh(ctx context.Context) ([]connectedEntry, error) {
-	entries, err := r.fetch(ctx)
+	v, err, _ := r.sf.Do("refresh", func() (any, error) {
+		entries, err := r.fetch(ctx)
+		// Bump cachedAt regardless — see comment above.
+		r.mu.Lock()
+		r.cachedAt = time.Now()
+		if err == nil {
+			fresh := make(map[string]string, len(entries))
+			for _, e := range entries {
+				if e.Name != "" {
+					fresh[e.Name] = e.ExeID
+				}
+			}
+			r.cache = fresh
+		}
+		r.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return entries, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	fresh := make(map[string]string, len(entries))
-	for _, e := range entries {
-		if e.Name != "" {
-			fresh[e.Name] = e.ExeID
-		}
-	}
-	r.mu.Lock()
-	r.cache = fresh
-	r.cachedAt = time.Now()
-	r.mu.Unlock()
-	return entries, nil
+	return v.([]connectedEntry), nil
 }
 
 // Resolve returns the exe_id bound to name in the current workspace.

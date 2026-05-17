@@ -18,7 +18,7 @@ func TestHandleRegister_HappyPath(t *testing.T) {
 		t.Fatalf("NewServer: %v", err)
 	}
 
-	body := bytes.NewReader([]byte(`{"display_name":"laptop","description":"d","default_cwd":"/x"}`))
+	body := bytes.NewReader([]byte(`{"display_name":"laptop"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/codex-exec/register", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "user_a") // see step 3 — placeholder auth header

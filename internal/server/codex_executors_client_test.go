@@ -82,7 +82,7 @@ func TestExecutorsClient_List(t *testing.T) {
 		if r.URL.Path != "/api/codex-exec/workspaces/ws_a/executors" || r.Method != http.MethodGet {
 			t.Errorf("path=%q method=%q", r.URL.Path, r.Method)
 		}
-		_, _ = w.Write([]byte(`[{"exe_id":"exe_x","description":"d","default_cwd":"/x","is_default":true}]`))
+		_, _ = w.Write([]byte(`[{"exe_id":"exe_x","name":"alpha","description":"d","is_default":true}]`))
 	}))
 	defer srv.Close()
 

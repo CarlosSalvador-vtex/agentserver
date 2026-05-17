@@ -106,7 +106,7 @@ func TestHandleRegisterExecutor_RequiresAdmin(t *testing.T) {
 func TestHandleListExecutors_AnyMember(t *testing.T) {
 	stub := http.NewServeMux()
 	stub.HandleFunc("/api/codex-exec/workspaces/ws_a/executors", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"exe_id":"exe_x","description":"d","default_cwd":"/x","is_default":true}]`))
+		_, _ = w.Write([]byte(`[{"exe_id":"exe_x","name":"alpha","description":"d","is_default":true}]`))
 	})
 	srv, cleanup := newExecutorsServer(t, stub)
 	defer cleanup()

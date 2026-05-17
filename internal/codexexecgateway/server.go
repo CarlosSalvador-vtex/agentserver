@@ -85,6 +85,10 @@ func (s *Server) Routes() http.Handler {
 	r.Route("/api/codex-exec", func(r chi.Router) {
 		r.Use(handlers.RequireAgentserverSecret(s.config.AgentserverInternalSecret))
 		r.Post("/register", handlers.Register(s.store))
+		// Used by agentserver to clean up an orphaned executor after a
+		// register-then-bind failure (v0.54.2). CASCADE on
+		// workspace_executors handles any leftover binding rows.
+		r.Delete("/executors/{exe_id}", handlers.DeleteExecutor(s.store))
 		r.Route("/workspaces/{wid}/executors", func(r chi.Router) {
 			r.Post("/", handlers.PostBinding(s.store))
 			r.Get("/", handlers.ListBinding(s.store))

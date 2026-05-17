@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agentserver/agentserver/internal/codexexecgateway/execmodel"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -20,6 +21,7 @@ import (
 // Store is the subset of storage required by the register handler.
 type Store interface {
 	CreateExecutor(ctx context.Context, e execmodel.Executor, registrationTokenHash string) error
+	DeleteExecutor(ctx context.Context, exeID string) error
 }
 
 // registerRequest is the body of POST /api/codex-exec/register. Per
@@ -74,6 +76,24 @@ func Register(store Store) http.HandlerFunc {
 			ExeID:             exe.ExeID,
 			RegistrationToken: raw,
 		})
+	}
+}
+
+// DeleteExecutor handles DELETE /api/codex-exec/executors/{exe_id}.
+// Idempotent — absent id returns 204 same as present. Surfaces 500
+// only on DB error.
+func DeleteExecutor(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		exeID := chi.URLParam(r, "exe_id")
+		if exeID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exe_id required"})
+			return
+		}
+		if err := store.DeleteExecutor(r.Context(), exeID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
