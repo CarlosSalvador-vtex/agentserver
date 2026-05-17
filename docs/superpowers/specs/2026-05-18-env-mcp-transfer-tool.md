@@ -1,4 +1,4 @@
-# env-mcp `transfer` Tool — Cross-Environment File Transfer
+# env-mcp `copy_path` Tool + Naming Alignment
 
 **Date:** 2026-05-18
 **Status:** Approved for v0.55.0
@@ -31,22 +31,23 @@ orchestrates the streaming entirely inside itself.
 
 ## Tool surface
 
+New `copy_path` tool (v0.55.0 adds; codex-style field names):
+
 ```jsonc
-// MCP tools/list output (one new entry):
 {
-  "name": "transfer",
-  "description": "Copy a file or directory from src_env to dst_env. Streams in chunks; safe for large/binary files. Atomic at destination (writes to a temp path, renames on success).",
+  "name": "copy_path",
+  "description": "Copy a file or directory between environments. Streams in chunks; safe for large/binary files. Atomic at destination (writes to a temp path, renames on success).",
   "inputSchema": {
     "type": "object",
     "properties": {
-      "src_env":   {"type": "string", "description": "Source environment name (from list_environments)"},
-      "src_path":  {"type": "string", "description": "Absolute path on the source executor"},
-      "dst_env":   {"type": "string", "description": "Destination environment name; may equal src_env for same-host copy"},
-      "dst_path":  {"type": "string", "description": "Absolute path on the destination executor; parent must exist"},
-      "recursive": {"type": "boolean", "description": "Treat src_path as a directory (tar-wrap); preserves mode + symlinks. Default false."},
-      "timeout_s": {"type": "integer", "description": "Hard cap on the whole transfer; default 600 (10 min)"}
+      "source_environment_id":      {"type": "string", "description": "Source environment name (from list_environments)"},
+      "source_path":                {"type": "string", "description": "Absolute path on the source executor"},
+      "destination_environment_id": {"type": "string", "description": "Destination environment name; may equal source for same-host copy"},
+      "destination_path":           {"type": "string", "description": "Absolute path on the destination executor; parent must exist"},
+      "recursive":                  {"type": "boolean", "description": "Treat source_path as a directory (tar-wrap); preserves mode + symlinks. Default false."},
+      "timeout_ms":                 {"type": "integer", "description": "Hard cap on the whole copy; default 600000 (10 min)"}
     },
-    "required": ["src_env", "src_path", "dst_env", "dst_path"]
+    "required": ["source_environment_id", "source_path", "destination_environment_id", "destination_path"]
   }
 }
 ```
@@ -55,15 +56,40 @@ Result content (one MCPToolContent text element):
 
 ```json
 {
-  "bytes":        12345678,
-  "duration_ms":  4321,
-  "throughput_mb_per_s": 2.85,
-  "dst_path":     "/scratch/dataset.tar.gz"
+  "bytes":       12345678,
+  "duration_ms": 4321
 }
 ```
 
 On failure: `isError: true` with a single text line describing what went
-wrong + which side failed (`src: ...`, `dst: ...`, or `transfer: ...`).
+wrong + which side failed (`source: ...`, `destination: ...`, or
+`copy_path: ...`).
+
+## Naming alignment (rest of the tool surface)
+
+Bundled into the same v0.55.0 ship to avoid a half-aligned surface:
+
+| Tool | Renames |
+|---|---|
+| `shell` | `env_id` → `environment_id` |
+| `unified_exec` → **`exec_command`** | tool name; `env_id` → `environment_id` |
+| `write_stdin` | `env_id` → `environment_id`; `data` → `chars` |
+| `read_output` | `env_id` → `environment_id`; `wait_ms` → `yield_time_ms` |
+| `terminate` | `env_id` → `environment_id` |
+| `read_file` | `env_id` → `environment_id` |
+| `apply_patch` | `env_id` → `environment_id` |
+
+Field-name choices mirror codex's built-in tool specs
+(`codex-rs/core/src/tools/handlers/{shell,view_image}_spec.rs`).
+
+Deliberately NOT in this release (structural, not naming):
+- `unified_exec` arg `command: []string` → `cmd: string` (codex shape).
+- Dropping `read_output` / `terminate` (codex folds polling into
+  `write_stdin`).
+- Dropping `read_file` (codex uses `shell cat`).
+- Adding `view_image`.
+
+These are separate decisions worth their own pass.
 
 ## Wire path
 

@@ -26,7 +26,7 @@ func (t *ListEnvironmentsTool) Name() string { return "list_environments" }
 func (t *ListEnvironmentsTool) Description() string {
 	return "Return the list of environments (machines) currently connected to this workspace. " +
 		"Each entry has `name`, `description`, `is_default`, and `last_seen`. Pass the `name` " +
-		"as the env_id parameter to shell / apply_patch / read_file / unified_exec / etc."
+		"as the environment_id parameter to shell / apply_patch / read_file / exec_command / etc."
 }
 
 func (t *ListEnvironmentsTool) InputSchema() json.RawMessage { return listEnvironmentsSchema }

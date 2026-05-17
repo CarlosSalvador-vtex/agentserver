@@ -10,16 +10,16 @@ import (
 )
 
 // shellSchema is the JSON schema for the `shell` tool's arguments.
-// env_id is required; cwd defaults to /tmp when omitted.
+// environment_id is required; cwd defaults to /tmp when omitted.
 var shellSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's name from list_environments output (e.g. hpc-kunshan)"},
+    "environment_id": {"type": "string", "description": "Target environment's name from list_environments output (e.g. hpc-kunshan)"},
     "command": {"type": "array", "items": {"type": "string"}, "description": "argv as a list of strings"},
     "cwd": {"type": "string", "description": "Working directory; defaults to /tmp"},
     "timeout_ms": {"type": "integer", "description": "Per-call wait cap; defaults to 60000"}
   },
-  "required": ["env_id", "command"]
+  "required": ["environment_id", "command"]
 }`)
 
 // ShellTool implements the synchronous-shell MCP tool. Each call
@@ -39,13 +39,13 @@ func (t *ShellTool) Name() string { return "shell" }
 
 func (t *ShellTool) Description() string {
 	return "Run a shell command on the named environment and return its full output. " +
-		"Use `list_environments` first to discover available env_ids."
+		"Use `list_environments` first to discover available environment names."
 }
 
 func (t *ShellTool) InputSchema() json.RawMessage { return shellSchema }
 
 type shellArgs struct {
-	EnvID     string   `json:"env_id"`
+	EnvironmentID string   `json:"environment_id"`
 	Command   []string `json:"command"`
 	Cwd       string   `json:"cwd"`
 	TimeoutMs int      `json:"timeout_ms"`
@@ -56,8 +56,8 @@ func (t *ShellTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolR
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
-	if a.EnvID == "" {
-		return errResult("env_id is required; call list_environments to see available ids"), nil
+	if a.EnvironmentID == "" {
+		return errResult("environment_id is required; call list_environments to see available names"), nil
 	}
 	if len(a.Command) == 0 {
 		return errResult("command must be a non-empty array"), nil
@@ -66,13 +66,13 @@ func (t *ShellTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolR
 	if cwd == "" {
 		cwd = "/tmp"
 	}
-	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvironmentID)
 	if err != nil {
 		return errResult(err.Error()), nil
 	}
 	bc, err := t.pool.Get(ctx, exeID)
 	if err != nil {
-		return errResult(fmt.Sprintf("environment %q (exe=%s) unavailable: %v", a.EnvID, exeID, err)), nil
+		return errResult(fmt.Sprintf("environment %q (exe=%s) unavailable: %v", a.EnvironmentID, exeID, err)), nil
 	}
 
 	maxCycles := defaultMaxReadCycles

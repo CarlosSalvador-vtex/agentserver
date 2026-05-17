@@ -27,10 +27,10 @@ func NewApplyPatchTool(pool *BridgePool, resolver *NameResolver) *ApplyPatchTool
 var applyPatchSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's name from list_environments output"},
+    "environment_id": {"type": "string", "description": "Target environment's name from list_environments output"},
     "patch": {"type": "string", "description": "A codex apply_patch document beginning with '*** Begin Patch' and ending with '*** End Patch'"}
   },
-  "required": ["env_id", "patch"]
+  "required": ["environment_id", "patch"]
 }`)
 
 func (t *ApplyPatchTool) Name() string                 { return "apply_patch" }
@@ -42,14 +42,14 @@ func (t *ApplyPatchTool) Description() string {
 
 func (t *ApplyPatchTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
 	var a struct {
-		EnvID string `json:"env_id"`
+		EnvironmentID string `json:"environment_id"`
 		Patch string `json:"patch"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
-	if a.EnvID == "" || a.Patch == "" {
-		return errResult("env_id and patch are required"), nil
+	if a.EnvironmentID == "" || a.Patch == "" {
+		return errResult("environment_id and patch are required"), nil
 	}
 
 	ops, err := ParsePatch(a.Patch)
@@ -57,13 +57,13 @@ func (t *ApplyPatchTool) Call(ctx context.Context, raw json.RawMessage) (MCPCall
 		return errResult(err.Error()), nil
 	}
 
-	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvironmentID)
 	if err != nil {
 		return errResult(err.Error()), nil
 	}
 	bc, err := t.pool.Get(ctx, exeID)
 	if err != nil {
-		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvID, err)), nil
+		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvironmentID, err)), nil
 	}
 
 	var report strings.Builder

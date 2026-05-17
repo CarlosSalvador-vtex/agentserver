@@ -23,12 +23,12 @@ func NewReadFileTool(pool *BridgePool, resolver *NameResolver) *ReadFileTool {
 var readFileSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's name from list_environments output"},
+    "environment_id": {"type": "string", "description": "Target environment's name from list_environments output"},
     "path": {"type": "string", "description": "Absolute path on the executor"},
     "offset": {"type": "integer", "description": "Byte offset to start reading from"},
     "limit": {"type": "integer", "description": "Max bytes to return; 0 = whole file"}
   },
-  "required": ["env_id", "path"]
+  "required": ["environment_id", "path"]
 }`)
 
 func (t *ReadFileTool) Name() string                 { return "read_file" }
@@ -39,7 +39,7 @@ func (t *ReadFileTool) Description() string {
 
 func (t *ReadFileTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
 	var a struct {
-		EnvID  string `json:"env_id"`
+		EnvironmentID string `json:"environment_id"`
 		Path   string `json:"path"`
 		Offset int    `json:"offset"`
 		Limit  int    `json:"limit"`
@@ -47,16 +47,16 @@ func (t *ReadFileTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
-	if a.EnvID == "" || a.Path == "" {
-		return errResult("env_id and path are required"), nil
+	if a.EnvironmentID == "" || a.Path == "" {
+		return errResult("environment_id and path are required"), nil
 	}
-	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvironmentID)
 	if err != nil {
 		return errResult(err.Error()), nil
 	}
 	bc, err := t.pool.Get(ctx, exeID)
 	if err != nil {
-		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvID, err)), nil
+		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvironmentID, err)), nil
 	}
 	params, _ := json.Marshal(FsReadFileParams{Path: a.Path})
 	rawResp, err := bc.Call(ctx, ExecMethodFsReadFile, params)

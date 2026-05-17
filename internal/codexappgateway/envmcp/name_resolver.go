@@ -27,7 +27,7 @@ type connectedEntry struct {
 
 // NameResolver maintains a workspace-scoped name → exe_id map by
 // periodically refreshing from app-gateway's /internal/connected. Tools
-// that take an env_id (semantically a name) call Resolve to get the
+// that take an environment_id (semantically a name) call Resolve to get the
 // underlying exe_id for BridgePool.Get.
 //
 // Cache strategy:

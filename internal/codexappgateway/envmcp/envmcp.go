@@ -1,9 +1,9 @@
 // Package envmcp implements the `codex-app-gateway env-mcp` subcommand:
 // a stateless MCP server that codex spawns as a child process. It
-// exposes a fixed tool set (list_environments, shell, unified_exec,
+// exposes a fixed tool set (list_environments, shell, exec_command,
 // write_stdin, read_output, terminate, read_file, apply_patch) to
 // codex; tool calls are multiplexed across the workspace's connected
-// executors via a per-exe BridgeClient pool keyed by env_id.
+// executors via a per-exe BridgeClient pool keyed by environment name.
 package envmcp
 
 import (
@@ -18,7 +18,7 @@ import (
 // RunArgs is the parsed CLI input for `codex-app-gateway env-mcp`.
 // Per the 2026-05-16 fixed-tools redesign, env-mcp is workspace-scoped
 // rather than per-executor; one child binary handles every executor in
-// the workspace via env_id routing.
+// the workspace via environment_id routing.
 type RunArgs struct {
 	WorkspaceID        string // --workspace-id
 	ExecGatewayURL     string // --exec-gateway-url; pool appends /<exe_id>
@@ -71,6 +71,7 @@ func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, stderr io.W
 		NewTerminateTool(pool, sessions),
 		NewReadFileTool(pool, resolver),
 		NewApplyPatchTool(pool, resolver),
+		NewCopyPathTool(pool, resolver),
 	}
 	srv := NewMCPServer("agentserver", tools, logger)
 	if err := srv.Serve(ctx, stdin, stdout); err != nil {

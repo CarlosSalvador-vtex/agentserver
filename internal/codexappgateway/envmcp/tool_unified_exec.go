@@ -22,7 +22,7 @@ type unifiedSession struct {
 	createdAt time.Time
 }
 
-// sessionStore tracks open unified_exec sessions and GCs old entries
+// sessionStore tracks open exec_command sessions and GCs old entries
 // (anything older than sessionMaxAge gets reaped on each access). The
 // GC is best-effort — sessions whose underlying process exited on its
 // own simply linger until access pressure prunes them.
@@ -85,16 +85,16 @@ func NewUnifiedExecTool(pool *BridgePool, store *sessionStore, resolver *NameRes
 var unifiedExecSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
+    "environment_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
     "command": {"type": "array", "items": {"type": "string"}},
     "cwd": {"type": "string"},
     "tty": {"type": "boolean", "description": "Allocate a PTY"},
     "pipe_stdin": {"type": "boolean", "description": "Open stdin pipe (required if you intend to call write_stdin)"}
   },
-  "required": ["env_id", "command"]
+  "required": ["environment_id", "command"]
 }`)
 
-func (t *UnifiedExecTool) Name() string { return "unified_exec" }
+func (t *UnifiedExecTool) Name() string { return "exec_command" }
 
 func (t *UnifiedExecTool) Description() string {
 	return "Start a long-lived process on the named environment and return a session_id. " +
@@ -106,7 +106,7 @@ func (t *UnifiedExecTool) InputSchema() json.RawMessage { return unifiedExecSche
 
 func (t *UnifiedExecTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
 	var a struct {
-		EnvID     string   `json:"env_id"`
+		EnvironmentID string   `json:"environment_id"`
 		Command   []string `json:"command"`
 		Cwd       string   `json:"cwd"`
 		TTY       bool     `json:"tty"`
@@ -115,19 +115,19 @@ func (t *UnifiedExecTool) Call(ctx context.Context, raw json.RawMessage) (MCPCal
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
-	if a.EnvID == "" || len(a.Command) == 0 {
-		return errResult("env_id and command are required"), nil
+	if a.EnvironmentID == "" || len(a.Command) == 0 {
+		return errResult("environment_id and command are required"), nil
 	}
 	if a.Cwd == "" {
 		a.Cwd = "/tmp"
 	}
-	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvironmentID)
 	if err != nil {
 		return errResult(err.Error()), nil
 	}
 	bc, err := t.pool.Get(ctx, exeID)
 	if err != nil {
-		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvID, err)), nil
+		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvironmentID, err)), nil
 	}
 	pid := fmt.Sprintf("uexec-%d", t.pidSeq.Add(1))
 	startParams, _ := json.Marshal(ProcessStartParams{
@@ -161,32 +161,32 @@ func NewWriteStdinTool(pool *BridgePool, store *sessionStore) *WriteStdinTool {
 var writeStdinSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
+    "environment_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
     "session_id": {"type": "string"},
-    "data": {"type": "string", "description": "UTF-8 text written to the process's stdin. Trailing newlines must be included explicitly."}
+    "chars": {"type": "string", "description": "Text written to stdin. Trailing newlines must be included explicitly."}
   },
-  "required": ["env_id", "session_id", "data"]
+  "required": ["environment_id", "session_id", "chars"]
 }`)
 
 func (t *WriteStdinTool) Name() string                  { return "write_stdin" }
 func (t *WriteStdinTool) InputSchema() json.RawMessage  { return writeStdinSchema }
 func (t *WriteStdinTool) Description() string {
-	return "Write data to the stdin of a unified_exec session. The session must have been " +
+	return "Write data to the stdin of an exec_command session. The session must have been " +
 		"started with pipe_stdin=true."
 }
 
 func (t *WriteStdinTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
 	var a struct {
-		EnvID     string `json:"env_id"`
+		EnvironmentID string `json:"environment_id"`
 		SessionID string `json:"session_id"`
-		Data      string `json:"data"`
+		Chars     string `json:"chars"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
 	sess, ok := t.sessions.lookup(a.SessionID)
-	if !ok || sess.exeID != a.EnvID {
-		return errResult("no such session for that env_id"), nil
+	if !ok || sess.exeID != a.EnvironmentID {
+		return errResult("no such session for that environment_id"), nil
 	}
 	bc, err := t.pool.Get(ctx, sess.exeID)
 	if err != nil {
@@ -194,7 +194,7 @@ func (t *WriteStdinTool) Call(ctx context.Context, raw json.RawMessage) (MCPCall
 	}
 	params, _ := json.Marshal(ProcessWriteParams{
 		ProcessID: sess.processID,
-		Data:      base64.StdEncoding.EncodeToString([]byte(a.Data)),
+		Data:      base64.StdEncoding.EncodeToString([]byte(a.Chars)),
 	})
 	if _, err := bc.Call(ctx, ExecMethodProcessWrite, params); err != nil {
 		return errResult(fmt.Sprintf("write failed: %v", err)), nil
@@ -215,37 +215,37 @@ func NewReadOutputTool(pool *BridgePool, store *sessionStore) *ReadOutputTool {
 var readOutputSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
+    "environment_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
     "session_id": {"type": "string"},
     "after_seq": {"type": "integer", "description": "Skip output up to this seq number (returned by previous read)"},
-    "wait_ms": {"type": "integer", "description": "How long to block waiting for new output; default 1000"}
+    "yield_time_ms": {"type": "integer", "description": "How long to block waiting for new output; default 1000"}
   },
-  "required": ["env_id", "session_id"]
+  "required": ["environment_id", "session_id"]
 }`)
 
 func (t *ReadOutputTool) Name() string                  { return "read_output" }
 func (t *ReadOutputTool) InputSchema() json.RawMessage  { return readOutputSchema }
 func (t *ReadOutputTool) Description() string {
-	return "Read accumulated output from a unified_exec session. Returns chunks + next_seq " +
+	return "Read accumulated output from an exec_command session. Returns chunks + next_seq " +
 		"for the next read, plus exited/exit_code if the process has finished."
 }
 
 func (t *ReadOutputTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
 	var a struct {
-		EnvID     string `json:"env_id"`
+		EnvironmentID string `json:"environment_id"`
 		SessionID string `json:"session_id"`
 		AfterSeq  uint64 `json:"after_seq"`
-		WaitMs    int    `json:"wait_ms"`
+		YieldTimeMs int `json:"yield_time_ms"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
 	sess, ok := t.sessions.lookup(a.SessionID)
-	if !ok || sess.exeID != a.EnvID {
-		return errResult("no such session for that env_id"), nil
+	if !ok || sess.exeID != a.EnvironmentID {
+		return errResult("no such session for that environment_id"), nil
 	}
-	if a.WaitMs <= 0 {
-		a.WaitMs = 1000
+	if a.YieldTimeMs <= 0 {
+		a.YieldTimeMs = 1000
 	}
 	bc, err := t.pool.Get(ctx, sess.exeID)
 	if err != nil {
@@ -253,7 +253,7 @@ func (t *ReadOutputTool) Call(ctx context.Context, raw json.RawMessage) (MCPCall
 	}
 	params, _ := json.Marshal(ProcessReadParams{
 		ProcessID: sess.processID, AfterSeq: a.AfterSeq,
-		MaxBytes: defaultMaxBytes, WaitMs: a.WaitMs,
+		MaxBytes: defaultMaxBytes, WaitMs: a.YieldTimeMs,
 	})
 	rawResp, err := bc.Call(ctx, ExecMethodProcessRead, params)
 	if err != nil {
@@ -277,29 +277,29 @@ func NewTerminateTool(pool *BridgePool, store *sessionStore) *TerminateTool {
 var terminateSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
+    "environment_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
     "session_id": {"type": "string"}
   },
-  "required": ["env_id", "session_id"]
+  "required": ["environment_id", "session_id"]
 }`)
 
 func (t *TerminateTool) Name() string                  { return "terminate" }
 func (t *TerminateTool) InputSchema() json.RawMessage  { return terminateSchema }
 func (t *TerminateTool) Description() string {
-	return "Terminate a unified_exec session and release its resources."
+	return "Terminate an exec_command session and release its resources."
 }
 
 func (t *TerminateTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
 	var a struct {
-		EnvID     string `json:"env_id"`
+		EnvironmentID string `json:"environment_id"`
 		SessionID string `json:"session_id"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("invalid arguments: " + err.Error()), nil
 	}
 	sess, ok := t.sessions.lookup(a.SessionID)
-	if !ok || sess.exeID != a.EnvID {
-		return errResult("no such session for that env_id"), nil
+	if !ok || sess.exeID != a.EnvironmentID {
+		return errResult("no such session for that environment_id"), nil
 	}
 	t.sessions.drop(a.SessionID)
 	bc, err := t.pool.Get(ctx, sess.exeID)
