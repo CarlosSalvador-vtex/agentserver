@@ -11,14 +11,16 @@ import (
 
 // BindingStore is the subset of storage required by the workspace binding handlers.
 type BindingStore interface {
-	BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string, isDefault bool) error
+	BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID, name, description string, isDefault bool) error
 	UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string) error
 	ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]execmodel.ConnectedExecutor, error)
 }
 
 type bindRequest struct {
-	ExeID     string `json:"exe_id"`
-	IsDefault bool   `json:"is_default"`
+	ExeID       string `json:"exe_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsDefault   bool   `json:"is_default"`
 }
 
 // PostBinding returns an http.HandlerFunc that binds an executor to a workspace.
@@ -34,8 +36,14 @@ func PostBinding(store BindingStore) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exe_id required"})
 			return
 		}
-		if err := store.BindWorkspaceExecutor(r.Context(), wid, req.ExeID, req.IsDefault); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "bind"})
+		if req.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
+			return
+		}
+		if err := store.BindWorkspaceExecutor(r.Context(), wid, req.ExeID, req.Name, req.Description, req.IsDefault); err != nil {
+			// Pq unique-violation surfaces as a Postgres error; we surface
+			// "name already taken" generically to avoid leaking schema.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "bind failed (name may already be taken in this workspace)"})
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})

@@ -38,7 +38,7 @@ func TestInternalConnected_ReturnsIntersection(t *testing.T) {
 		{ExeID: "exe_off", UserID: "u", Description: "offline", DefaultCwd: "/y", RegisteredAt: time.Now().UTC()},
 	} {
 		store.CreateExecutor(context.Background(), e, "h")
-		store.BindWorkspaceExecutor(context.Background(), "ws_a", e.ExeID, e.ExeID == "exe_on")
+		store.BindWorkspaceExecutor(context.Background(), "ws_a", e.ExeID, e.ExeID, "", e.ExeID == "exe_on")
 	}
 	srv.registry.Register("exe_on", newInboundConn("exe_on", nil, nil))
 

@@ -12,17 +12,18 @@ import (
 // full file from the remote, matching codex's local read_file
 // semantics (exec-server doesn't support partial reads server-side).
 type ReadFileTool struct {
-	pool *BridgePool
+	pool     *BridgePool
+	resolver *NameResolver
 }
 
-func NewReadFileTool(pool *BridgePool) *ReadFileTool {
-	return &ReadFileTool{pool: pool}
+func NewReadFileTool(pool *BridgePool, resolver *NameResolver) *ReadFileTool {
+	return &ReadFileTool{pool: pool, resolver: resolver}
 }
 
 var readFileSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
+    "env_id": {"type": "string", "description": "Target environment's name from list_environments output"},
     "path": {"type": "string", "description": "Absolute path on the executor"},
     "offset": {"type": "integer", "description": "Byte offset to start reading from"},
     "limit": {"type": "integer", "description": "Max bytes to return; 0 = whole file"}
@@ -49,7 +50,11 @@ func (t *ReadFileTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 	if a.EnvID == "" || a.Path == "" {
 		return errResult("env_id and path are required"), nil
 	}
-	bc, err := t.pool.Get(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+	bc, err := t.pool.Get(ctx, exeID)
 	if err != nil {
 		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvID, err)), nil
 	}

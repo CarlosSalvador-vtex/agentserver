@@ -20,8 +20,8 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showRegister, setShowRegister] = useState(false)
+  const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
-  const [newDefaultCwd, setNewDefaultCwd] = useState('')
   const [generated, setGenerated] = useState<RegisterExecutorResponse | null>(null)
   const [copied, setCopied] = useState(false)
   const [unbindTarget, setUnbindTarget] = useState<RemoteExecutor | null>(null)
@@ -46,16 +46,16 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
   }, [refresh])
 
   const onRegister = async () => {
-    if (!newDesc.trim()) return
+    if (!newName.trim()) return
     try {
       const resp = await registerRemoteExecutor(workspaceId, {
-        description: newDesc.trim(),
-        default_cwd: newDefaultCwd.trim() || undefined,
+        name: newName.trim(),
+        description: newDesc.trim() || undefined,
       })
       setGenerated(resp)
       setShowRegister(false)
+      setNewName('')
       setNewDesc('')
-      setNewDefaultCwd('')
       void refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -128,10 +128,9 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
                     size={8}
                     className={isOnline(r) ? 'fill-emerald-500 text-emerald-500' : 'fill-gray-400 text-gray-400'}
                   />
-                  <span className="truncate text-xs font-medium text-[var(--foreground)]">{r.description || r.exe_id}</span>
-                  <span className="text-[11px] font-mono text-[var(--muted-foreground)]">{r.exe_id}</span>
-                  {r.default_cwd && (
-                    <span className="text-[11px] text-[var(--muted-foreground)]">cwd: {r.default_cwd}</span>
+                  <span className="truncate text-xs font-medium text-[var(--foreground)]">{r.name}</span>
+                  {r.description && (
+                    <span className="truncate text-[11px] text-[var(--muted-foreground)]">{r.description}</span>
                   )}
                   <span className="text-[11px] text-[var(--muted-foreground)]">
                     {r.last_seen_at
@@ -167,23 +166,26 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
             </div>
             <form onSubmit={(e) => { e.preventDefault(); void onRegister() }} className="flex flex-col gap-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Description</label>
+                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Name</label>
                 <input
                   autoFocus
                   type="text"
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  placeholder="Daisy's MBP"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="hpc-kunshan"
                   className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
                 />
+                <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+                  Unique per workspace. This is what codex sees when it picks an environment.
+                </p>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Default working directory <span className="text-[var(--muted-foreground)]">(optional)</span></label>
+                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Description <span className="text-[var(--muted-foreground)]">(optional)</span></label>
                 <input
                   type="text"
-                  value={newDefaultCwd}
-                  onChange={(e) => setNewDefaultCwd(e.target.value)}
-                  placeholder="/home/daisy/projects"
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  placeholder="Kunshan HPC cluster, SLURM partition xahdtest"
                   className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
                 />
               </div>
@@ -191,7 +193,7 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
                 <button type="button" onClick={() => setShowRegister(false)} className="rounded-md border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--secondary)]">
                   Cancel
                 </button>
-                <button type="submit" disabled={!newDesc.trim()} className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50">
+                <button type="submit" disabled={!newName.trim()} className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50">
                   Register
                 </button>
               </div>
@@ -248,7 +250,7 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
       {unbindTarget && (
         <ConfirmModal
           title="Unbind executor"
-          message={`Remove "${unbindTarget.description || unbindTarget.exe_id}" from this workspace? The executor will stay registered but codex sessions here won't be able to invoke it.`}
+          message={`Remove "${unbindTarget.name}" from this workspace? The executor will stay registered but codex sessions here won't be able to invoke it.`}
           confirmLabel="Unbind"
           destructive
           onConfirm={() => onUnbind(unbindTarget.exe_id)}

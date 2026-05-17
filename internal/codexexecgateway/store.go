@@ -150,14 +150,20 @@ func (s *Store) UpdateLastSeen(ctx context.Context, exeID string) error {
 // Close closes the underlying DB.
 func (s *Store) Close() error { return s.db.Close() }
 
-// BindWorkspaceExecutor inserts a workspace ↔ executor binding (or upserts is_default).
-func (s *Store) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID string, isDefault bool) error {
+// BindWorkspaceExecutor inserts a workspace ↔ executor binding (or
+// upserts name/description/is_default on conflict). The name must be
+// unique per workspace (enforced by uniq_workspace_executors_name);
+// callers should treat a unique-violation as a user-input error and
+// surface "name already taken in this workspace".
+func (s *Store) BindWorkspaceExecutor(ctx context.Context, workspaceID, exeID, name, description string, isDefault bool) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO workspace_executors (workspace_id, exe_id, is_default)
-		VALUES ($1, $2, $3)
+		INSERT INTO workspace_executors (workspace_id, exe_id, name, description, is_default)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (workspace_id, exe_id)
-		DO UPDATE SET is_default = EXCLUDED.is_default`,
-		workspaceID, exeID, isDefault)
+		DO UPDATE SET name        = EXCLUDED.name,
+		              description = EXCLUDED.description,
+		              is_default  = EXCLUDED.is_default`,
+		workspaceID, exeID, name, description, isDefault)
 	if err != nil {
 		return fmt.Errorf("bind workspace executor: %w", err)
 	}
@@ -189,12 +195,14 @@ func (s *Store) UnbindWorkspaceExecutor(ctx context.Context, workspaceID, exeID 
 	return nil
 }
 
-// ListWorkspaceExecutors returns all bindings for a workspace, joined with executor metadata.
+// ListWorkspaceExecutors returns all bindings for a workspace. Per
+// v0.54.0, name + description come from the workspace_executors row
+// (binding-scoped), not the executor row.
 func (s *Store) ListWorkspaceExecutors(ctx context.Context, workspaceID string) ([]ConnectedExecutor, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT we.exe_id,
-		       COALESCE(e.description, ''),
-		       COALESCE(e.default_cwd, ''),
+		       we.name,
+		       COALESCE(we.description, ''),
 		       we.is_default,
 		       e.last_seen_at
 		FROM workspace_executors we
@@ -209,7 +217,7 @@ func (s *Store) ListWorkspaceExecutors(ctx context.Context, workspaceID string) 
 	for rows.Next() {
 		var c ConnectedExecutor
 		var lastSeen sql.NullTime
-		if err := rows.Scan(&c.ExeID, &c.Description, &c.DefaultCwd, &c.IsDefault, &lastSeen); err != nil {
+		if err := rows.Scan(&c.ExeID, &c.Name, &c.Description, &c.IsDefault, &lastSeen); err != nil {
 			return nil, err
 		}
 		if lastSeen.Valid {

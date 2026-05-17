@@ -22,10 +22,12 @@ type Store interface {
 	CreateExecutor(ctx context.Context, e execmodel.Executor, registrationTokenHash string) error
 }
 
+// registerRequest is the body of POST /api/codex-exec/register. Per
+// v0.54.0, executor-level description and default_cwd are dropped —
+// the LLM-visible per-binding name + description live on
+// workspace_executors (set by Bind).
 type registerRequest struct {
 	DisplayName string `json:"display_name"`
-	Description string `json:"description"`
-	DefaultCwd  string `json:"default_cwd"`
 }
 
 type registerResponse struct {
@@ -62,8 +64,6 @@ func Register(store Store) http.HandlerFunc {
 			ExeID:        "exe_" + uuid.NewString(),
 			UserID:       userID,
 			DisplayName:  req.DisplayName,
-			Description:  req.Description,
-			DefaultCwd:   req.DefaultCwd,
 			RegisteredAt: time.Now().UTC(),
 		}
 		if err := store.CreateExecutor(r.Context(), exe, string(hash)); err != nil {

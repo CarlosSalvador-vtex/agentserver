@@ -11,9 +11,13 @@ import (
 )
 
 type registerExecutorReq struct {
-	DisplayName string `json:"display_name,omitempty"`
+	// Name is workspace-unique, surfaced to the LLM (via env-mcp's
+	// list_environments) and used as the env_id parameter on shell /
+	// apply_patch / etc. Required since v0.54.0.
+	Name string `json:"name"`
+	// Description is an optional per-binding note shown alongside
+	// Name in list_environments. Free-text, no uniqueness constraint.
 	Description string `json:"description,omitempty"`
-	DefaultCwd  string `json:"default_cwd,omitempty"`
 }
 
 type registerExecutorResp struct {
@@ -51,23 +55,26 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	if req.Name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
 	if s.ExecutorsClient == nil {
 		http.Error(w, "executors integration not configured", http.StatusServiceUnavailable)
 		return
 	}
 
 	reg, err := s.ExecutorsClient.Register(r.Context(), userID, RegisterExecutorRequest{
-		DisplayName: req.DisplayName,
-		Description: req.Description,
-		DefaultCwd:  req.DefaultCwd,
+		DisplayName: req.Name, // reuse for the system-level display_name; binding name is the one the LLM sees
 	})
 	if err != nil {
 		http.Error(w, "register: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// Auto-bind to the workspace this request was issued under.
-	if err := s.ExecutorsClient.Bind(r.Context(), userID, wid, reg.ExeID, false); err != nil {
+	// Auto-bind to the workspace this request was issued under, with
+	// the user-supplied name and description.
+	if err := s.ExecutorsClient.Bind(r.Context(), userID, wid, reg.ExeID, req.Name, req.Description, false); err != nil {
 		http.Error(w, "bind: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -79,20 +86,12 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 	if s.CodexExecGatewayPublicHost != "" {
 		// Upstream codex `exec-server --remote` contract:
 		//   1. POST <base_url>/cloud/executor/{id}/register with Bearer <token>
-		//      (token from CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN env)
 		//   2. Server returns {executor_id, url}, codex then ws-dials url.
-		// Our /cloud/executor/{id}/register handler returns the existing
-		// /codex-exec/{id}?token=... URL — the shim makes that transparent.
-		exeName := req.Description
-		if exeName == "" {
-			exeName = req.DisplayName
-		}
-		if exeName == "" {
-			exeName = reg.ExeID
-		}
+		// Surface the user's `name` as codex's --name (visible in their
+		// shell + tracing) so it lines up with what the LLM sees.
 		resp.ConnectCommand = fmt.Sprintf(
 			"export CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN='%s' && \\\ncodex exec-server --remote 'https://%s' --executor-id '%s' --name '%s'",
-			reg.RegistrationToken, s.CodexExecGatewayPublicHost, reg.ExeID, exeName,
+			reg.RegistrationToken, s.CodexExecGatewayPublicHost, reg.ExeID, req.Name,
 		)
 	}
 

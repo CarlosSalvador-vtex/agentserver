@@ -74,11 +74,12 @@ func (s *sessionStore) gcLocked() {
 type UnifiedExecTool struct {
 	pool     *BridgePool
 	sessions *sessionStore
+	resolver *NameResolver
 	pidSeq   atomic.Uint64
 }
 
-func NewUnifiedExecTool(pool *BridgePool, store *sessionStore) *UnifiedExecTool {
-	return &UnifiedExecTool{pool: pool, sessions: store}
+func NewUnifiedExecTool(pool *BridgePool, store *sessionStore, resolver *NameResolver) *UnifiedExecTool {
+	return &UnifiedExecTool{pool: pool, sessions: store, resolver: resolver}
 }
 
 var unifiedExecSchema = json.RawMessage(`{
@@ -120,9 +121,13 @@ func (t *UnifiedExecTool) Call(ctx context.Context, raw json.RawMessage) (MCPCal
 	if a.Cwd == "" {
 		a.Cwd = "/tmp"
 	}
-	bc, err := t.pool.Get(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
 	if err != nil {
-		return errResult(fmt.Sprintf("no such environment %q: %v", a.EnvID, err)), nil
+		return errResult(err.Error()), nil
+	}
+	bc, err := t.pool.Get(ctx, exeID)
+	if err != nil {
+		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvID, err)), nil
 	}
 	pid := fmt.Sprintf("uexec-%d", t.pidSeq.Add(1))
 	startParams, _ := json.Marshal(ProcessStartParams{
@@ -136,7 +141,9 @@ func (t *UnifiedExecTool) Call(ctx context.Context, raw json.RawMessage) (MCPCal
 	if _, err := bc.Call(ctx, ExecMethodProcessStart, startParams); err != nil {
 		return errResult(fmt.Sprintf("[exec failed to start: %v]", err)), nil
 	}
-	sid := t.sessions.add(a.EnvID, pid)
+	// Session stores the resolved exe_id so subsequent write_stdin/
+	// read_output/terminate don't need to re-resolve the name.
+	sid := t.sessions.add(exeID, pid)
 	body, _ := json.Marshal(map[string]string{"session_id": sid})
 	return MCPCallToolResult{Content: []MCPToolContent{{Type: "text", Text: string(body)}}}, nil
 }

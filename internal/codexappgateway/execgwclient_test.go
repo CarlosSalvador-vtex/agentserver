@@ -14,8 +14,8 @@ import (
 func TestExecGatewayClient_Connected_HappyPath(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	want := []execmodel.ConnectedExecutor{
-		{ExeID: "exe_a", Description: "alpha", DefaultCwd: "/a", IsDefault: true, LastSeenAt: &now},
-		{ExeID: "exe_b", Description: "beta", DefaultCwd: "/b", IsDefault: false},
+		{ExeID: "exe_a", Name: "alpha", Description: "alpha host", IsDefault: true, LastSeenAt: &now},
+		{ExeID: "exe_b", Name: "beta", Description: "beta host", IsDefault: false},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer s3cret" {

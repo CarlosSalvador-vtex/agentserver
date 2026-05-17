@@ -33,11 +33,11 @@ func NewExecutorsClient(baseURL, secret string) *ExecutorsClient {
 }
 
 // RegisterExecutorRequest matches codex-exec-gateway's
-// POST /api/codex-exec/register body.
+// POST /api/codex-exec/register body. Per v0.54.0, executors no
+// longer carry a default_cwd; that field was useless to the LLM and
+// confusing in the UI.
 type RegisterExecutorRequest struct {
 	DisplayName string `json:"display_name,omitempty"`
-	Description string `json:"description,omitempty"`
-	DefaultCwd  string `json:"default_cwd,omitempty"`
 }
 
 // RegisterExecutorResponse matches codex-exec-gateway's response (raw
@@ -50,10 +50,12 @@ type RegisterExecutorResponse struct {
 
 // ListedExecutor matches codex-exec-gateway's
 // GET /api/codex-exec/workspaces/{wid}/executors element shape.
+// Per v0.54.0, surfaced fields are binding-level (name + description)
+// from workspace_executors, not the executor row.
 type ListedExecutor struct {
 	ExeID       string     `json:"exe_id"`
+	Name        string     `json:"name"`
 	Description string     `json:"description"`
-	DefaultCwd  string     `json:"default_cwd"`
 	IsDefault   bool       `json:"is_default"`
 	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
 }
@@ -85,9 +87,15 @@ func (c *ExecutorsClient) Register(ctx context.Context, userID string, req Regis
 	return out, nil
 }
 
-// Bind attaches an existing executor to a workspace.
-func (c *ExecutorsClient) Bind(ctx context.Context, userID, workspaceID, exeID string, isDefault bool) error {
-	body, _ := json.Marshal(map[string]any{"exe_id": exeID, "is_default": isDefault})
+// Bind attaches an existing executor to a workspace under the
+// caller-supplied name (workspace-unique). description is optional.
+func (c *ExecutorsClient) Bind(ctx context.Context, userID, workspaceID, exeID, name, description string, isDefault bool) error {
+	body, _ := json.Marshal(map[string]any{
+		"exe_id":      exeID,
+		"name":        name,
+		"description": description,
+		"is_default":  isDefault,
+	})
 	url := fmt.Sprintf("/api/codex-exec/workspaces/%s/executors", workspaceID)
 	httpReq, err := c.newRequest(ctx, http.MethodPost, url, userID, bytes.NewReader(body))
 	if err != nil {

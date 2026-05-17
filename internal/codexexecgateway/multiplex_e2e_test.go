@@ -92,7 +92,7 @@ func connectInboundRaw(t *testing.T, srv *Server, baseURL, exeID string) *websoc
 	srv.store.CreateExecutor(context.Background(), Executor{
 		ExeID: exeID, UserID: "u", RegisteredAt: time.Now().UTC(),
 	}, string(hash))
-	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, false); err != nil {
+	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, "test-"+exeID, "", false); err != nil {
 		t.Fatalf("BindWorkspaceExecutor: %v", err)
 	}
 	url := "ws" + strings.TrimPrefix(baseURL, "http") + "/codex-exec/" + exeID + "?token=rt"

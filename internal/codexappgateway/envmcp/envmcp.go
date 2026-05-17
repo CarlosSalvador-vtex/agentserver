@@ -60,16 +60,17 @@ func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, stderr io.W
 
 	sessions := newSessionStore()
 	connectedURL := strings.TrimRight(args.AppGatewayInternal, "/") + "/internal/connected"
+	resolver := NewNameResolver(connectedURL, lbToken, logger)
 
 	tools := []Tool{
-		NewListEnvironmentsTool(connectedURL, lbToken, logger),
-		NewShellTool(pool),
-		NewUnifiedExecTool(pool, sessions),
+		NewListEnvironmentsTool(resolver),
+		NewShellTool(pool, resolver),
+		NewUnifiedExecTool(pool, sessions, resolver),
 		NewWriteStdinTool(pool, sessions),
 		NewReadOutputTool(pool, sessions),
 		NewTerminateTool(pool, sessions),
-		NewReadFileTool(pool),
-		NewApplyPatchTool(pool),
+		NewReadFileTool(pool, resolver),
+		NewApplyPatchTool(pool, resolver),
 	}
 	srv := NewMCPServer("agentserver", tools, logger)
 	if err := srv.Serve(ctx, stdin, stdout); err != nil {

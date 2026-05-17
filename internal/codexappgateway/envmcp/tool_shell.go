@@ -14,7 +14,7 @@ import (
 var shellSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (the exe_id field from list_environments output, e.g. exe_c1fa4893-...). NOT the description."},
+    "env_id": {"type": "string", "description": "Target environment's name from list_environments output (e.g. hpc-kunshan)"},
     "command": {"type": "array", "items": {"type": "string"}, "description": "argv as a list of strings"},
     "cwd": {"type": "string", "description": "Working directory; defaults to /tmp"},
     "timeout_ms": {"type": "integer", "description": "Per-call wait cap; defaults to 60000"}
@@ -26,12 +26,13 @@ var shellSchema = json.RawMessage(`{
 // dispatches process/start on the selected executor then polls
 // process/read until the process exits or the timeout elapses.
 type ShellTool struct {
-	pool   *BridgePool
-	pidSeq atomic.Uint64
+	pool     *BridgePool
+	resolver *NameResolver
+	pidSeq   atomic.Uint64
 }
 
-func NewShellTool(pool *BridgePool) *ShellTool {
-	return &ShellTool{pool: pool}
+func NewShellTool(pool *BridgePool, resolver *NameResolver) *ShellTool {
+	return &ShellTool{pool: pool, resolver: resolver}
 }
 
 func (t *ShellTool) Name() string { return "shell" }
@@ -65,9 +66,13 @@ func (t *ShellTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolR
 	if cwd == "" {
 		cwd = "/tmp"
 	}
-	bc, err := t.pool.Get(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
 	if err != nil {
-		return errResult(fmt.Sprintf("no such environment %q (or it disconnected): %v", a.EnvID, err)), nil
+		return errResult(err.Error()), nil
+	}
+	bc, err := t.pool.Get(ctx, exeID)
+	if err != nil {
+		return errResult(fmt.Sprintf("environment %q (exe=%s) unavailable: %v", a.EnvID, exeID, err)), nil
 	}
 
 	maxCycles := defaultMaxReadCycles

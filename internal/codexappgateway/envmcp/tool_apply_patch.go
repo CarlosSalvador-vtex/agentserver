@@ -16,17 +16,18 @@ import (
 // Per-file outcomes are reported as `path: ok` / `path: error: ...`
 // lines so the LLM sees which files succeeded even on partial failure.
 type ApplyPatchTool struct {
-	pool *BridgePool
+	pool     *BridgePool
+	resolver *NameResolver
 }
 
-func NewApplyPatchTool(pool *BridgePool) *ApplyPatchTool {
-	return &ApplyPatchTool{pool: pool}
+func NewApplyPatchTool(pool *BridgePool, resolver *NameResolver) *ApplyPatchTool {
+	return &ApplyPatchTool{pool: pool, resolver: resolver}
 }
 
 var applyPatchSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "env_id": {"type": "string", "description": "Target environment's exe_id (from list_environments output). NOT the description."},
+    "env_id": {"type": "string", "description": "Target environment's name from list_environments output"},
     "patch": {"type": "string", "description": "A codex apply_patch document beginning with '*** Begin Patch' and ending with '*** End Patch'"}
   },
   "required": ["env_id", "patch"]
@@ -56,7 +57,11 @@ func (t *ApplyPatchTool) Call(ctx context.Context, raw json.RawMessage) (MCPCall
 		return errResult(err.Error()), nil
 	}
 
-	bc, err := t.pool.Get(ctx, a.EnvID)
+	exeID, err := t.resolver.Resolve(ctx, a.EnvID)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+	bc, err := t.pool.Get(ctx, exeID)
 	if err != nil {
 		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvID, err)), nil
 	}

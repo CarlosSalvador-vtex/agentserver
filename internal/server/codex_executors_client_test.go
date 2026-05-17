@@ -31,7 +31,7 @@ func TestExecutorsClient_Register(t *testing.T) {
 	defer srv.Close()
 
 	c := NewExecutorsClient(srv.URL, "is")
-	resp, err := c.Register(context.Background(), "user_a", RegisterExecutorRequest{Description: "Daisy MBP"})
+	resp, err := c.Register(context.Background(), "user_a", RegisterExecutorRequest{DisplayName: "Daisy MBP"})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestExecutorsClient_Bind(t *testing.T) {
 	defer srv.Close()
 
 	c := NewExecutorsClient(srv.URL, "is")
-	if err := c.Bind(context.Background(), "user_a", "ws_a", "exe_x", true); err != nil {
+	if err := c.Bind(context.Background(), "user_a", "ws_a", "exe_x", "alpha", "alpha host", true); err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
 }

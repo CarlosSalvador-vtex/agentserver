@@ -1033,16 +1033,16 @@ export async function revokeCodexToken(id: string): Promise<void> {
 
 export interface RemoteExecutor {
   exe_id: string
+  name: string
   description: string
-  default_cwd: string
   is_default: boolean
   last_seen_at?: string
 }
 
 export interface RegisterExecutorRequest {
+  // Workspace-unique name shown to the LLM (env_id parameter).
+  name: string
   description?: string
-  default_cwd?: string
-  display_name?: string
 }
 
 export interface RegisterExecutorResponse {

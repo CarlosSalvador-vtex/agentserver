@@ -44,7 +44,7 @@ func connectInbound(t *testing.T, srv *Server, baseURL, exeID string) *websocket
 		ExeID: exeID, UserID: "u", RegisteredAt: time.Now().UTC(),
 	}, string(hash))
 	// Bind to ws_1 — all bridge tests mint tokens with WorkspaceID="ws_1".
-	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, false); err != nil {
+	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, "test-"+exeID, "", false); err != nil {
 		t.Fatalf("BindWorkspaceExecutor: %v", err)
 	}
 	url := "ws" + baseURL[len("http"):] + "/codex-exec/" + exeID + "?token=rt"

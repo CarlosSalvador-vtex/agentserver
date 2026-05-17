@@ -3,68 +3,38 @@ package envmcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // listEnvironmentsSchema: empty object, no args.
 var listEnvironmentsSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 
-// ListEnvironmentsTool calls codex-app-gateway's loopback
-// /internal/connected endpoint and returns the JSON list of
-// currently-connected executors bound to this workspace.
+// ListEnvironmentsTool returns the workspace's connected executors.
+// Per v0.54.0 the LLM-facing view shows only name + description +
+// last_seen (no exe_id). The shared NameResolver populates its cache
+// as a side effect of every call, so subsequent shell/apply_patch/etc
+// tool calls can look up name → exe_id.
 type ListEnvironmentsTool struct {
-	url           string // e.g. http://127.0.0.1:8080/internal/connected
-	loopbackToken string
-	httpClient    *http.Client
-	logger        *slog.Logger
+	resolver *NameResolver
 }
 
-func NewListEnvironmentsTool(url, loopbackToken string, logger *slog.Logger) *ListEnvironmentsTool {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return &ListEnvironmentsTool{
-		url:           url,
-		loopbackToken: loopbackToken,
-		httpClient:    &http.Client{Timeout: 3 * time.Second},
-		logger:        logger,
-	}
+func NewListEnvironmentsTool(resolver *NameResolver) *ListEnvironmentsTool {
+	return &ListEnvironmentsTool{resolver: resolver}
 }
 
 func (t *ListEnvironmentsTool) Name() string { return "list_environments" }
 
 func (t *ListEnvironmentsTool) Description() string {
-	return "Return the list of environments (executors) currently connected to this workspace. " +
-		"Each entry has env_id, description, is_default, and last_seen. Call this before any " +
-		"shell/apply_patch/read_file/unified_exec tool to pick a target env_id."
+	return "Return the list of environments (machines) currently connected to this workspace. " +
+		"Each entry has `name`, `description`, `is_default`, and `last_seen`. Pass the `name` " +
+		"as the env_id parameter to shell / apply_patch / read_file / unified_exec / etc."
 }
 
 func (t *ListEnvironmentsTool) InputSchema() json.RawMessage { return listEnvironmentsSchema }
 
 func (t *ListEnvironmentsTool) Call(ctx context.Context, _ json.RawMessage) (MCPCallToolResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url, nil)
+	body, err := t.resolver.LLMView(ctx)
 	if err != nil {
-		return errResult(fmt.Sprintf("list_environments: build request: %v", err)), nil
-	}
-	req.Header.Set("X-Loopback-Token", t.loopbackToken)
-	req.Header.Set("Accept", "application/json")
-	resp, err := t.httpClient.Do(req)
-	if err != nil {
-		return errResult(fmt.Sprintf("list_environments: %v (executor list temporarily unavailable; retry)", err)), nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return errResult(fmt.Sprintf("list_environments: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))), nil
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return errResult(fmt.Sprintf("list_environments: read body: %v", err)), nil
+		return errResult("list_environments: " + err.Error()), nil
 	}
 	return MCPCallToolResult{
 		Content: []MCPToolContent{{Type: "text", Text: string(body)}},
