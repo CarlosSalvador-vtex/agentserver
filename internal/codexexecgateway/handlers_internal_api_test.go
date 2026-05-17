@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"nhooyr.io/websocket"
 )
 
 func TestInternalConnected_RequiresSharedSecret(t *testing.T) {
@@ -41,7 +40,7 @@ func TestInternalConnected_ReturnsIntersection(t *testing.T) {
 		store.CreateExecutor(context.Background(), e, "h")
 		store.BindWorkspaceExecutor(context.Background(), "ws_a", e.ExeID, e.ExeID == "exe_on")
 	}
-	srv.registry.Register("exe_on", new(websocket.Conn))
+	srv.registry.Register("exe_on", newInboundConn("exe_on", nil, nil))
 
 	req, _ := http.NewRequest(http.MethodGet,
 		hs.URL+"/api/exec-gateway/connected?workspace_id=ws_a", nil)

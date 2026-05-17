@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"testing"
 	"time"
 
@@ -132,9 +131,8 @@ func TestBridge_Rejects503WhenExecutorOffline(t *testing.T) {
 
 func TestBridge_RejectsRevokedTurn(t *testing.T) {
 	hs, srv := newBridgeNoDBServer(t)
-	// Register a fake inbound conn so the revocation check is reached.
-	fakeConn := new(websocket.Conn)
-	srv.registry.Register("exe_rev", fakeConn)
+	// Register a fake inbound so the revocation check is reached.
+	srv.registry.Register("exe_rev", newInboundConn("exe_rev", nil, nil))
 	now := time.Now().Unix()
 	srv.revoked.Add("trn_revoked", now+60)
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
@@ -150,207 +148,20 @@ func TestBridge_RejectsRevokedTurn(t *testing.T) {
 	}
 }
 
-func TestBridge_Returns409WhenAnotherSessionActive(t *testing.T) {
-	hs, srv := newBridgeNoDBServer(t)
-	// Register a fake inbound conn so the bridge mutex check is reached.
-	fakeInbound := new(websocket.Conn)
-	srv.registry.Register("exe_409", fakeInbound)
-	// Manually acquire the bridge lock to simulate an active session.
-	if !srv.registry.AcquireBridge("exe_409") {
-		t.Fatal("setup: AcquireBridge should succeed on first call")
-	}
-	t.Cleanup(func() { srv.registry.ReleaseBridge("exe_409") })
+// 409 Conflict is gone in v0.53.0: bridges multiplex by stream_id on
+// one inbound, no longer serialised by an exe-wide mutex. The old
+// TestBridge_Returns409WhenAnotherSessionActive test is removed;
+// multi-bridge concurrency is covered by
+// TestBridge_TwoConcurrentBridgesShareInbound below.
 
-	now := time.Now().Unix()
-	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_2", WorkspaceID: "ws_1",
-		IAT: now, EXP: now + 60,
-	})
-	_, resp, err := dialBridge(context.Background(), hs.URL, "exe_409", tok)
-	if err == nil {
-		t.Fatal("dial should fail when another bridge session is active")
-	}
-	if resp == nil || resp.StatusCode != http.StatusConflict {
-		t.Fatalf("want 409 Conflict, got %v", resp)
-	}
-}
+// v0.53.0: the bridge handler is no longer a transparent text-frame
+// proxy. It parses incoming frames as RelayMessageFrame protobuf, the
+// first frame must be Resume, and forwarding is gated on stream_id
+// matching the session's. The tests below (PairsAndForwards,
+// CloseFromBridge/Inbound, E2EByteFidelity) were written against the
+// old transparent-forwarding model and have been removed. Coverage of
+// the new behavior lives in:
+//   - TestBridge_RejectsFirstFrameNonResume
+//   - TestBridge_TwoConcurrentBridgesShareInbound (in multiplex_e2e_test.go)
+//   - TestBridge_StreamIdCollisionEvictsFirst (in multiplex_e2e_test.go)
 
-func TestBridge_PairsAndForwardsBidirectional(t *testing.T) {
-	hs, srv := newInboundTestServer(t)
-	inbound := connectInbound(t, srv, hs.URL, "exe_pair")
-	defer inbound.Close(websocket.StatusNormalClosure, "")
-
-	now := time.Now().Unix()
-	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1",
-		IAT: now, EXP: now + 60,
-	})
-	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_pair", tok)
-	if err != nil {
-		t.Fatalf("bridge dial: %v", err)
-	}
-	defer bridge.Close(websocket.StatusNormalClosure, "")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// bridge → inbound
-	if err := bridge.Write(ctx, websocket.MessageText, []byte(`{"id":1,"method":"initialize"}`)); err != nil {
-		t.Fatalf("bridge.Write: %v", err)
-	}
-	mt, data, err := inbound.Read(ctx)
-	if err != nil {
-		t.Fatalf("inbound.Read: %v", err)
-	}
-	if mt != websocket.MessageText || string(data) != `{"id":1,"method":"initialize"}` {
-		t.Fatalf("got mt=%v data=%q", mt, data)
-	}
-
-	// inbound → bridge
-	if err := inbound.Write(ctx, websocket.MessageText, []byte(`{"id":1,"result":{}}`)); err != nil {
-		t.Fatalf("inbound.Write: %v", err)
-	}
-	mt, data, err = bridge.Read(ctx)
-	if err != nil {
-		t.Fatalf("bridge.Read: %v", err)
-	}
-	if mt != websocket.MessageText || string(data) != `{"id":1,"result":{}}` {
-		t.Fatalf("got mt=%v data=%q", mt, data)
-	}
-}
-
-// Task 13: Frame-pump close & error propagation tests
-
-func TestBridge_CloseFromBridgeSidePropagates(t *testing.T) {
-	hs, srv := newInboundTestServer(t)
-	inbound := connectInbound(t, srv, hs.URL, "exe_close1")
-	defer inbound.Close(websocket.StatusInternalError, "test cleanup")
-
-	now := time.Now().Unix()
-	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1",
-		IAT: now, EXP: now + 60,
-	})
-	beforeG := runtime.NumGoroutine()
-	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_close1", tok)
-	if err != nil {
-		t.Fatalf("bridge dial: %v", err)
-	}
-	// Active pair: 2 pump goroutines + 1 handler goroutine on the server side.
-	bridge.Close(websocket.StatusNormalClosure, "client done")
-
-	// Give the pumps time to wind down.
-	time.Sleep(200 * time.Millisecond)
-	afterG := runtime.NumGoroutine()
-	// Allow some scheduler slack: assert no NET growth of more than 1.
-	if afterG > beforeG+1 {
-		t.Fatalf("possible goroutine leak: before=%d after=%d", beforeG, afterG)
-	}
-
-	// Inbound conn must still be registered.
-	if _, ok := srv.registry.Lookup("exe_close1"); !ok {
-		t.Fatal("inbound should still be registered after bridge close")
-	}
-}
-
-func TestBridge_CloseFromInboundSidePropagates(t *testing.T) {
-	hs, srv := newInboundTestServer(t)
-	inbound := connectInbound(t, srv, hs.URL, "exe_close2")
-
-	now := time.Now().Unix()
-	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1",
-		IAT: now, EXP: now + 60,
-	})
-	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_close2", tok)
-	if err != nil {
-		t.Fatalf("bridge dial: %v", err)
-	}
-	defer bridge.Close(websocket.StatusInternalError, "test cleanup")
-
-	// Close inbound; the bridge pump should observe and return.
-	inbound.Close(websocket.StatusNormalClosure, "executor offline")
-
-	// The bridge client should observe close within a short window.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, _, err = bridge.Read(ctx)
-	if err == nil {
-		t.Fatal("bridge.Read should have errored after inbound close")
-	}
-}
-
-// Task 14: End-to-end byte-fidelity test
-//
-// Verifies that the gateway preserves frame boundaries and byte contents
-// across multiple frame types and sizes in both directions.
-
-func TestBridge_E2EByteFidelity(t *testing.T) {
-	hs, srv := newInboundTestServer(t)
-	inbound := connectInbound(t, srv, hs.URL, "exe_e2e")
-	defer inbound.Close(websocket.StatusNormalClosure, "")
-
-	now := time.Now().Unix()
-	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
-		TurnID: "trn_1", WorkspaceID: "ws_1",
-		IAT: now, EXP: now + 60,
-	})
-	bridge, _, err := dialBridge(context.Background(), hs.URL, "exe_e2e", tok)
-	if err != nil {
-		t.Fatalf("bridge dial: %v", err)
-	}
-	defer bridge.Close(websocket.StatusNormalClosure, "")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Bridge -> inbound: 5 distinct JSON-RPC text frames, each must arrive
-	// as ONE frame (boundary preserved) in order.
-	sent := []string{
-		`{"id":1,"method":"initialize","params":{"clientName":"x"}}`,
-		`{"id":1,"result":{}}`,
-		`{"method":"initialized","params":{}}`,
-		`{"id":2,"method":"process/start","params":{"processId":"p1","argv":["bash","-lc","echo hi"]}}`,
-		`{"id":2,"result":{"processId":"p1"}}`,
-	}
-	for _, s := range sent {
-		if err := bridge.Write(ctx, websocket.MessageText, []byte(s)); err != nil {
-			t.Fatalf("bridge.Write %q: %v", s, err)
-		}
-	}
-	for _, want := range sent {
-		mt, data, err := inbound.Read(ctx)
-		if err != nil {
-			t.Fatalf("inbound.Read: %v", err)
-		}
-		if mt != websocket.MessageText {
-			t.Fatalf("frame type drift: got %v want text", mt)
-		}
-		if string(data) != want {
-			t.Fatalf("frame contents drift: got %q want %q", data, want)
-		}
-	}
-
-	// Inbound -> bridge: large binary frame (64 KiB, well past nhooyr's 32 KiB
-	// default read limit) round-trips intact. Without SetReadLimit(-1) on the
-	// bridge conn this would close with status 1009 (message too large).
-	big := make([]byte, 64*1024)
-	for i := range big {
-		big[i] = byte(i % 251)
-	}
-	if err := inbound.Write(ctx, websocket.MessageBinary, big); err != nil {
-		t.Fatalf("inbound.Write big: %v", err)
-	}
-	mt, data, err := bridge.Read(ctx)
-	if err != nil {
-		t.Fatalf("bridge.Read big (want SetReadLimit(-1) in effect): %v", err)
-	}
-	if mt != websocket.MessageBinary || len(data) != len(big) {
-		t.Fatalf("big frame: mt=%v len=%d", mt, len(data))
-	}
-	for i := range big {
-		if data[i] != big[i] {
-			t.Fatalf("byte %d: got %x want %x", i, data[i], big[i])
-		}
-	}
-}

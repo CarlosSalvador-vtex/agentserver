@@ -103,7 +103,9 @@ func (i *inboundConn) close(err error) {
 		for _, b := range routes {
 			b.close(errors.New("inbound conn closed"))
 		}
-		_ = i.ws.Close(websocket.StatusNormalClosure, "inbound closed")
+		if i.ws != nil {
+			_ = i.ws.Close(websocket.StatusNormalClosure, "inbound closed")
+		}
 	})
 }
 
@@ -142,6 +144,8 @@ func (b *bridgeSession) close(err error) {
 	b.closeOnce.Do(func() {
 		b.closeErr = err
 		close(b.closed)
-		_ = b.bridgeWS.Close(websocket.StatusNormalClosure, "bridge session closed")
+		if b.bridgeWS != nil {
+			_ = b.bridgeWS.Close(websocket.StatusNormalClosure, "bridge session closed")
+		}
 	})
 }

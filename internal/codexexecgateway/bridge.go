@@ -7,26 +7,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/relaypb"
 	"github.com/agentserver/agentserver/internal/wsbridge"
 	"github.com/go-chi/chi/v5"
+	"google.golang.org/protobuf/proto"
 	"nhooyr.io/websocket"
 )
 
 // handleBridge accepts a ws connection from an env-mcp child binary
-// (codex-app-gateway env-mcp ...) and pairs it with the registered
-// inbound /codex-exec/{exe_id} conn. Auth is verified once at connect
-// time (cap-token verify BEFORE registry lookup so unauthenticated callers
-// don't learn which exe_ids exist); thereafter forwarding is unconditional
-// until either side closes.
+// and registers it as a routed stream on the executor's inboundConn.
+// Multiple concurrent /bridge sessions for the same exe_id share the
+// inbound, demultiplexed by relay stream_id (per the 2026-05-17 spec).
 //
 // HTTP error codes:
-//   401 — bad/expired cap token, or revoked turn_id
-//   403 — URL exe_id not in token allow-list
-//   503 — exe_id not in registry (no inbound connection)
+//
+//	400 — first ws frame missing/malformed/not a Resume
+//	401 — bad/expired cap token, or revoked turn_id
+//	403 — workspace doesn't own the URL exe_id
+//	503 — exe_id has no live inbound connection
 func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 	exeID := chi.URLParam(r, "exe_id")
-	// /bridge is only ever dialed by the env-mcp child binary, which sends
-	// Authorization: Bearer <cap-token>. No URL-query fallback.
 	authz := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authz, "Bearer ") {
 		http.Error(w, "missing Bearer", http.StatusUnauthorized)
@@ -38,36 +38,27 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Verify cap token BEFORE registry lookup to prevent exe_id enumeration.
+	// 1. Verify cap token (signature + TTL) BEFORE registry lookup.
 	payload, err := VerifyCapabilityToken(token, s.config.CapTokenHMACSecret)
 	if err != nil {
 		s.logger.Warn("bridge: auth failed", "exe_id", exeID, "error", err, "remote", r.RemoteAddr)
 		switch {
 		case errors.Is(err, ErrExpired):
 			http.Error(w, "token expired", http.StatusUnauthorized)
-		case errors.Is(err, ErrBadSignature), errors.Is(err, ErrMalformed):
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
 		default:
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 		}
 		return
 	}
 
-	// 2. Check revocation — TurnID is only available from the decoded
-	// payload, so this must come after signature verification. Cheap
-	// in-memory check; runs before the DB ownership query.
+	// 2. Revocation check (in-memory; cheaper than the DB owns check).
 	if s.revoked.Contains(payload.TurnID) {
 		s.logger.Warn("bridge: rejected revoked turn", "exe_id", exeID, "turn_id", payload.TurnID)
 		http.Error(w, "turn revoked", http.StatusUnauthorized)
 		return
 	}
 
-	// 3. Workspace ownership check. Cap tokens are workspace-scoped
-	// (2026-05-16 redesign); /bridge enforces that the URL exe_id is
-	// bound to the token's workspace via the workspace_executors table.
-	// Production wiring always has a store; the nil-store branch
-	// supports the auth-rejection-focused tests in newBridgeNoDBServer
-	// that don't carry a DB but still need to reach later steps.
+	// 3. Workspace ownership.
 	if s.store == nil {
 		s.logger.Warn("bridge: skipping ownership check — store is nil (test wiring)")
 	} else {
@@ -89,17 +80,7 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Acquire per-exe bridge mutex — prevents two concurrent bridge sessions
-	// from both calling Read on the same inbound conn (nhooyr's Read is not safe
-	// for concurrent use: frames would be stolen between the two pumps).
-	if !s.registry.AcquireBridge(exeID) {
-		s.logger.Warn("bridge: concurrent session rejected", "exe_id", exeID, "turn_id", payload.TurnID)
-		http.Error(w, "another bridge session is active for this executor", http.StatusConflict)
-		return
-	}
-	defer s.registry.ReleaseBridge(exeID)
-
-	// 5. Look up registered inbound conn.
+	// 4. Look up inbound. 503 if none.
 	inbound, ok := s.registry.Lookup(exeID)
 	if !ok {
 		s.logger.Warn("bridge: no inbound conn", "exe_id", exeID, "turn_id", payload.TurnID)
@@ -107,81 +88,118 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. Upgrade caller to ws.
-	bridge, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // skip HTTP Origin check; auth is enforced by token verification above
+	// 5. Upgrade caller to ws.
+	bridgeWS, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true, // auth already enforced above
 	})
 	if err != nil {
 		s.logger.Error("bridge: ws accept", "exe_id", exeID, "error", err)
 		return
 	}
-	bridge.SetReadLimit(-1) // codex exec-server streams large process/read responses
-	s.logger.Info("bridge: paired", "exe_id", exeID, "turn_id", payload.TurnID)
+	bridgeWS.SetReadLimit(-1)
 
-	// 7. Run paired frame pumps. Cancel propagates to both pumps so the
-	// second one exits when the first returns. Derived from r.Context() so
-	// graceful shutdown (httpServer.Shutdown) drains active sessions instead
-	// of leaking pump goroutines.
-	pumpCtx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	errCh := make(chan error, 2)
-	// Diagnostic pumps log each frame's direction + truncated payload.
-	// Strictly debugging the MCP startup flow; gated on log level.
-	go func() { errCh <- s.pumpFramesDebug(pumpCtx, bridge, inbound, "env-mcp→exec", exeID) }()
-	go func() { errCh <- s.pumpFramesDebug(pumpCtx, inbound, bridge, "exec→env-mcp", exeID) }()
-	// Keep both sides alive through middlebox idle timeouts (~240s for
-	// istio, ~300s common). LLM-bound waits often exceed that.
-	go wsbridge.KeepAlive(pumpCtx, bridge, 30*time.Second)
-	go wsbridge.KeepAlive(pumpCtx, inbound, 30*time.Second)
-
-	// Wait for either pump to return; cancel so the other pump unblocks.
-	first := <-errCh
-	cancel()
-	// Close the bridge side; inbound side is intentionally left open so the
-	// executor conn can be re-paired by a subsequent /bridge/{exe_id} request.
-	if err := bridge.Close(websocket.StatusNormalClosure, "peer closed"); err != nil {
-		s.logger.Warn("bridge: close bridge conn", "exe_id", exeID, "error", err)
+	// 6. Peek the Resume frame — env-mcp's BridgeClient always sends it
+	// first on dial; that's where we learn the stream_id for routing.
+	mt, first, err := bridgeWS.Read(r.Context())
+	if err != nil {
+		s.logger.Warn("bridge: read first frame failed", "exe_id", exeID, "error", err)
+		_ = bridgeWS.Close(websocket.StatusProtocolError, "first frame read failed")
+		return
 	}
-	if second := <-errCh; second != nil {
-		s.logger.Warn("bridge: second pump ended with error", "exe_id", exeID, "error", second)
+	if mt != websocket.MessageBinary {
+		s.logger.Warn("bridge: first frame not binary", "exe_id", exeID, "type", mt.String())
+		_ = bridgeWS.Close(websocket.StatusProtocolError, "first frame must be binary Resume")
+		return
+	}
+	var firstFrame relaypb.RelayMessageFrame
+	if err := proto.Unmarshal(first, &firstFrame); err != nil {
+		s.logger.Warn("bridge: first frame parse failed", "exe_id", exeID, "error", err)
+		_ = bridgeWS.Close(websocket.StatusProtocolError, "malformed first frame")
+		return
+	}
+	if _, isResume := firstFrame.Body.(*relaypb.RelayMessageFrame_Resume); !isResume {
+		s.logger.Warn("bridge: first frame not Resume", "exe_id", exeID)
+		_ = bridgeWS.Close(websocket.StatusProtocolError, "first frame must be Resume")
+		return
+	}
+	streamID := firstFrame.StreamId
+	if streamID == "" {
+		s.logger.Warn("bridge: Resume missing stream_id", "exe_id", exeID)
+		_ = bridgeWS.Close(websocket.StatusProtocolError, "Resume missing stream_id")
+		return
 	}
 
-	if first != nil {
-		s.logger.Warn("bridge: pump ended with error", "exe_id", exeID, "error", first)
-	} else {
-		s.logger.Info("bridge: pump ended cleanly", "exe_id", exeID)
+	// 7. Register the route. UUID collision is astronomical, but we
+	// evict the prior session defensively (and log loudly) if it ever
+	// happens — better than silently swapping who receives the next
+	// frame.
+	session := newBridgeSession(streamID, inbound, bridgeWS)
+	if evicted := inbound.addRoute(streamID, session); evicted != nil {
+		s.logger.Warn("bridge: stream_id collision; evicting prior session",
+			"exe_id", exeID, "stream_id", streamID)
+		evicted.close(errors.New("evicted by stream_id collision"))
 	}
+	defer func() {
+		inbound.removeRoute(streamID, session)
+		session.close(nil)
+	}()
+
+	s.logger.Info("bridge: paired", "exe_id", exeID, "stream_id", streamID, "turn_id", payload.TurnID)
+
+	// 8. Forward the Resume frame to inbound so exec-server's relay
+	// layer learns about this new stream.
+	if err := inbound.write(r.Context(), websocket.MessageBinary, first); err != nil {
+		s.logger.Warn("bridge: forward Resume failed", "exe_id", exeID, "error", err)
+		return
+	}
+
+	// 9. Keep-alive on the bridge ws (same as inbound — defensive
+	// against middlebox idle kills between codex tool calls).
+	keepAliveCtx, stopKeepAlive := context.WithCancel(r.Context())
+	defer stopKeepAlive()
+	go wsbridge.KeepAlive(keepAliveCtx, bridgeWS, 30*time.Second)
+
+	// 10. Pump bridge → inbound until either side closes.
+	s.runBridgePump(r.Context(), session)
 }
 
-// pumpFramesDebug wraps pumpFrames with per-frame logging. Each frame's
-// direction (env-mcp→exec / exec→env-mcp), type, byte length, and first
-// 240 bytes of payload are logged at INFO level. Temporary diagnostic
-// for the MCP-startup-timeout investigation; remove (or gate behind a
-// config flag) after the root cause is found.
-func (s *Server) pumpFramesDebug(ctx context.Context, src, dst *websocket.Conn, dir, exeID string) error {
+// runBridgePump reads frames from session.bridgeWS and writes them to
+// inbound under inbound's writeMu. Drops frames whose stream_id
+// doesn't match the session's (defends against env-mcp bugs). Returns
+// when either side closes.
+func (s *Server) runBridgePump(ctx context.Context, session *bridgeSession) {
 	for {
-		mt, data, err := src.Read(ctx)
+		select {
+		case <-session.closed:
+			return
+		case <-session.inbound.closed:
+			return
+		case <-ctx.Done():
+			return
+		default:
+		}
+		mt, data, err := session.bridgeWS.Read(ctx)
 		if err != nil {
-			closeErr := websocket.CloseStatus(err)
-			if closeErr == websocket.StatusNormalClosure || closeErr == websocket.StatusGoingAway {
-				return nil
+			closeStatus := websocket.CloseStatus(err)
+			if closeStatus != websocket.StatusNormalClosure && closeStatus != websocket.StatusGoingAway {
+				s.logger.Info("bridge: pump ended", "stream_id", session.streamID, "error", err)
 			}
-			return err
+			return
 		}
-		preview := data
-		if len(preview) > 240 {
-			preview = preview[:240]
+		if mt != websocket.MessageBinary {
+			continue
 		}
-		s.logger.Info("bridge: frame",
-			"dir", dir,
-			"exe_id", exeID,
-			"type", mt.String(),
-			"len", len(data),
-			"preview", string(preview),
-		)
-		if err := dst.Write(ctx, mt, data); err != nil {
-			return err
+		// Validate stream_id matches session's. If mismatched, drop —
+		// keeps the inbound's frame ordering coherent.
+		var f relaypb.RelayMessageFrame
+		if proto.Unmarshal(data, &f) == nil && f.StreamId != session.streamID {
+			s.logger.Warn("bridge: ignoring frame with wrong stream_id",
+				"want", session.streamID, "got", f.StreamId)
+			continue
+		}
+		if err := session.inbound.write(ctx, mt, data); err != nil {
+			s.logger.Warn("bridge: inbound write failed", "stream_id", session.streamID, "error", err)
+			return
 		}
 	}
 }

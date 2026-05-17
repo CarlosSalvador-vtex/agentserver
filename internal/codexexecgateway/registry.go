@@ -2,81 +2,55 @@ package codexexecgateway
 
 import (
 	"sync"
-
-	"nhooyr.io/websocket"
 )
 
-// ConnRegistry tracks the single live inbound /codex-exec/{exe_id} ws conn
-// per exe_id. Re-registering an exe_id evicts the prior connection.
+// ConnRegistry tracks the single live inbound /codex-exec/{exe_id}
+// connection per exe_id. Each entry is wrapped in an *inboundConn that
+// can host multiple concurrent /bridge sessions multiplexed by
+// stream_id (per the 2026-05-17 redesign).
+//
+// Re-registering an exe_id evicts the prior inboundConn; the caller
+// MUST call close() on the evicted conn so its routes get fanned out
+// and the underlying ws closes.
 type ConnRegistry struct {
-	mu           sync.Mutex
-	conns        map[string]*websocket.Conn
-	bridgeLocked map[string]bool
+	mu    sync.Mutex
+	conns map[string]*inboundConn
 }
 
 func NewConnRegistry() *ConnRegistry {
-	return &ConnRegistry{
-		conns:        make(map[string]*websocket.Conn),
-		bridgeLocked: make(map[string]bool),
-	}
+	return &ConnRegistry{conns: make(map[string]*inboundConn)}
 }
 
-// Register inserts conn for exeID. If a previous conn was registered
-// for the same exeID, returns it as evicted; the caller MUST close
-// the evicted conn — failing to do so leaks the prior handler's
-// goroutine (which is blocked in ws.Read on the now-orphaned conn).
-//
-// Register also clears any bridge lock for exeID: the prior bridge
-// session's inbound conn is being replaced, so continuing to pump from
-// the old conn would be incorrect.
-func (r *ConnRegistry) Register(exeID string, c *websocket.Conn) (evicted *websocket.Conn) {
+// Register inserts ic for exeID. If a previous inboundConn was
+// registered for the same exeID, returns it as evicted. The caller
+// MUST close the evicted inbound; failing to do so leaks its reader
+// goroutine and orphans its bridge sessions.
+func (r *ConnRegistry) Register(exeID string, ic *inboundConn) (evicted *inboundConn) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	prev := r.conns[exeID]
-	r.conns[exeID] = c
-	// Any prior bridge session is invalidated by the inbound conn replacement.
-	delete(r.bridgeLocked, exeID)
-	if prev != nil && prev != c {
+	r.conns[exeID] = ic
+	if prev != nil && prev != ic {
 		return prev
 	}
 	return nil
 }
 
-// AcquireBridge marks the inbound conn for exeID as having an active bridge
-// session. Returns false if another bridge session already holds it; the
-// caller should reject the new request with HTTP 409 Conflict in that case.
-// Caller MUST call ReleaseBridge when done.
-func (r *ConnRegistry) AcquireBridge(exeID string) bool {
+// Lookup returns the registered inbound for exeID, if any.
+func (r *ConnRegistry) Lookup(exeID string) (*inboundConn, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.bridgeLocked[exeID] {
-		return false
-	}
-	r.bridgeLocked[exeID] = true
-	return true
+	ic, ok := r.conns[exeID]
+	return ic, ok
 }
 
-// ReleaseBridge releases the bridge lock for exeID. Idempotent.
-func (r *ConnRegistry) ReleaseBridge(exeID string) {
+// Unregister removes exeID only if its current value is ic. This
+// guards against a goroutine for an old inbound deleting a freshly
+// registered one after eviction.
+func (r *ConnRegistry) Unregister(exeID string, ic *inboundConn) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.bridgeLocked, exeID)
-}
-
-// Lookup returns the registered conn for `exeID`, if any.
-func (r *ConnRegistry) Lookup(exeID string) (*websocket.Conn, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	c, ok := r.conns[exeID]
-	return c, ok
-}
-
-// Unregister removes `exeID` only if its current value is `c`. This guards
-// against a goroutine for an old conn deleting a new conn after eviction.
-func (r *ConnRegistry) Unregister(exeID string, c *websocket.Conn) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.conns[exeID] == c {
+	if r.conns[exeID] == ic {
 		delete(r.conns, exeID)
 	}
 }
