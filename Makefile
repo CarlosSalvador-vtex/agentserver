@@ -23,6 +23,9 @@ llmproxy:
 credentialproxy:
 	CGO_ENABLED=0 go build -o bin/credentialproxy ./cmd/credentialproxy
 
+astool:
+	CGO_ENABLED=0 go build -o bin/astool ./cmd/astool
+
 test:
 	go vet ./...
 	go test ./... -count=1
