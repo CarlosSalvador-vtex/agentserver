@@ -182,8 +182,12 @@ func (s *Server) Run(ctx context.Context, listenAddr string) error {
 	defer reaperCancel()
 	go reaper.Run(reaperCtx)
 
+	ln, err := wsbridge.ListenWithKeepAlive(ctx, "tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- httpSrv.ListenAndServe() }()
+	go func() { errCh <- httpSrv.Serve(ln) }()
 
 	select {
 	case <-ctx.Done():

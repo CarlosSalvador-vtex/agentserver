@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agentserver/agentserver/internal/codexexecgateway"
+	"github.com/agentserver/agentserver/internal/wsbridge"
 )
 
 func main() {
@@ -45,7 +46,11 @@ func main() {
 	}()
 
 	log.Printf("codex-exec-gateway listening on :%s", cfg.Port)
-	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	ln, err := wsbridge.ListenWithKeepAlive(context.Background(), "tcp", ":"+cfg.Port)
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+	if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }
