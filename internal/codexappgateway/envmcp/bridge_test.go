@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentserver/agentserver/internal/codexappgateway/envmcp/relaypb"
+	"github.com/agentserver/agentserver/internal/relaypb"
 	"google.golang.org/protobuf/proto"
 	"nhooyr.io/websocket"
 )

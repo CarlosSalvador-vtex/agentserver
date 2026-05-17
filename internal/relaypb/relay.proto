@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package codex.exec_server.relay.v1;
 
-option go_package = "github.com/agentserver/agentserver/internal/codexappgateway/envmcp/relaypb;relaypb";
+option go_package = "github.com/agentserver/agentserver/internal/relaypb;relaypb";
 
 
 message RelayMessageFrame {

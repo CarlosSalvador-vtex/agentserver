@@ -10,7 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/agentserver/agentserver/internal/codexappgateway/envmcp/relaypb"
+	"github.com/agentserver/agentserver/internal/relaypb"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"nhooyr.io/websocket"
