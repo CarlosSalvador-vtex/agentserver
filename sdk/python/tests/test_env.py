@@ -108,3 +108,50 @@ async def test_env_apply_patch_passes_through(stub):
         assert call["params"]["arguments"]["patch"] == "*** Patch..."
     finally:
         await c.close()
+
+
+async def test_custom_tool_called_via_attribute(stub):
+    """A custom tool surfaced in tools metadata becomes a method on env."""
+    stub.on("mcpServer/tool/call", lambda p: {
+        "content": [{"type": "text", "text": "job-123"}],
+        "isError": False,
+    })
+    c = await _connected_client(stub)
+    custom = ToolMetadata(name="submit_task",
+                          description="submit HPC job",
+                          input_schema={"type": "object"},
+                          kind="custom")
+    env = Env(name="hpc-a", type="hpc", tools=[custom], _client=c)
+    try:
+        # Method exists thanks to setattr in __post_init__
+        assert hasattr(env, "submit_task")
+        result = await env.submit_task(script="x", resources={"gpus": 4})
+        call = next(m for m in stub.received if m.get("method") == "mcpServer/tool/call")
+        assert call["params"]["tool"] == "submit_task"
+        assert call["params"]["arguments"]["environment_id"] == "hpc-a"
+        assert call["params"]["arguments"]["script"] == "x"
+        assert call["params"]["arguments"]["resources"] == {"gpus": 4}
+        assert result["content"][0]["text"] == "job-123"
+    finally:
+        await c.close()
+
+
+async def test_unknown_attribute_raises_attribute_error(stub):
+    c = await _connected_client(stub)
+    env = Env(name="alpha", type="shell", tools=[_tool("shell")], _client=c)
+    try:
+        with pytest.raises(AttributeError):
+            env.nonexistent_tool
+    finally:
+        await c.close()
+
+
+async def test_dir_lists_custom_tools(stub):
+    c = await _connected_client(stub)
+    env = Env(name="hpc", type="hpc",
+              tools=[ToolMetadata(name="submit_task", description="", input_schema={}, kind="custom")],
+              _client=c)
+    try:
+        assert "submit_task" in dir(env)
+    finally:
+        await c.close()

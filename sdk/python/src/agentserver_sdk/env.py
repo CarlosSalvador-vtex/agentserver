@@ -26,6 +26,26 @@ class Env:
 
     def __post_init__(self) -> None:
         self._tool_index = {t.name: t for t in self.tools}
+        for tool in self.tools:
+            if tool.kind == "core":
+                continue  # core tools have typed wrappers
+            method = self._make_dynamic(tool)
+            object.__setattr__(self, tool.name, method)
+
+    def _make_dynamic(self, tool: ToolMetadata):
+        tool_name = tool.name
+
+        async def method(**kwargs: Any) -> dict[str, Any]:
+            return await self.call(tool_name, kwargs)
+
+        method.__name__ = tool_name
+        method.__doc__ = tool.description or f"Call env-mcp tool {tool_name}."
+        return method
+
+    def __dir__(self) -> list[str]:
+        base = list(super().__dir__())
+        base.extend(t.name for t in self.tools if t.kind == "custom")
+        return base
 
     # ---------- generic dispatch ----------
 
