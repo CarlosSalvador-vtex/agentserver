@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/agentserver/agentserver/internal/codexexecgateway/relay"
@@ -57,20 +58,22 @@ func (s *Server) handleRelayGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ticket not found or expired", http.StatusGone)
 		return
 	}
-	// Headers BEFORE AcceptGet — the pairing goroutine starts writing
-	// body bytes once both sides are paired.
+	// Set Content-Type before AcceptGet because the pairing goroutine's
+	// first Write implicitly calls WriteHeader(200) (success path) and
+	// any headers we set after that would be silently dropped.
+	//
+	// We do NOT set Transfer-Encoding: chunked — Go's HTTP server
+	// applies it automatically when there's no Content-Length, and
+	// setting it manually here would conflict with the framework's own
+	// framing on the error path (small JSON body).
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Transfer-Encoding", "chunked")
 	status, body := rel.AcceptGet(w)
-	// On success, AcceptGet returned status=0 — bytes were streamed via
-	// w; nothing more to write. On reject (423/410/408), we got a real
-	// status + body to emit. NOTE: if AcceptGet already triggered any
-	// io.Copy write, headers are flushed and WriteHeader is a no-op;
-	// emit body anyway.
+	// status==0: streamed successfully; headers + 200 already flushed.
+	// status!=0: pairing failed before any byte was written, emit the
+	// status + JSON body. Override the Content-Type since the body is
+	// JSON, not octet-stream.
 	if status != 0 {
-		// Headers may already be flushed if any bytes streamed; that's
-		// okay — chi's middleware wraps the ResponseWriter and the
-		// extra WriteHeader call is a no-op + logged.
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write(body)
 	}
@@ -148,7 +151,7 @@ func (s *Server) handleRelayCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url := s.config.PublicHTTPSBaseURL + "/relay/" + rel.Ticket
+	url := strings.TrimRight(s.config.PublicHTTPSBaseURL, "/") + "/relay/" + rel.Ticket
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(relayCreateResponse{

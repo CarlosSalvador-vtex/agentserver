@@ -46,14 +46,17 @@ type putReq struct {
 	done      chan struct{}
 }
 
-// getReq is a GET-side waiting to be paired.
+// getReq is a GET-side waiting to be paired. statusOut/bodyOut work
+// like putReq's: 0 means "bytes were streamed via writer; handler
+// should NOT emit anything else"; non-zero means the pairing failed
+// without writing the body, and the handler should emit the status +
+// JSON body (e.g. 408 on TTL timeout, 423 on duplicate claim).
 type getReq struct {
-	writer  io.Writer
-	flusher http.Flusher
-	// done signals "stream complete, you can return". The handler has
-	// already written the streamed body via the flushingWriter that
-	// run() built.
-	done chan struct{}
+	writer    io.Writer
+	flusher   http.Flusher
+	statusOut int
+	bodyOut   []byte
+	done      chan struct{}
 }
 
 // Relay is one in-flight or pending byte-pump session, keyed by ticket.
@@ -150,11 +153,11 @@ func (r *Relay) AcceptGet(w http.ResponseWriter) (status int, body []byte) {
 		return http.StatusGone, []byte(`{"error":"relay already finished"}`)
 	}
 	<-req.done
-	// On done: status header + any body bytes were already written to
-	// w by the pairing goroutine via the streamed Write+Flush calls.
-	// We return 200 to indicate the caller doesn't need to send any
-	// further body (the handler will skip writing anything if status==0).
-	return 0, nil
+	// statusOut=0 means run() streamed bytes successfully; status code +
+	// body already implicit via the first Write. Non-zero (e.g. 408 on
+	// ttl timeout, 423 on duplicate claim) means no bytes were written
+	// and the handler should emit a status + JSON body.
+	return req.statusOut, req.bodyOut
 }
 
 // run is the per-ticket pairing goroutine spawned by Registry.Create.
@@ -184,8 +187,9 @@ func (r *Relay) run(ttl time.Duration, onDone func(ticket string)) {
 				close(put.done)
 			}
 			if get != nil {
-				// GET hasn't written anything yet; let the handler emit a 408.
-				close(get.done) // handler will see status==0; we use a side channel
+				get.statusOut = http.StatusRequestTimeout
+				get.bodyOut = []byte(`{"error":"timed out waiting for PUT side"}`)
+				close(get.done)
 			}
 			r.err = ErrTimeout
 			return
@@ -307,8 +311,14 @@ func (r *Registry) Create(opt CreateOptions) (*Relay, error) {
 		DestExeID:   opt.DestExeID,
 		MaxBytes:    opt.MaxBytes,
 		ExpiresAt:   time.Now().Add(ttl),
-		putCh:       make(chan *putReq, 1),
-		getCh:       make(chan *getReq, 1),
+		// UNBUFFERED. Critical: a buffered channel would let AcceptPut
+		// "win" a select race against close(r.done) by depositing into
+		// the buffer, and then block on req.done forever (run() already
+		// exited, no one will close req.done). Unbuffered forces the
+		// send to wait for run()'s receive, so if run() has exited the
+		// send can never succeed and the <-r.done case must fire.
+		putCh:       make(chan *putReq),
+		getCh:       make(chan *getReq),
 		done:        make(chan struct{}),
 		logger:      r.logger.With("ticket", ticket, "workspace_id", opt.WorkspaceID),
 	}

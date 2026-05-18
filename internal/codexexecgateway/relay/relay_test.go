@@ -300,6 +300,61 @@ func TestRelay_LateArrival(t *testing.T) {
 	}
 }
 
+// Regression for Bug 2: GET-side timeout used to return status=0,
+// which the handler interpreted as "bytes streamed; emit nothing",
+// causing the client to see HTTP 200 with an empty body instead of
+// the intended 408.
+func TestRelay_GetTimeoutReturnsStatus408(t *testing.T) {
+	r := NewRegistry(8, 80*time.Millisecond, nil)
+	rel, err := r.Create(CreateOptions{
+		WorkspaceID: "ws", SourceExeID: "a", DestExeID: "b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	status, body := rel.AcceptGet(w)
+	if status != 408 {
+		t.Errorf("GET timeout status = %d, want 408; body=%s", status, body)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("body unexpectedly written during timeout: %q", w.Body.String())
+	}
+}
+
+// Regression for Bug 1: race deadlock between AcceptPut's send and
+// run()'s close(r.done). With a buffered channel, AcceptPut could
+// win the send race, deposit into the buffer, and block on req.done
+// forever. Run many iterations to catch the race.
+func TestRelay_NoSendCloseRaceDeadlock(t *testing.T) {
+	const trials = 200
+	for i := 0; i < trials; i++ {
+		r := NewRegistry(8, 2*time.Millisecond, nil) // very short ttl
+		rel, err := r.Create(CreateOptions{
+			WorkspaceID: "ws", SourceExeID: "a", DestExeID: "b",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// AcceptPut without ever providing a GET. Either it times out
+		// (408) or hits 410 (run() already finished). Either is OK; what
+		// would NOT be OK is hanging past the 2s deadline below.
+		doneCh := make(chan int, 1)
+		go func() {
+			status, _ := rel.AcceptPut(strings.NewReader(""))
+			doneCh <- status
+		}()
+		select {
+		case status := <-doneCh:
+			if status != 408 && status != 410 {
+				t.Errorf("trial %d: unexpected status %d", i, status)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("trial %d: AcceptPut deadlocked", i)
+		}
+	}
+}
+
 // Sanity-check flushingWriter handles nil flusher.
 func TestFlushingWriter_NilFlusher(t *testing.T) {
 	var buf bytes.Buffer

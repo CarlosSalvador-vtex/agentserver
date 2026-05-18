@@ -161,9 +161,14 @@ func (t *CopyPathTool) callHTTPRelay(ctx context.Context, a copyPathArgs, srcExe
 		return errResult(fmt.Sprintf("relay/create: %v", err)), nil, false
 	}
 
-	// Build src + dst shell commands. set -o pipefail so a curl HTTP
-	// error surfaces as a non-zero exit even when piped into tar.
+	// Build src + dst shell commands. For recursive mode we pipe tar
+	// through curl and need pipefail to catch curl-side errors —
+	// pipefail is bash-specific, so use `bash -c` for that branch. If
+	// bash is missing on the executor, the shell exits 127 and (under
+	// transport=auto) we fall back to the ws cat-pump path the same
+	// way as missing curl.
 	var srcShell, dstShell string
+	var srcArgv, dstArgv []string
 	if a.Recursive {
 		base := filepath.Base(strings.TrimRight(a.SourcePath, "/"))
 		srcParent := filepath.Dir(a.SourcePath)
@@ -173,6 +178,8 @@ func (t *CopyPathTool) callHTTPRelay(ctx context.Context, a copyPathArgs, srcExe
 		dstShell = fmt.Sprintf(
 			"set -o pipefail; curl -fsS -H 'Authorization: Bearer %s' %s | tar xzf - -C %s",
 			ticket.Ticket, shQuote(ticket.DownloadURL), shQuote(dstParent))
+		srcArgv = []string{"bash", "-c", srcShell}
+		dstArgv = []string{"bash", "-c", dstShell}
 	} else {
 		srcShell = fmt.Sprintf(
 			"curl -fsS --upload-file %s -H 'Authorization: Bearer %s' %s",
@@ -180,6 +187,8 @@ func (t *CopyPathTool) callHTTPRelay(ctx context.Context, a copyPathArgs, srcExe
 		dstShell = fmt.Sprintf(
 			"curl -fsS -H 'Authorization: Bearer %s' %s -o %s",
 			ticket.Ticket, shQuote(ticket.DownloadURL), shQuote(tmpPath))
+		srcArgv = []string{"sh", "-c", srcShell}
+		dstArgv = []string{"sh", "-c", dstShell}
 	}
 
 	srcPID := fmt.Sprintf("relay-src-%s", xferID)
@@ -194,20 +203,36 @@ func (t *CopyPathTool) callHTTPRelay(ctx context.Context, a copyPathArgs, srcExe
 	}
 	srcCh := make(chan runResult, 1)
 	dstCh := make(chan runResult, 1)
+	// Early-abort: if either side fails fast (src curl errors before any
+	// bytes flow, or dst curl gets 4xx from gateway), the other side
+	// would otherwise block on the relay's pairing wait until the ticket
+	// TTL fires (~5 min default). Cancel the shared ctx on first failure
+	// so the other runShellToExit returns promptly and terminates its
+	// process.
+	abortCtx, abort := context.WithCancel(ctx)
+	defer abort()
 	go func() {
-		exit, stderr, err := runShellToExit(ctx, srcBC, srcPID, []string{"sh", "-c", srcShell})
+		exit, stderr, err := runShellToExit(abortCtx, srcBC, srcPID, srcArgv)
+		if err != nil || exit != 0 {
+			abort()
+		}
 		srcCh <- runResult{exit, stderr, err}
 	}()
 	go func() {
-		exit, stderr, err := runShellToExit(ctx, dstBC, dstPID, []string{"sh", "-c", dstShell})
+		exit, stderr, err := runShellToExit(abortCtx, dstBC, dstPID, dstArgv)
+		if err != nil || exit != 0 {
+			abort()
+		}
 		dstCh <- runResult{exit, stderr, err}
 	}()
 	srcRes := <-srcCh
 	dstRes := <-dstCh
 
-	// curl exit 127 = command not found. If transport=auto, this is the
-	// fallback signal: silently drop into the ws cat-pump path.
-	if a.Transport == "" || strings.EqualFold(a.Transport, "auto") {
+	// curl (or bash for recursive) exit 127 = command not found. Under
+	// transport=auto, silently drop into the ws cat-pump path. Use the
+	// caller-provided value here so test calls passing exact "http"
+	// don't accidentally fall through.
+	if strings.EqualFold(strings.TrimSpace(a.Transport), "auto") || strings.TrimSpace(a.Transport) == "" {
 		if srcRes.exit == 127 || dstRes.exit == 127 {
 			t.relayCleanup(srcBC, dstBC, tmpPath, a.Recursive)
 			return MCPCallToolResult{}, nil, true
@@ -269,11 +294,25 @@ func (t *CopyPathTool) relayCleanup(_ *BridgeClient, dstBC *BridgeClient, tmpPat
 
 // runShellToExit starts a process and polls process/read until it
 // exits. Returns the exit code and accumulated stderr (capped). On
-// transport error, returns (-1, "", err).
-func runShellToExit(ctx context.Context, bc *BridgeClient, pid string, argv []string) (int, string, error) {
+// transport error, returns (-1, "", err). If ctx fires before the
+// process exits naturally, the remote process is terminated via
+// process/terminate using a fresh background context so the terminate
+// itself isn't cancelled by the cancellation that triggered it.
+func runShellToExit(ctx context.Context, bc *BridgeClient, pid string, argv []string) (retExit int, retStderr string, retErr error) {
 	if err := startProcess(ctx, bc, pid, argv, false); err != nil {
 		return -1, "", fmt.Errorf("process/start: %w", err)
 	}
+	defer func() {
+		// If we're leaving because ctx was cancelled (not because the
+		// process exited cleanly), force-terminate so the executor
+		// doesn't keep a zombie curl/tar running.
+		if ctx.Err() != nil {
+			bgCtx, cancel := context.WithTimeout(context.Background(), copyPathCleanupTimeout)
+			defer cancel()
+			params, _ := json.Marshal(ProcessTerminateParams{ProcessID: pid})
+			_, _ = bc.Call(bgCtx, ExecMethodProcessTerminate, params)
+		}
+	}()
 	const stderrCap = 8 * 1024
 	var stderrBuf strings.Builder
 	var afterSeq uint64
