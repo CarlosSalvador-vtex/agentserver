@@ -99,6 +99,10 @@ type Server struct {
 	// with — both come from the same Helm Secret in production.
 	NotebookJWTSecret []byte
 
+	// testNotebookUpstream, if non-nil, replaces the supervisor lookup
+	// in notebookProxy. ONLY used in tests; never set in production.
+	testNotebookUpstream func(wsID string) (string, error)
+
 	// In-memory pending device code flows (OIDC credential creation).
 	deviceFlows   map[string]*pendingDeviceFlow
 	deviceFlowsMu sync.Mutex
@@ -372,7 +376,14 @@ func (s *Server) Router() http.Handler {
 		r.Get("/api/workspaces/{wid}/traces/{traceId}", s.handleWorkspaceTraceDetail)
 
 		// Notebook session minting (Plan 3b). 503 if feature disabled.
+		// MUST come before the wildcard proxy below so /session isn't
+		// caught by the proxy.
 		r.Post("/api/notebooks/{ws}/session", s.postNotebookSession)
+		// HTTP + WS reverse proxy to per-workspace Jupyter Server
+		// (Plan 3b Task 4). HandleFunc accepts arbitrary methods so
+		// POST (kernel start), DELETE (kernel stop), and GET-then-
+		// Upgrade (WS) all pass through.
+		r.HandleFunc("/api/notebooks/{ws}/*", s.notebookProxy)
 
 		// Credential binding routes
 		r.Get("/api/workspaces/{id}/credentials/{kind}", s.handleListCredentialBindings)
