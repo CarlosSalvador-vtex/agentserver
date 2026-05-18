@@ -64,6 +64,19 @@ func BuildDeployment(k Key, c Config) (*appsv1.Deployment, error) {
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: workspaceVolumeName, MountPath: workspaceMountPath},
 		},
+		// TCP readiness: Jupyter takes a few seconds after container
+		// Started to bind 8888. Without this, ReadyReplicas flips to 1
+		// instantly and EnsureRunning returns a ServiceURL the proxy
+		// races into a "connection refused".
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt(int(notebookPort))},
+			},
+			InitialDelaySeconds: 1,
+			PeriodSeconds:       2,
+			TimeoutSeconds:      2,
+			FailureThreshold:    30,
+		},
 	}
 	pvcName := substituteWorkspaceID(c.WorkspacePVCName, k.WorkspaceID)
 	pod := corev1.PodSpec{
