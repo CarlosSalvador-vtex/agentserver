@@ -125,3 +125,46 @@ async def test_ctx_history_returns_records(monkeypatch, stub):
         assert call["params"]["limit"] == 10
     finally:
         await ctx.close()
+
+
+async def test_ctx_envs_concurrent_callers_share_cache(monkeypatch, stub):
+    """Two concurrent envs() calls should only trigger one envs/list fetch."""
+    _setup_stub_envs(stub)
+    monkeypatch.setenv("AGENTSERVER_GATEWAY_URL", stub.url)
+    monkeypatch.setenv("AGENTSERVER_WORKSPACE_TOKEN", "tok")
+    monkeypatch.setenv("AGENTSERVER_WORKSPACE_ID", "ws")
+    monkeypatch.setenv("AGENTSERVER_USER_ID", "u")
+    ctx = Ctx.from_env()
+    try:
+        import asyncio
+        a, b = await asyncio.gather(ctx.envs(), ctx.envs())
+        # Both lists must reference the same Env instances (cache shared)
+        assert {e.name for e in a} == {e.name for e in b}
+        for x, y in zip(sorted(a, key=lambda e: e.name), sorted(b, key=lambda e: e.name)):
+            assert x is y
+        # Only ONE envs/list was issued, regardless of concurrent callers
+        list_calls = [m for m in stub.received if m.get("method") == "envs/list"]
+        assert len(list_calls) == 1
+    finally:
+        await ctx.close()
+
+
+async def test_ctx_refresh_replaces_cache_atomically(monkeypatch, stub):
+    """refresh() should not transiently expose a None cache to concurrent readers."""
+    _setup_stub_envs(stub)
+    monkeypatch.setenv("AGENTSERVER_GATEWAY_URL", stub.url)
+    monkeypatch.setenv("AGENTSERVER_WORKSPACE_TOKEN", "tok")
+    monkeypatch.setenv("AGENTSERVER_WORKSPACE_ID", "ws")
+    monkeypatch.setenv("AGENTSERVER_USER_ID", "u")
+    ctx = Ctx.from_env()
+    try:
+        # prime cache
+        first = await ctx.envs()
+        # refresh and concurrent reader race
+        import asyncio
+        _, refreshed = await asyncio.gather(ctx.refresh(), ctx.envs())
+        # The concurrent reader either gets the old cache or waits for the new one,
+        # never a half-populated state. Both invariants:
+        assert len(refreshed) == len(first)
+    finally:
+        await ctx.close()

@@ -6,6 +6,7 @@ cached internally.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,7 @@ class Ctx:
     user_id: str | None
     _client: WSClient
     _envs_cache: list[Env] | None = field(init=False, default=None)
+    _envs_lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock)
 
     @classmethod
     def from_env(cls) -> "Ctx":
@@ -34,21 +36,27 @@ class Ctx:
         return cls(gateway_url=url, workspace_id=workspace_id,
                    user_id=user_id, _client=client)
 
+    async def _fetch_envs(self) -> list[Env]:
+        await self._client.connect()
+        listing = await self._client._request("envs/list", {})
+        envs: list[Env] = []
+        for e in listing.get("envs", []):
+            caps = await self._client._request(
+                "env/capabilities", {"env_id": e["name"]},
+            )
+            tools = [ToolMetadata.from_dict(t) for t in caps.get("tools", [])]
+            envs.append(Env(name=e["name"], type=e.get("type", ""),
+                            tools=tools, _client=self._client))
+        return envs
+
     async def envs(self) -> list[Env]:
         """List envs in the workspace. Caches inside Ctx for the kernel
         lifetime — call `refresh()` to refetch."""
-        if self._envs_cache is None:
-            await self._client.connect()
-            listing = await self._client._request("envs/list", {})
-            envs: list[Env] = []
-            for e in listing.get("envs", []):
-                caps = await self._client._request(
-                    "env/capabilities", {"env_id": e["name"]},
-                )
-                tools = [ToolMetadata.from_dict(t) for t in caps.get("tools", [])]
-                envs.append(Env(name=e["name"], type=e.get("type", ""),
-                                tools=tools, _client=self._client))
-            self._envs_cache = envs
+        if self._envs_cache is not None:
+            return list(self._envs_cache)
+        async with self._envs_lock:
+            if self._envs_cache is None:
+                self._envs_cache = await self._fetch_envs()
         return list(self._envs_cache)
 
     async def env(self, name: str) -> Env:
@@ -58,8 +66,9 @@ class Ctx:
         raise KeyError(f"env not found: {name}")
 
     async def refresh(self) -> None:
-        self._envs_cache = None
-        await self.envs()
+        async with self._envs_lock:
+            self._envs_cache = None
+            self._envs_cache = await self._fetch_envs()
 
     async def copy(self, *, src: tuple[Env, str], dst: tuple[Env, str]) -> None:
         src_env, src_path = src
