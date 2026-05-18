@@ -349,6 +349,10 @@ codexExecGateway:
   # the convenience copy-command in the registration response — UI then
   # tells the user to ask their operator for the URL.
   publicHost: ""
+  # v0.56.0 HTTP relay copy_path tunables. Both optional; defaults
+  # baked into the binary (5m / 16) apply when empty.
+  relayDefaultTTL: ""      # e.g. "5m" — per-ticket pairing timeout
+  relayMaxPerWorkspace: 0  # e.g. 16 — concurrent relays per workspace
   resources: {}
 
 service:
