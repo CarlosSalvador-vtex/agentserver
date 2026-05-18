@@ -56,18 +56,28 @@ class WSClient:
 
             self._reader_task = asyncio.create_task(self._reader())
 
-            await self._request("initialize", {
-                "clientInfo": {"name": "agentserver-sdk", "title": "agentserver-sdk",
-                               "version": "0"},
-                "capabilities": {
-                    "experimentalApi": True,
-                    "requestAttestation": False,
-                    "optOutNotificationMethods": [],
-                },
-            })
-            await self._notify("initialized")
-            ts = await self._request("thread/start", {})
-            self.thread_id = ts["thread_id"]
+            try:
+                await self._request("initialize", {
+                    "clientInfo": {"name": "agentserver-sdk", "title": "agentserver-sdk",
+                                   "version": "0"},
+                    "capabilities": {
+                        "experimentalApi": True,
+                        "requestAttestation": False,
+                        "optOutNotificationMethods": [],
+                    },
+                })
+                await self._notify("initialized")
+                ts = await self._request("thread/start", {})
+                tid = ts.get("thread_id")
+                if not tid:
+                    raise SdkConnectionError(
+                        f"thread/start response missing thread_id: {ts!r}"
+                    )
+                self.thread_id = tid
+            except Exception:
+                # Don't leak ws + reader task if handshake fails mid-way
+                await self.close()
+                raise
 
     async def close(self) -> None:
         if self._reader_task is not None:

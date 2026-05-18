@@ -51,3 +51,26 @@ async def test_connect_failure_raises_sdk_error():
     c = WSClient("ws://127.0.0.1:1", token="t", workspace_id="w", user_id="u")
     with pytest.raises(SdkConnectionError):
         await c.connect()
+
+
+async def test_connect_cleans_up_on_handshake_failure(stub):
+    """If thread/start errors, ws + reader task must be cleaned up."""
+    stub.on("thread/start", lambda p: {"error": {"code": -32603, "message": "boom"}})
+    c = WSClient(stub.url, token="t", workspace_id="ws", user_id="u")
+    with pytest.raises(SdkConnectionError):
+        await c.connect()
+    # ws closed, no reader task left running, not "connected"
+    assert c._ws is None
+    assert c._reader_task is None
+    assert c.thread_id is None
+    assert not c.is_connected
+
+
+async def test_connect_missing_thread_id_raises_sdk_error(stub):
+    """thread/start returning a result without thread_id should raise SdkConnectionError, not KeyError."""
+    stub.on("thread/start", lambda p: {})  # success, but no thread_id field
+    c = WSClient(stub.url, token="t", workspace_id="ws", user_id="u")
+    with pytest.raises(SdkConnectionError, match="missing thread_id"):
+        await c.connect()
+    assert c._ws is None
+    assert not c.is_connected
