@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from jupyter_server.auth import IdentityProvider, User
 
-from kernel_provisioner import _current_user_ctx
+from .kernel_provisioner import _current_user_ctx
 
 
 class AgentserverIdentityProvider(IdentityProvider):

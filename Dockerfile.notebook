@@ -22,9 +22,10 @@ RUN pip install --no-cache-dir \
 #   RUN pip install --no-cache-dir /tmp/sdk && rm -rf /tmp/sdk
 
 # Agentserver jupyter extensions (Plan 3b).
-RUN mkdir -p /etc/jupyter/agentserver
-COPY notebook/identity_provider.py /etc/jupyter/agentserver/
-COPY notebook/kernel_provisioner.py /etc/jupyter/agentserver/
+# Registers AgentserverKernelProvisioner via jupyter_client.kernel_provisioners
+# entry-point so it's discoverable by name (vs. silently-ignored traitlet config).
+COPY notebook/agentserver_jupyter_ext /tmp/agentserver_jupyter_ext
+RUN pip install --no-cache-dir /tmp/agentserver_jupyter_ext && rm -rf /tmp/agentserver_jupyter_ext
 
 # Jupyter config
 COPY notebook/jupyter_server_config.py /etc/jupyter/

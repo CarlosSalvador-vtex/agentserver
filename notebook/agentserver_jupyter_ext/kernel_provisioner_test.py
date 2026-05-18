@@ -2,7 +2,10 @@
 import asyncio
 import unittest
 
-from kernel_provisioner import AgentserverKernelProvisioner, _current_user_ctx
+from agentserver_jupyter_ext.kernel_provisioner import (
+    AgentserverKernelProvisioner,
+    _current_user_ctx,
+)
 
 
 class TestAgentserverKernelProvisioner(unittest.TestCase):

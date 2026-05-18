@@ -7,8 +7,8 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock
 
-from identity_provider import AgentserverIdentityProvider
-from kernel_provisioner import _current_user_ctx
+from agentserver_jupyter_ext.identity_provider import AgentserverIdentityProvider
+from agentserver_jupyter_ext.kernel_provisioner import _current_user_ctx
 
 
 class TestAgentserverIdentityProvider(unittest.TestCase):
