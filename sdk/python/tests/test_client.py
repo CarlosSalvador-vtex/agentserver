@@ -77,11 +77,14 @@ async def test_connect_missing_thread_id_raises_sdk_error(stub):
 
 
 async def test_mcp_tool_call_round_trip(stub):
-    stub.on("mcpServer/tool/call", lambda p: {
-        "content": [{"type": "text", "text": "hello"}],
-        "structuredContent": {"k": "v"},
-        "isError": False,
-    })
+    stub.on(
+        "mcpServer/tool/call",
+        lambda p: {
+            "content": [{"type": "text", "text": "hello"}],
+            "structuredContent": {"k": "v"},
+            "isError": False,
+        },
+    )
     c = WSClient(stub.url, token="t", workspace_id="ws-1", user_id="u-1")
     await c.connect()
     try:
@@ -106,15 +109,18 @@ async def test_mcp_tool_call_round_trip(stub):
 async def test_mcp_tool_call_concurrent_dont_cross_streams(stub):
     """Two concurrent calls must each get their own response by id."""
     counter = {"n": 0}
+
     def handler(p):
         counter["n"] += 1
         return {"content": [{"type": "text", "text": f"call-{counter['n']}"}], "isError": False}
+
     stub.on("mcpServer/tool/call", handler)
 
     c = WSClient(stub.url, token="t", workspace_id="ws", user_id="u")
     await c.connect()
     try:
         import asyncio
+
         r1, r2 = await asyncio.gather(
             c.mcp_tool_call(server="s", tool="t", arguments={"environment_id": "a"}),
             c.mcp_tool_call(server="s", tool="t", arguments={"environment_id": "a"}),

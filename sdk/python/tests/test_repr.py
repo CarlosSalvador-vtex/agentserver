@@ -9,10 +9,17 @@ class _FakeClient:
 
 
 def _env(name, tools):
-    return Env(name=name, type="shell",
-               tools=[ToolMetadata(name=t, description="", input_schema={},
-                                   kind="core" if t in {"shell"} else "custom") for t in tools],
-               _client=_FakeClient())
+    return Env(
+        name=name,
+        type="shell",
+        tools=[
+            ToolMetadata(
+                name=t, description="", input_schema={}, kind="core" if t in {"shell"} else "custom"
+            )
+            for t in tools
+        ],
+        _client=_FakeClient(),
+    )
 
 
 def test_env_repr_html_contains_name_and_tool_count():

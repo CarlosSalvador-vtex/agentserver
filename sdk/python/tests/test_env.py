@@ -1,4 +1,5 @@
 import base64
+
 import pytest
 
 from agentserver_sdk.client import WSClient
@@ -14,10 +15,25 @@ async def _connected_client(stub):
 
 
 def _tool(name, desc=""):
-    return ToolMetadata(name=name, description=desc, input_schema={}, kind="core" if name in {
-        "shell", "read_file", "write_file", "apply_patch", "exec_command",
-        "write_stdin", "read_output", "terminate", "copy_path",
-    } else "custom")
+    return ToolMetadata(
+        name=name,
+        description=desc,
+        input_schema={},
+        kind="core"
+        if name
+        in {
+            "shell",
+            "read_file",
+            "write_file",
+            "apply_patch",
+            "exec_command",
+            "write_stdin",
+            "read_output",
+            "terminate",
+            "copy_path",
+        }
+        else "custom",
+    )
 
 
 async def test_env_call_injects_environment_id(stub):
@@ -35,11 +51,14 @@ async def test_env_call_injects_environment_id(stub):
 
 
 async def test_env_shell_returns_shell_result(stub):
-    stub.on("mcpServer/tool/call", lambda p: {
-        "content": [{"type": "text", "text": "hi"}],
-        "structuredContent": {"stdout": "hi", "stderr": "", "exit_code": 0},
-        "isError": False,
-    })
+    stub.on(
+        "mcpServer/tool/call",
+        lambda p: {
+            "content": [{"type": "text", "text": "hi"}],
+            "structuredContent": {"stdout": "hi", "stderr": "", "exit_code": 0},
+            "isError": False,
+        },
+    )
     c = await _connected_client(stub)
     env = Env(name="alpha", type="shell", tools=[_tool("shell")], _client=c)
     try:
@@ -53,11 +72,14 @@ async def test_env_shell_returns_shell_result(stub):
 
 async def test_env_read_file_returns_bytes(stub):
     payload = b"hello binary"
-    stub.on("mcpServer/tool/call", lambda p: {
-        "content": [{"type": "text", "text": base64.b64encode(payload).decode()}],
-        "structuredContent": {"encoding": "base64"},
-        "isError": False,
-    })
+    stub.on(
+        "mcpServer/tool/call",
+        lambda p: {
+            "content": [{"type": "text", "text": base64.b64encode(payload).decode()}],
+            "structuredContent": {"encoding": "base64"},
+            "isError": False,
+        },
+    )
     c = await _connected_client(stub)
     env = Env(name="alpha", type="shell", tools=[_tool("read_file")], _client=c)
     try:
@@ -68,10 +90,13 @@ async def test_env_read_file_returns_bytes(stub):
 
 
 async def test_env_is_error_raises_tool_error(stub):
-    stub.on("mcpServer/tool/call", lambda p: {
-        "content": [{"type": "text", "text": "boom"}],
-        "isError": True,
-    })
+    stub.on(
+        "mcpServer/tool/call",
+        lambda p: {
+            "content": [{"type": "text", "text": "boom"}],
+            "isError": True,
+        },
+    )
     c = await _connected_client(stub)
     env = Env(name="alpha", type="shell", tools=[_tool("shell")], _client=c)
     try:
@@ -112,15 +137,20 @@ async def test_env_apply_patch_passes_through(stub):
 
 async def test_custom_tool_called_via_attribute(stub):
     """A custom tool surfaced in tools metadata becomes a method on env."""
-    stub.on("mcpServer/tool/call", lambda p: {
-        "content": [{"type": "text", "text": "job-123"}],
-        "isError": False,
-    })
+    stub.on(
+        "mcpServer/tool/call",
+        lambda p: {
+            "content": [{"type": "text", "text": "job-123"}],
+            "isError": False,
+        },
+    )
     c = await _connected_client(stub)
-    custom = ToolMetadata(name="submit_task",
-                          description="submit HPC job",
-                          input_schema={"type": "object"},
-                          kind="custom")
+    custom = ToolMetadata(
+        name="submit_task",
+        description="submit HPC job",
+        input_schema={"type": "object"},
+        kind="custom",
+    )
     env = Env(name="hpc-a", type="hpc", tools=[custom], _client=c)
     try:
         # Method exists thanks to setattr in __post_init__
@@ -141,16 +171,19 @@ async def test_unknown_attribute_raises_attribute_error(stub):
     env = Env(name="alpha", type="shell", tools=[_tool("shell")], _client=c)
     try:
         with pytest.raises(AttributeError):
-            env.nonexistent_tool
+            _ = env.nonexistent_tool
     finally:
         await c.close()
 
 
 async def test_dir_lists_custom_tools(stub):
     c = await _connected_client(stub)
-    env = Env(name="hpc", type="hpc",
-              tools=[ToolMetadata(name="submit_task", description="", input_schema={}, kind="custom")],
-              _client=c)
+    env = Env(
+        name="hpc",
+        type="hpc",
+        tools=[ToolMetadata(name="submit_task", description="", input_schema={}, kind="custom")],
+        _client=c,
+    )
     try:
         assert "submit_task" in dir(env)
     finally:

@@ -5,13 +5,14 @@ and `thread/start`. Register more methods via `.on(method, handler)`.
 
 Handler signature: `handler(params: dict) -> result_dict | {"error": {...}}`.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import websockets
-
 
 HandlerResult = dict[str, Any]
 Handler = Callable[[dict[str, Any]], HandlerResult]
@@ -27,11 +28,14 @@ class StubGateway:
         self.last_headers: dict[str, str] = {}
 
         # Defaults
-        self.on("initialize", lambda p: {
-            "protocolVersion": "1.0",
-            "serverInfo": {"name": "stub", "version": "0"},
-            "capabilities": {},
-        })
+        self.on(
+            "initialize",
+            lambda p: {
+                "protocolVersion": "1.0",
+                "serverInfo": {"name": "stub", "version": "0"},
+                "capabilities": {},
+            },
+        )
         self.on("thread/start", lambda p: {"thread_id": "stub-thread-1"})
 
     def on(self, method: str, handler: Handler) -> None:
@@ -45,7 +49,9 @@ class StubGateway:
 
     async def start(self) -> None:
         self._server = await websockets.serve(
-            self._handle, "127.0.0.1", 0,
+            self._handle,
+            "127.0.0.1",
+            0,
             process_request=self._capture_headers,
         )
         # websockets >=14 exposes sockets via .sockets
@@ -84,8 +90,11 @@ class StubGateway:
                     try:
                         out = handler(msg.get("params", {}) or {})
                     except Exception as e:
-                        resp = {"jsonrpc": "2.0", "id": mid,
-                                "error": {"code": -32603, "message": str(e)}}
+                        resp = {
+                            "jsonrpc": "2.0",
+                            "id": mid,
+                            "error": {"code": -32603, "message": str(e)},
+                        }
                     else:
                         if isinstance(out, dict) and "error" in out and "code" in out["error"]:
                             resp = {"jsonrpc": "2.0", "id": mid, "error": out["error"]}

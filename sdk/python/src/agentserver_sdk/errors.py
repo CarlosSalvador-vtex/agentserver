@@ -1,4 +1,5 @@
 """SDK exception hierarchy."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -28,6 +29,7 @@ class ToolError(SdkError):
 
     def _repr_html_(self) -> str:
         import html as _html
+
         return (
             f"<div style='border-left:3px solid red;padding-left:8px'>"
             f"<b>ToolError</b> on env <code>{_html.escape(self.env or '?')}</code>, "

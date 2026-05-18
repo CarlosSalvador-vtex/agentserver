@@ -4,6 +4,7 @@
 on any method triggers WS connect + handshake. One thread per Ctx;
 cached internally.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,15 +27,13 @@ class Ctx:
     _envs_lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock)
 
     @classmethod
-    def from_env(cls) -> "Ctx":
-        url = os.environ.get("AGENTSERVER_GATEWAY_URL",
-                             "ws://localhost:8086/notebook/ws")
+    def from_env(cls) -> Ctx:
+        url = os.environ.get("AGENTSERVER_GATEWAY_URL", "ws://localhost:8086/notebook/ws")
         token = os.environ.get("AGENTSERVER_WORKSPACE_TOKEN", "")
         workspace_id = os.environ.get("AGENTSERVER_WORKSPACE_ID", "")
         user_id = os.environ.get("AGENTSERVER_USER_ID")
         client = WSClient(url, token=token, workspace_id=workspace_id, user_id=user_id)
-        return cls(gateway_url=url, workspace_id=workspace_id,
-                   user_id=user_id, _client=client)
+        return cls(gateway_url=url, workspace_id=workspace_id, user_id=user_id, _client=client)
 
     async def _fetch_envs(self) -> list[Env]:
         await self._client.connect()
@@ -42,11 +41,13 @@ class Ctx:
         envs: list[Env] = []
         for e in listing.get("envs", []):
             caps = await self._client._request(
-                "env/capabilities", {"env_id": e["name"]},
+                "env/capabilities",
+                {"env_id": e["name"]},
             )
             tools = [ToolMetadata.from_dict(t) for t in caps.get("tools", [])]
-            envs.append(Env(name=e["name"], type=e.get("type", ""),
-                            tools=tools, _client=self._client))
+            envs.append(
+                Env(name=e["name"], type=e.get("type", ""), tools=tools, _client=self._client)
+            )
         return envs
 
     async def envs(self) -> list[Env]:
@@ -74,10 +75,13 @@ class Ctx:
         src_env, src_path = src
         dst_env, dst_path = dst
         await self._client.mcp_tool_call(
-            server="env_mcp", tool="copy_path",
+            server="env_mcp",
+            tool="copy_path",
             arguments={
-                "src_env": src_env.name, "src_path": src_path,
-                "dst_env": dst_env.name, "dst_path": dst_path,
+                "src_env": src_env.name,
+                "src_path": src_path,
+                "dst_env": dst_env.name,
+                "dst_path": dst_path,
             },
         )
 

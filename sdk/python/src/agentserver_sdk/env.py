@@ -1,9 +1,10 @@
 """Env class — one instance per executor; wraps env-mcp tool calls."""
+
 from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .errors import ToolError
 from .types import ShellResult, ToolMetadata
@@ -21,7 +22,7 @@ class Env:
     name: str
     type: str
     tools: list[ToolMetadata]
-    _client: "WSClient"
+    _client: WSClient
     _tool_index: dict[str, ToolMetadata] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -58,7 +59,9 @@ class Env:
         args = dict(arguments or {})
         args.setdefault("environment_id", self.name)
         raw = await self._client.mcp_tool_call(
-            server=_TOOL_SERVER, tool=tool, arguments=args,
+            server=_TOOL_SERVER,
+            tool=tool,
+            arguments=args,
         )
         if raw.get("isError"):
             msg = _extract_error_text(raw)
@@ -79,24 +82,29 @@ class Env:
         return _decode_file_content(raw)
 
     async def write_file(self, path: str, content: bytes) -> None:
-        await self.call("write_file", {
-            "path": path,
-            "content_b64": base64.b64encode(content).decode("ascii"),
-        })
+        await self.call(
+            "write_file",
+            {
+                "path": path,
+                "content_b64": base64.b64encode(content).decode("ascii"),
+            },
+        )
 
     async def apply_patch(self, patch: str) -> None:
         await self.call("apply_patch", {"patch": patch})
 
-    def spawn(self, command: str) -> "Process":
+    def spawn(self, command: str) -> Process:
         """Start a long-running command. Use as `async with env.spawn(cmd) as proc:`.
 
         Returns a `Process`; the actual `exec_command` is sent on `__aenter__`.
         """
         from .process import Process  # avoid circular at module load
+
         return Process(self, command=command)
 
     def _repr_html_(self) -> str:
         import html as _html
+
         return (
             f"<table>"
             f"<tr><th>env</th><td><code>{_html.escape(self.name)}</code></td></tr>"
@@ -107,6 +115,7 @@ class Env:
 
 
 # ---------- helpers ----------
+
 
 def _extract_error_text(raw: dict[str, Any]) -> str:
     items = raw.get("content", [])

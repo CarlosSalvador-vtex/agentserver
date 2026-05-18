@@ -1,16 +1,24 @@
 import json
+
 import websockets
 
 
 async def test_stub_responds_to_initialize(stub):
     """Stub answers initialize with a default reply and records the frame."""
     async with websockets.connect(stub.url) as ws:
-        await ws.send(json.dumps({
-            "jsonrpc": "2.0", "id": 1,
-            "method": "initialize",
-            "params": {"clientInfo": {"name": "t", "title": "t", "version": "0"},
-                       "capabilities": {}},
-        }))
+        await ws.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "clientInfo": {"name": "t", "title": "t", "version": "0"},
+                        "capabilities": {},
+                    },
+                }
+            )
+        )
         raw = await ws.recv()
         resp = json.loads(raw)
 

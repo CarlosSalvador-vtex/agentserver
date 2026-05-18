@@ -5,24 +5,34 @@ from agentserver_sdk.ctx import Ctx
 
 def _setup_stub_envs(stub):
     """Make stub return two envs (alpha + hpc) via env/capabilities + envs/list."""
-    stub.on("envs/list", lambda p: {"envs": [
-        {"name": "alpha", "type": "shell"},
-        {"name": "hpc",   "type": "hpc"},
-    ]})
+    stub.on(
+        "envs/list",
+        lambda p: {
+            "envs": [
+                {"name": "alpha", "type": "shell"},
+                {"name": "hpc", "type": "hpc"},
+            ]
+        },
+    )
 
     def caps(p):
         env_id = p["env_id"]
         if env_id == "alpha":
-            return {"tools": [
-                {"name": "shell", "description": "run sh", "inputSchema": {}},
-                {"name": "read_file", "description": "read", "inputSchema": {}},
-            ]}
+            return {
+                "tools": [
+                    {"name": "shell", "description": "run sh", "inputSchema": {}},
+                    {"name": "read_file", "description": "read", "inputSchema": {}},
+                ]
+            }
         if env_id == "hpc":
-            return {"tools": [
-                {"name": "shell", "description": "run sh", "inputSchema": {}},
-                {"name": "submit_task", "description": "submit HPC", "inputSchema": {}},
-            ]}
+            return {
+                "tools": [
+                    {"name": "shell", "description": "run sh", "inputSchema": {}},
+                    {"name": "submit_task", "description": "submit HPC", "inputSchema": {}},
+                ]
+            }
         return {"error": {"code": -32602, "message": "unknown env"}}
+
     stub.on("env/capabilities", caps)
 
 
@@ -106,11 +116,23 @@ async def test_ctx_copy_uses_copy_path_tool(monkeypatch, stub):
 
 async def test_ctx_history_returns_records(monkeypatch, stub):
     stub.on("envs/list", lambda p: {"envs": []})
-    stub.on("operations/list", lambda p: {"operations": [
-        {"id": "op_1", "env_id": "alpha", "tool": "shell", "is_error": False,
-         "started_at": "2026-05-18T10:00:00Z", "duration_ms": 5,
-         "user_id": "u", "source": "sdk"},
-    ]})
+    stub.on(
+        "operations/list",
+        lambda p: {
+            "operations": [
+                {
+                    "id": "op_1",
+                    "env_id": "alpha",
+                    "tool": "shell",
+                    "is_error": False,
+                    "started_at": "2026-05-18T10:00:00Z",
+                    "duration_ms": 5,
+                    "user_id": "u",
+                    "source": "sdk",
+                },
+            ]
+        },
+    )
     monkeypatch.setenv("AGENTSERVER_GATEWAY_URL", stub.url)
     monkeypatch.setenv("AGENTSERVER_WORKSPACE_TOKEN", "tok")
     monkeypatch.setenv("AGENTSERVER_WORKSPACE_ID", "ws")
@@ -137,10 +159,13 @@ async def test_ctx_envs_concurrent_callers_share_cache(monkeypatch, stub):
     ctx = Ctx.from_env()
     try:
         import asyncio
+
         a, b = await asyncio.gather(ctx.envs(), ctx.envs())
         # Both lists must reference the same Env instances (cache shared)
         assert {e.name for e in a} == {e.name for e in b}
-        for x, y in zip(sorted(a, key=lambda e: e.name), sorted(b, key=lambda e: e.name)):
+        for x, y in zip(
+            sorted(a, key=lambda e: e.name), sorted(b, key=lambda e: e.name), strict=True
+        ):
             assert x is y
         # Only ONE envs/list was issued, regardless of concurrent callers
         list_calls = [m for m in stub.received if m.get("method") == "envs/list"]
@@ -162,6 +187,7 @@ async def test_ctx_refresh_replaces_cache_atomically(monkeypatch, stub):
         first = await ctx.envs()
         # refresh and concurrent reader race
         import asyncio
+
         _, refreshed = await asyncio.gather(ctx.refresh(), ctx.envs())
         # The concurrent reader either gets the old cache or waits for the new one,
         # never a half-populated state. Both invariants:

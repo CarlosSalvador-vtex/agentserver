@@ -4,9 +4,11 @@ One connection per Ctx. Connection is lazy: `connect()` is a no-op if
 already connected. Bearer auth via constructor; user_id is forwarded
 on every tool/call's _meta for attribution.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -57,22 +59,26 @@ class WSClient:
             self._reader_task = asyncio.create_task(self._reader())
 
             try:
-                await self._request("initialize", {
-                    "clientInfo": {"name": "agentserver-sdk", "title": "agentserver-sdk",
-                                   "version": "0"},
-                    "capabilities": {
-                        "experimentalApi": True,
-                        "requestAttestation": False,
-                        "optOutNotificationMethods": [],
+                await self._request(
+                    "initialize",
+                    {
+                        "clientInfo": {
+                            "name": "agentserver-sdk",
+                            "title": "agentserver-sdk",
+                            "version": "0",
+                        },
+                        "capabilities": {
+                            "experimentalApi": True,
+                            "requestAttestation": False,
+                            "optOutNotificationMethods": [],
+                        },
                     },
-                })
+                )
                 await self._notify("initialized")
                 ts = await self._request("thread/start", {})
                 tid = ts.get("thread_id")
                 if not tid:
-                    raise SdkConnectionError(
-                        f"thread/start response missing thread_id: {ts!r}"
-                    )
+                    raise SdkConnectionError(f"thread/start response missing thread_id: {ts!r}")
                 self.thread_id = tid
             except Exception:
                 # Don't leak ws + reader task if handshake fails mid-way
@@ -82,10 +88,8 @@ class WSClient:
     async def close(self) -> None:
         if self._reader_task is not None:
             self._reader_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._reader_task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._reader_task = None
         if self._ws is not None:
             await self._ws.close()
@@ -132,9 +136,16 @@ class WSClient:
         fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[rid] = fut
         try:
-            await self._ws.send(json.dumps({
-                "jsonrpc": "2.0", "id": rid, "method": method, "params": params,
-            }))
+            await self._ws.send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": rid,
+                        "method": method,
+                        "params": params,
+                    }
+                )
+            )
             return await fut
         finally:
             self._pending.pop(rid, None)
@@ -162,9 +173,7 @@ class WSClient:
                 if "error" in msg:
                     err = msg["error"]
                     fut.set_exception(
-                        SdkConnectionError(
-                            f"rpc {err.get('code')}: {err.get('message')}"
-                        )
+                        SdkConnectionError(f"rpc {err.get('code')}: {err.get('message')}")
                     )
                 else:
                     fut.set_result(msg.get("result", {}))
