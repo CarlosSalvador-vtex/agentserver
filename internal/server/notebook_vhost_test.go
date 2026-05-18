@@ -166,8 +166,8 @@ func TestNotebookSessionURL_VhostShape(t *testing.T) {
 		NotebookHostBaseDomain:  "agent.test",
 		NotebookSubdomainPrefix: "nb",
 	}
-	got := s.notebookSessionURL("77f66719-aaaa-bbbb-cccc-000000000001", "tok123")
-	want := "https://nb-77f66719.agent.test/auth?token=tok123"
+	got := s.notebookSessionURL("77f66719-aaaa-bbbb-cccc-000000000001")
+	want := "https://nb-77f66719.agent.test/auth"
 	if got != want {
 		t.Errorf("got=%q want=%q", got, want)
 	}
@@ -175,7 +175,7 @@ func TestNotebookSessionURL_VhostShape(t *testing.T) {
 
 func TestNotebookSessionURL_LegacyShape(t *testing.T) {
 	s := &Server{}
-	got := s.notebookSessionURL("ws-1", "tok")
+	got := s.notebookSessionURL("ws-1")
 	want := "/api/notebooks/ws-1/lab"
 	if got != want {
 		t.Errorf("got=%q want=%q", got, want)
