@@ -103,6 +103,11 @@ type Server struct {
 	// in notebookProxy. ONLY used in tests; never set in production.
 	testNotebookUpstream func(wsID string) (string, error)
 
+	// OperationsRetention is the TTL for rows in the operations table.
+	// 0 disables the background retention loop. Configurable via
+	// AGENTSERVER_OPERATIONS_RETENTION_DAYS (default 90).
+	OperationsRetention time.Duration
+
 	// In-memory pending device code flows (OIDC credential creation).
 	deviceFlows   map[string]*pendingDeviceFlow
 	deviceFlowsMu sync.Mutex
@@ -226,6 +231,29 @@ func (s *Server) Router() http.Handler {
 
 	// Internal callback from cc-broker when a turn finishes (T19).
 	r.Post("/internal/sessions/{sid}/turn-finished", s.handleTurnFinished)
+
+	// Internal operation-log endpoints — POST from gateways (fire-and-forget),
+	// GET for SDK retrieval. Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
+	r.Post("/internal/operations", func(w http.ResponseWriter, r *http.Request) {
+		secret := os.Getenv("INTERNAL_API_SECRET")
+		if secret != "" {
+			if r.Header.Get("X-Internal-Secret") != secret {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		s.postInternalOperations(w, r)
+	})
+	r.Get("/internal/operations", func(w http.ResponseWriter, r *http.Request) {
+		secret := os.Getenv("INTERNAL_API_SECRET")
+		if secret != "" {
+			if r.Header.Get("X-Internal-Secret") != secret {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		s.getInternalOperations(w, r)
+	})
 
 	// IM bridge routes: proxy to standalone imbridge service when configured.
 	if s.IMBridgeURL != "" {
