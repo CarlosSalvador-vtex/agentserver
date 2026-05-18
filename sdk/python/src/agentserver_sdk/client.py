@@ -97,6 +97,33 @@ class WSClient:
                 fut.set_exception(SdkConnectionError("connection closed"))
         self._pending.clear()
 
+    async def mcp_tool_call(
+        self,
+        *,
+        server: str,
+        tool: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Issue `mcpServer/tool/call`. Returns the raw MCP CallToolResult dict.
+
+        Caller is responsible for interpreting `content` / `structuredContent` /
+        `isError`. RPC-level errors raise SdkConnectionError.
+        """
+        await self.connect()  # lazy
+        assert self.thread_id is not None
+        params: dict[str, Any] = {
+            "thread_id": self.thread_id,
+            "server": server,
+            "tool": tool,
+            "_meta": {
+                "agentserver_user_id": self.user_id,
+                "agentserver_workspace_id": self.workspace_id,
+            },
+        }
+        if arguments is not None:
+            params["arguments"] = arguments
+        return await self._request("mcpServer/tool/call", params)
+
     async def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self._ws is None:
             raise SdkConnectionError("not connected")
