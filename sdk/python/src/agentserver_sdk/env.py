@@ -95,6 +95,16 @@ class Env:
         from .process import Process  # avoid circular at module load
         return Process(self, command=command)
 
+    def _repr_html_(self) -> str:
+        import html as _html
+        return (
+            f"<table>"
+            f"<tr><th>env</th><td><code>{_html.escape(self.name)}</code></td></tr>"
+            f"<tr><th>type</th><td>{_html.escape(self.type)}</td></tr>"
+            f"<tr><th>tools</th><td>{len(self.tools)}</td></tr>"
+            f"</table>"
+        )
+
 
 # ---------- helpers ----------
 

@@ -40,6 +40,17 @@ class ShellResult:
         )
         return cls(stdout=text, stderr="", exit_code=0, raw=raw)
 
+    def _repr_html_(self) -> str:
+        import html as _html
+        colour = "green" if self.exit_code == 0 else "red"
+        return (
+            f"<div>exit_code: <b style='color:{colour}'>{self.exit_code}</b></div>"
+            f"<details open><summary>stdout</summary>"
+            f"<pre>{_html.escape(self.stdout)}</pre></details>"
+            + (f"<details><summary>stderr</summary><pre>{_html.escape(self.stderr)}</pre></details>"
+               if self.stderr else "")
+        )
+
 
 @dataclass
 class ToolMetadata:
