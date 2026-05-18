@@ -33,3 +33,31 @@ envs   # rendered as table thanks to _repr_html_
 | `AGENTSERVER_WORKSPACE_TOKEN` | (empty) | Bearer for gateway |
 | `AGENTSERVER_WORKSPACE_ID` | (empty) | workspace key |
 | `AGENTSERVER_USER_ID` | (empty) | attribution only |
+
+## Smoke walkthrough (4 cells)
+
+Once `docker compose -f notebook/docker-compose.smoke.yml up --build` is
+running and you've opened <http://localhost:8888/lab>:
+
+```python
+# Cell 1 — list envs
+envs = await ctx.envs()
+envs
+
+# Cell 2 — typed shell
+alpha = await ctx.env("alpha")
+await alpha.shell("hi")
+
+# Cell 3 — dynamic dispatch (custom HPC tool)
+hpc = await ctx.env("hpc")
+await hpc.submit_task(script="x")
+
+# Cell 4 — operations history (returns [] until Plan 2 lands)
+await ctx.history(limit=5)
+```
+
+Tear down:
+
+```bash
+docker compose -f notebook/docker-compose.smoke.yml down -v
+```
