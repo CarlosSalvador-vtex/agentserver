@@ -52,8 +52,10 @@ await alpha.shell("hi")
 hpc = await ctx.env("hpc")
 await hpc.submit_task(script="x")
 
-# Cell 4 — operations history (returns [] until Plan 2 lands)
+# Cell 4 — operations history
 await ctx.history(limit=5)
+# stub returns 2 fake records; real backend returns rows from the
+# operations table written by every previous SDK call (Plan 2).
 ```
 
 Tear down:
