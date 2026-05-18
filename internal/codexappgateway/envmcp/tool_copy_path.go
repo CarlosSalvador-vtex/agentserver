@@ -13,21 +13,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// CopyPathTool streams a file (or, with recursive=true, a directory
-// tree) from one executor to another via the existing exec-server
-// process/start+read+write RPCs. The byte pump runs entirely inside
-// env-mcp so no chunk ever crosses the LLM context; memory is bounded
-// by the chunk size (~1 MiB) regardless of file size.
+// CopyPathTool copies a file or directory between executors.
 //
-// See docs/superpowers/specs/2026-05-18-env-mcp-transfer-tool.md.
+// v0.56.0: prefers HTTPS out-of-band relay (curl PUT on src + curl GET
+// on dst → bytes flow direct executor↔gateway↔executor, never through
+// env-mcp's ws bridge). When the relay path is unavailable (gateway
+// not configured, executor missing curl, or recursive copy below) it
+// falls back to the v0.55.x ws cat-pump path that shuttles each chunk
+// through process/read+process/write RPCs.
+//
+// See:
+//   - docs/superpowers/specs/2026-05-18-copy-path-http-relay.md (v0.56.0)
+//   - docs/superpowers/specs/2026-05-18-env-mcp-transfer-tool.md (v0.55.x)
 type CopyPathTool struct {
 	pool     *BridgePool
 	resolver *NameResolver
+	relay    *RelayClient // nil-safe: Enabled() checked before use
 	pidSeq   atomic.Uint64
 }
 
-func NewCopyPathTool(pool *BridgePool, resolver *NameResolver) *CopyPathTool {
-	return &CopyPathTool{pool: pool, resolver: resolver}
+func NewCopyPathTool(pool *BridgePool, resolver *NameResolver, relay *RelayClient) *CopyPathTool {
+	return &CopyPathTool{pool: pool, resolver: resolver, relay: relay}
 }
 
 func (t *CopyPathTool) Name() string { return "copy_path" }
@@ -45,7 +51,8 @@ var copyPathSchema = json.RawMessage(`{
     "destination_environment_id": {"type": "string", "description": "Destination environment name; may equal source"},
     "destination_path":           {"type": "string", "description": "Absolute path on the destination executor; parent must exist"},
     "recursive":                  {"type": "boolean", "description": "Treat source_path as a directory (tar-wrap); preserves mode + symlinks. Default false."},
-    "timeout_ms":                 {"type": "integer", "description": "Hard cap on the whole copy; default 600000 (10 min)"}
+    "timeout_ms":                 {"type": "integer", "description": "Hard cap on the whole copy; default 600000 (10 min)"},
+    "transport":                  {"type": "string", "enum": ["auto", "http", "ws"], "description": "auto (default): try HTTP relay first, fall back to ws on curl-missing. http: HTTP only. ws: legacy ws cat-pump."}
   },
   "required": ["source_environment_id", "source_path", "destination_environment_id", "destination_path"]
 }`)
@@ -59,6 +66,7 @@ type copyPathArgs struct {
 	DestinationPath          string `json:"destination_path"`
 	Recursive                bool   `json:"recursive"`
 	TimeoutMs                int    `json:"timeout_ms"`
+	Transport                string `json:"transport,omitempty"` // "", "auto", "http", "ws"
 }
 
 const (
@@ -79,6 +87,13 @@ func (t *CopyPathTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 	if a.TimeoutMs <= 0 {
 		a.TimeoutMs = copyPathDefaultTimeoutMs
 	}
+	transport := strings.ToLower(strings.TrimSpace(a.Transport))
+	if transport == "" {
+		transport = "auto"
+	}
+	if transport != "auto" && transport != "http" && transport != "ws" {
+		return errResult(fmt.Sprintf("invalid transport %q (want auto|http|ws)", a.Transport)), nil
+	}
 
 	srcExeID, err := t.resolver.Resolve(ctx, a.SourceEnvironmentID)
 	if err != nil {
@@ -97,14 +112,214 @@ func (t *CopyPathTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 		return errResult(fmt.Sprintf("destination environment %q unavailable: %v", a.DestinationEnvironmentID, err)), nil
 	}
 
+	pumpCtx, cancel := context.WithTimeout(ctx, time.Duration(a.TimeoutMs)*time.Millisecond)
+	defer cancel()
+
+	// Dispatch by transport. "auto" tries HTTP, falls through to ws on
+	// curl-missing (exit 127) or relay-disabled.
+	useHTTP := false
+	switch transport {
+	case "http":
+		useHTTP = true
+	case "auto":
+		useHTTP = t.relay.Enabled()
+	}
+
+	if useHTTP {
+		res, err, fellThrough := t.callHTTPRelay(pumpCtx, a, srcExeID, dstExeID, srcBC, dstBC)
+		if !fellThrough {
+			return res, err
+		}
+		// fellThrough: relay path declined to run (e.g. relay disabled,
+		// curl missing) and transport=auto. Drop into ws path below.
+	}
+
+	return t.callWSPump(pumpCtx, a, srcBC, dstBC)
+}
+
+// callHTTPRelay drives the v0.56.0 HTTP out-of-band path. Returns
+// (result, err, fellThrough). fellThrough=true means "this path
+// declined to handle the call; the caller should drop into the ws
+// fallback" — used in transport=auto for relay-disabled and curl-127
+// situations.
+func (t *CopyPathTool) callHTTPRelay(ctx context.Context, a copyPathArgs, srcExeID, dstExeID string, srcBC, dstBC *BridgeClient) (MCPCallToolResult, error, bool) {
+	if !t.relay.Enabled() {
+		return MCPCallToolResult{}, nil, true // fall through (auto only path that reaches here)
+	}
+
+	xferID := uuid.NewString()
+	tmpPath := a.DestinationPath + ".partial-" + xferID
+	dstParent := filepath.Dir(a.DestinationPath)
+
+	// TTL on the relay ticket: a bit longer than the tool timeout so a
+	// near-deadline copy doesn't race the ticket expiring mid-transfer.
+	ttl := time.Duration(a.TimeoutMs)*time.Millisecond + 30*time.Second
+	ticket, err := t.relay.CreateRelay(ctx, srcExeID, dstExeID, ttl, 0)
+	if err != nil {
+		// Relay create itself failed — surface the error; don't fall
+		// through silently or we'd hide infra bugs.
+		return errResult(fmt.Sprintf("relay/create: %v", err)), nil, false
+	}
+
+	// Build src + dst shell commands. set -o pipefail so a curl HTTP
+	// error surfaces as a non-zero exit even when piped into tar.
+	var srcShell, dstShell string
+	if a.Recursive {
+		base := filepath.Base(strings.TrimRight(a.SourcePath, "/"))
+		srcParent := filepath.Dir(a.SourcePath)
+		srcShell = fmt.Sprintf(
+			"set -o pipefail; tar czf - -C %s %s | curl -fsS --upload-file - -H 'Authorization: Bearer %s' %s",
+			shQuote(srcParent), shQuote(base), ticket.Ticket, shQuote(ticket.UploadURL))
+		dstShell = fmt.Sprintf(
+			"set -o pipefail; curl -fsS -H 'Authorization: Bearer %s' %s | tar xzf - -C %s",
+			ticket.Ticket, shQuote(ticket.DownloadURL), shQuote(dstParent))
+	} else {
+		srcShell = fmt.Sprintf(
+			"curl -fsS --upload-file %s -H 'Authorization: Bearer %s' %s",
+			shQuote(a.SourcePath), ticket.Ticket, shQuote(ticket.UploadURL))
+		dstShell = fmt.Sprintf(
+			"curl -fsS -H 'Authorization: Bearer %s' %s -o %s",
+			ticket.Ticket, shQuote(ticket.DownloadURL), shQuote(tmpPath))
+	}
+
+	srcPID := fmt.Sprintf("relay-src-%s", xferID)
+	dstPID := fmt.Sprintf("relay-dst-%s", xferID)
+	start := time.Now()
+
+	// Run both shells in parallel via process/start + poll-to-exit.
+	type runResult struct {
+		exit   int
+		stderr string
+		err    error
+	}
+	srcCh := make(chan runResult, 1)
+	dstCh := make(chan runResult, 1)
+	go func() {
+		exit, stderr, err := runShellToExit(ctx, srcBC, srcPID, []string{"sh", "-c", srcShell})
+		srcCh <- runResult{exit, stderr, err}
+	}()
+	go func() {
+		exit, stderr, err := runShellToExit(ctx, dstBC, dstPID, []string{"sh", "-c", dstShell})
+		dstCh <- runResult{exit, stderr, err}
+	}()
+	srcRes := <-srcCh
+	dstRes := <-dstCh
+
+	// curl exit 127 = command not found. If transport=auto, this is the
+	// fallback signal: silently drop into the ws cat-pump path.
+	if a.Transport == "" || strings.EqualFold(a.Transport, "auto") {
+		if srcRes.exit == 127 || dstRes.exit == 127 {
+			t.relayCleanup(srcBC, dstBC, tmpPath, a.Recursive)
+			return MCPCallToolResult{}, nil, true
+		}
+	}
+
+	if srcRes.err != nil {
+		t.relayCleanup(srcBC, dstBC, tmpPath, a.Recursive)
+		return errResult(fmt.Sprintf("source shell: %v", srcRes.err)), nil, false
+	}
+	if dstRes.err != nil {
+		t.relayCleanup(srcBC, dstBC, tmpPath, a.Recursive)
+		return errResult(fmt.Sprintf("destination shell: %v", dstRes.err)), nil, false
+	}
+	if srcRes.exit != 0 {
+		t.relayCleanup(srcBC, dstBC, tmpPath, a.Recursive)
+		return errResult(fmt.Sprintf("source curl exit=%d stderr=%q", srcRes.exit, srcRes.stderr)), nil, false
+	}
+	if dstRes.exit != 0 {
+		t.relayCleanup(srcBC, dstBC, tmpPath, a.Recursive)
+		return errResult(fmt.Sprintf("destination curl exit=%d stderr=%q", dstRes.exit, dstRes.stderr)), nil, false
+	}
+
+	// Non-recursive: rename .partial → final.
+	if !a.Recursive {
+		if err := remoteRename(ctx, dstBC, tmpPath, a.DestinationPath); err != nil {
+			t.relayCleanup(nil, dstBC, tmpPath, false)
+			return errResult(fmt.Sprintf("destination: rename failed: %v", err)), nil, false
+		}
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"transport":   "http",
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	return MCPCallToolResult{
+		Content: []MCPToolContent{{Type: "text", Text: string(body)}},
+	}, nil, false
+}
+
+// relayCleanup is the http-relay variant of cleanup. Source and dest
+// processes have already exited (we wait on them above); only the dst
+// .partial file may need rm.
+func (t *CopyPathTool) relayCleanup(_ *BridgeClient, dstBC *BridgeClient, tmpPath string, recursive bool) {
+	if recursive || dstBC == nil || tmpPath == "" {
+		return
+	}
+	bgCtx, cancel := context.WithTimeout(context.Background(), copyPathCleanupTimeout)
+	defer cancel()
+	rmPID := fmt.Sprintf("relay-rm-%s", uuid.NewString()[:8])
+	startParams, _ := json.Marshal(ProcessStartParams{
+		ProcessID: rmPID,
+		Argv:      []string{"sh", "-c", fmt.Sprintf("rm -f %s", shQuote(tmpPath))},
+		Cwd:       "/tmp",
+		Env:       map[string]string{"PATH": "/usr/bin:/bin:/usr/local/bin"},
+	})
+	_, _ = dstBC.Call(bgCtx, ExecMethodProcessStart, startParams)
+}
+
+// runShellToExit starts a process and polls process/read until it
+// exits. Returns the exit code and accumulated stderr (capped). On
+// transport error, returns (-1, "", err).
+func runShellToExit(ctx context.Context, bc *BridgeClient, pid string, argv []string) (int, string, error) {
+	if err := startProcess(ctx, bc, pid, argv, false); err != nil {
+		return -1, "", fmt.Errorf("process/start: %w", err)
+	}
+	const stderrCap = 8 * 1024
+	var stderrBuf strings.Builder
+	var afterSeq uint64
+	for {
+		rp, _ := json.Marshal(ProcessReadParams{
+			ProcessID: pid, AfterSeq: afterSeq,
+			MaxBytes: 64 * 1024, WaitMs: 500,
+		})
+		raw, err := bc.Call(ctx, ExecMethodProcessRead, rp)
+		if err != nil {
+			return -1, stderrBuf.String(), fmt.Errorf("process/read: %w", err)
+		}
+		var r ProcessReadResult
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return -1, stderrBuf.String(), fmt.Errorf("decode: %w", err)
+		}
+		for _, c := range r.Chunks {
+			if c.Stream == "stderr" && stderrBuf.Len() < stderrCap {
+				if b, derr := base64.StdEncoding.DecodeString(c.Chunk); derr == nil {
+					stderrBuf.Write(b)
+				}
+			}
+		}
+		afterSeq = r.NextSeq
+		if r.Exited || r.Closed {
+			exit := 0
+			if r.ExitCode != nil {
+				exit = *r.ExitCode
+			}
+			s := stderrBuf.String()
+			if len(s) > stderrCap {
+				s = s[:stderrCap]
+			}
+			return exit, s, nil
+		}
+	}
+}
+
+// callWSPump is the v0.55.x ws cat-pump implementation, preserved as
+// fallback for: transport=ws, transport=auto with curl missing, or
+// transport=auto with relay disabled at config.
+func (t *CopyPathTool) callWSPump(pumpCtx context.Context, a copyPathArgs, srcBC, dstBC *BridgeClient) (MCPCallToolResult, error) {
 	xferID := uuid.NewString()
 	srcPID := fmt.Sprintf("copy-src-%s", xferID)
 	dstPID := fmt.Sprintf("copy-dst-%s", xferID)
 
-	// Destination temp path lives in the same directory as the final
-	// path so a same-FS rename is atomic. For recursive=true we extract
-	// directly into the parent (atomicity of dir copies is per-file —
-	// documented limitation in the spec).
 	tmpPath := a.DestinationPath + ".partial-" + xferID
 	dstParent := filepath.Dir(a.DestinationPath)
 
@@ -119,29 +334,22 @@ func (t *CopyPathTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 		dstArgv = []string{"sh", "-c", fmt.Sprintf("cat > %s", shQuote(tmpPath))}
 	}
 
-	pumpCtx, cancel := context.WithTimeout(ctx, time.Duration(a.TimeoutMs)*time.Millisecond)
-	defer cancel()
-
 	start := time.Now()
 
-	// Start src process. If it fails immediately, bail before touching dst.
-	if err := startProcess(pumpCtx, srcBC, srcPID, srcArgv, /*pipeStdin*/ false); err != nil {
+	if err := startProcess(pumpCtx, srcBC, srcPID, srcArgv, false); err != nil {
 		return errResult(fmt.Sprintf("source: process start failed: %v", err)), nil
 	}
-	// Start dst process with stdin pipe so we can feed it bytes.
-	if err := startProcess(pumpCtx, dstBC, dstPID, dstArgv, /*pipeStdin*/ true); err != nil {
-		t.cleanup(srcBC, srcPID, dstBC, "", "") // dst didn't start; no tmp to remove
+	if err := startProcess(pumpCtx, dstBC, dstPID, dstArgv, true); err != nil {
+		t.cleanup(srcBC, srcPID, dstBC, "", "")
 		return errResult(fmt.Sprintf("destination: process start failed: %v", err)), nil
 	}
 
 	bytes, pumpErr := pumpChunks(pumpCtx, srcBC, srcPID, dstBC, dstPID)
 	if pumpErr != nil {
 		t.cleanup(srcBC, srcPID, dstBC, dstPID, tmpPathIfNotRecursive(tmpPath, a.Recursive, dstBC))
-		// Distinguish src vs dst vs transport in the message when possible.
 		return errResult(pumpErr.Error()), nil
 	}
 
-	// Both sides done; for non-recursive, rename .partial → final.
 	if !a.Recursive {
 		if err := remoteRename(pumpCtx, dstBC, tmpPath, a.DestinationPath); err != nil {
 			t.cleanup(nil, "", nil, "", tmpPathIfNotRecursive(tmpPath, a.Recursive, dstBC))
@@ -149,10 +357,10 @@ func (t *CopyPathTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 		}
 	}
 
-	dur := time.Since(start)
 	body, _ := json.Marshal(map[string]any{
+		"transport":   "ws",
 		"bytes":       bytes,
-		"duration_ms": dur.Milliseconds(),
+		"duration_ms": time.Since(start).Milliseconds(),
 	})
 	return MCPCallToolResult{
 		Content: []MCPToolContent{{Type: "text", Text: string(body)}},

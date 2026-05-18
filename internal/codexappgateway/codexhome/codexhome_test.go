@@ -112,6 +112,67 @@ func TestRenderConfigTOML_DisablesBuiltinShellAndRegistersAgentserverMCP(t *test
 	}
 }
 
+func TestRenderConfigTOML_HTTPRelayEnabledEmitsFlagAndEnv(t *testing.T) {
+	cfg := ConfigInput{
+		ModelProvider: "modelserver",
+		Model:         "gpt-5.5",
+		AgentServer: AgentServerMCP{
+			CodexBin:                  "/usr/local/bin/codex-app-gateway",
+			WorkspaceID:               "ws_a",
+			ExecGatewayURL:            "wss://exec-gw.example/bridge",
+			AppGatewayInternalURL:     "http://127.0.0.1:8086",
+			WorkspaceToken:            "wstok",
+			LoopbackToken:             "lbtok",
+			ExecGatewayInternalURL:    "http://codex-exec-gateway:6060",
+			ExecGatewayInternalSecret: "shh-its-a-secret",
+		},
+	}
+	out, err := RenderConfigTOML(cfg)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, want := range []string{
+		`"--exec-gateway-internal-url"`,
+		`"http://codex-exec-gateway:6060"`,
+		`"--exec-gateway-internal-secret-env"`,
+		`"CXG_EXEC_GATEWAY_INTERNAL_SECRET"`,
+		`CXG_EXEC_GATEWAY_INTERNAL_SECRET = "shh-its-a-secret"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderConfigTOML_HTTPRelayDisabledOmitsFlagAndEnv(t *testing.T) {
+	cfg := ConfigInput{
+		ModelProvider: "modelserver",
+		Model:         "gpt-5.5",
+		AgentServer: AgentServerMCP{
+			CodexBin:              "/usr/local/bin/codex-app-gateway",
+			WorkspaceID:           "ws_a",
+			ExecGatewayURL:        "wss://exec-gw.example/bridge",
+			AppGatewayInternalURL: "http://127.0.0.1:8086",
+			WorkspaceToken:        "wstok",
+			LoopbackToken:         "lbtok",
+			// ExecGatewayInternalURL + Secret deliberately empty
+		},
+	}
+	out, err := RenderConfigTOML(cfg)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, banned := range []string{
+		`--exec-gateway-internal-url`,
+		`--exec-gateway-internal-secret-env`,
+		`CXG_EXEC_GATEWAY_INTERNAL_SECRET`,
+	} {
+		if strings.Contains(out, banned) {
+			t.Errorf("unexpected %q in disabled-relay config:\n%s", banned, out)
+		}
+	}
+}
+
 func TestRenderConfigTOML_RejectsActiveProviderNotInMap(t *testing.T) {
 	cfg := ConfigInput{
 		ModelProvider: "missing",

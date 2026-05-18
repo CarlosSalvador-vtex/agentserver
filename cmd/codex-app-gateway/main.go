@@ -129,6 +129,8 @@ func parseEnvMcpArgs(rawArgs []string) (envmcp.RunArgs, error) {
 	appGatewayInternal := fs.String("app-gateway-internal", "", "http base URL for codex-app-gateway loopback (required, typically http://127.0.0.1:8086)")
 	workspaceTokenEnv := fs.String("workspace-token-env", "", "env var name holding the workspace cap token (required)")
 	loopbackTokenEnv := fs.String("loopback-token-env", "", "env var name holding the loopback token (required)")
+	execGatewayInternalURL := fs.String("exec-gateway-internal-url", "", "http base URL for codex-exec-gateway internal API (optional; enables HTTP relay copy_path)")
+	execGatewayInternalSecretEnv := fs.String("exec-gateway-internal-secret-env", "", "env var name holding the exec-gateway internal shared secret (optional)")
 	if err := fs.Parse(rawArgs); err != nil {
 		return envmcp.RunArgs{}, err
 	}
@@ -147,10 +149,12 @@ func parseEnvMcpArgs(rawArgs []string) (envmcp.RunArgs, error) {
 		}
 	}
 	return envmcp.RunArgs{
-		WorkspaceID:        *workspaceID,
-		ExecGatewayURL:     *execGatewayURL,
-		AppGatewayInternal: *appGatewayInternal,
-		WorkspaceTokenEnv:  *workspaceTokenEnv,
-		LoopbackTokenEnv:   *loopbackTokenEnv,
+		WorkspaceID:               *workspaceID,
+		ExecGatewayURL:            *execGatewayURL,
+		AppGatewayInternal:        *appGatewayInternal,
+		WorkspaceTokenEnv:         *workspaceTokenEnv,
+		LoopbackTokenEnv:          *loopbackTokenEnv,
+		ExecGatewayInternalURL:    *execGatewayInternalURL,
+		ExecGatewayInternalSecret: *execGatewayInternalSecretEnv,
 	}, nil
 }

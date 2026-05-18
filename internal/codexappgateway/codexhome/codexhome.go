@@ -28,6 +28,13 @@ type AgentServerMCP struct {
 	AppGatewayInternalURL string // http base for /internal/connected loopback
 	WorkspaceToken        string // workspace-scoped cap token (env-injected)
 	LoopbackToken         string // per-spawn loopback token (env-injected)
+	// ExecGatewayInternalURL is the http base for codex-exec-gateway's
+	// internal API (NOT the ws bridge URL). When non-empty (and
+	// ExecGatewayInternalSecret is set), env-mcp's copy_path tool can
+	// mint relay tickets and use the HTTP relay path. Empty → omit the
+	// flag and secret; copy_path falls back to ws cat-pump.
+	ExecGatewayInternalURL    string
+	ExecGatewayInternalSecret string // written verbatim into env-mcp's env block
 }
 
 type ConfigInput struct {
@@ -127,6 +134,13 @@ func RenderConfigTOML(cfg ConfigInput) (string, error) {
 			"--workspace-token-env", "CXG_WORKSPACE_TOKEN",
 			"--loopback-token-env", "CXG_LOOPBACK_TOKEN",
 		}
+		httpRelayEnabled := m.ExecGatewayInternalURL != "" && m.ExecGatewayInternalSecret != ""
+		if httpRelayEnabled {
+			args = append(args,
+				"--exec-gateway-internal-url", m.ExecGatewayInternalURL,
+				"--exec-gateway-internal-secret-env", "CXG_EXEC_GATEWAY_INTERNAL_SECRET",
+			)
+		}
 		b.WriteString("args = [")
 		for i, a := range args {
 			if i > 0 {
@@ -135,8 +149,13 @@ func RenderConfigTOML(cfg ConfigInput) (string, error) {
 			fmt.Fprintf(&b, "%q", a)
 		}
 		b.WriteString("]\n")
-		fmt.Fprintf(&b, "env = { CXG_WORKSPACE_TOKEN = %q, CXG_LOOPBACK_TOKEN = %q }\n\n",
+		fmt.Fprintf(&b, "env = { CXG_WORKSPACE_TOKEN = %q, CXG_LOOPBACK_TOKEN = %q",
 			m.WorkspaceToken, m.LoopbackToken)
+		if httpRelayEnabled {
+			fmt.Fprintf(&b, ", CXG_EXEC_GATEWAY_INTERNAL_SECRET = %q",
+				m.ExecGatewayInternalSecret)
+		}
+		b.WriteString(" }\n\n")
 	}
 	return b.String(), nil
 }

@@ -25,6 +25,12 @@ type RunArgs struct {
 	AppGatewayInternal string // --app-gateway-internal; list_environments calls /internal/connected here
 	WorkspaceTokenEnv  string // --workspace-token-env (workspace-scoped cap token)
 	LoopbackTokenEnv   string // --loopback-token-env (for /internal/connected)
+	// ExecGatewayInternalURL is the http(s):// base for codex-exec-gateway's
+	// internal API (NOT the ws /bridge URL). copy_path's HTTP relay path
+	// POSTs to <base>/api/exec-gateway/relay/create here. Empty disables
+	// the HTTP relay path; copy_path falls back to the ws cat-pump.
+	ExecGatewayInternalURL    string // --exec-gateway-internal-url
+	ExecGatewayInternalSecret string // --exec-gateway-internal-secret-env (env var name; value injected by gateway)
 }
 
 // Run constructs the BridgePool, builds the tool registry, and serves
@@ -48,11 +54,20 @@ func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, stderr io.W
 	if args.WorkspaceID == "" || args.ExecGatewayURL == "" || args.AppGatewayInternal == "" {
 		return fmt.Errorf("env-mcp: workspace-id, exec-gateway-url, app-gateway-internal all required")
 	}
+	// ExecGatewayInternalSecret is optional — if its env var holds a value,
+	// copy_path can use the HTTPS relay path; otherwise it falls back to
+	// the ws cat-pump. We resolve here so the tool sees the value directly.
+	var execGwSecret string
+	if args.ExecGatewayInternalSecret != "" {
+		execGwSecret = os.Getenv(args.ExecGatewayInternalSecret)
+	}
 
 	logger.Info("env-mcp starting",
 		"workspace_id", args.WorkspaceID,
 		"exec_gateway_url", args.ExecGatewayURL,
 		"app_gateway_internal", args.AppGatewayInternal,
+		"exec_gateway_internal_url", args.ExecGatewayInternalURL,
+		"http_relay_enabled", args.ExecGatewayInternalURL != "" && execGwSecret != "",
 	)
 
 	pool := NewBridgePool(args.ExecGatewayURL, wsToken, logger)
@@ -62,6 +77,7 @@ func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, stderr io.W
 	connectedURL := strings.TrimRight(args.AppGatewayInternal, "/") + "/internal/connected"
 	resolver := NewNameResolver(connectedURL, lbToken, logger)
 
+	relayClient := NewRelayClient(args.ExecGatewayInternalURL, execGwSecret, args.WorkspaceID, logger)
 	tools := []Tool{
 		NewListEnvironmentsTool(resolver),
 		NewShellTool(pool, resolver),
@@ -71,7 +87,7 @@ func Run(ctx context.Context, args RunArgs, stdin io.Reader, stdout, stderr io.W
 		NewTerminateTool(pool, sessions),
 		NewReadFileTool(pool, resolver),
 		NewApplyPatchTool(pool, resolver),
-		NewCopyPathTool(pool, resolver),
+		NewCopyPathTool(pool, resolver, relayClient),
 	}
 	srv := NewMCPServer("agentserver", tools, logger)
 	if err := srv.Serve(ctx, stdin, stdout); err != nil {
