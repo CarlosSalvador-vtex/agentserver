@@ -62,3 +62,19 @@ def test_operation_record_from_dict():
     assert o.id == "op_1"
     assert o.is_error is False
     assert o.duration_ms == 42
+
+
+def test_operation_record_from_dict_minimal():
+    """Optional fields (user_id, arguments, result_summary) default to None;
+    is_error / duration_ms default to safe values when missing."""
+    o = OperationRecord.from_dict({"id": "op_2", "env_id": "a", "tool": "shell"})
+    assert o.id == "op_2"
+    assert o.env_id == "a"
+    assert o.tool == "shell"
+    assert o.user_id is None
+    assert o.arguments is None
+    assert o.result_summary is None
+    assert o.is_error is False
+    assert o.duration_ms == 0
+    assert o.source == ""
+    assert o.started_at == ""
