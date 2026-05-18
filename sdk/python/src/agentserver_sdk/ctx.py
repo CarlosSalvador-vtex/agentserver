@@ -78,10 +78,10 @@ class Ctx:
             server="env_mcp",
             tool="copy_path",
             arguments={
-                "src_env": src_env.name,
-                "src_path": src_path,
-                "dst_env": dst_env.name,
-                "dst_path": dst_path,
+                "source_environment_id": src_env.name,
+                "source_path": src_path,
+                "destination_environment_id": dst_env.name,
+                "destination_path": dst_path,
             },
         )
 

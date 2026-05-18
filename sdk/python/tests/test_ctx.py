@@ -106,10 +106,12 @@ async def test_ctx_copy_uses_copy_path_tool(monkeypatch, stub):
         call = next(m for m in stub.received if m.get("method") == "mcpServer/tool/call")
         assert call["params"]["tool"] == "copy_path"
         args = call["params"]["arguments"]
-        assert args["src_env"] == "alpha"
-        assert args["src_path"] == "/a/x"
-        assert args["dst_env"] == "hpc"
-        assert args["dst_path"] == "/b/x"
+        # env-mcp's actual copy_path contract uses these argument keys
+        # (verified at internal/codexappgateway/envmcp/tool_copy_path.go)
+        assert args["source_environment_id"] == "alpha"
+        assert args["source_path"] == "/a/x"
+        assert args["destination_environment_id"] == "hpc"
+        assert args["destination_path"] == "/b/x"
     finally:
         await ctx.close()
 
