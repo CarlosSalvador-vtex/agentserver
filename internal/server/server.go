@@ -93,6 +93,12 @@ type Server struct {
 	// boot completes.
 	NotebookSupervisor *notebooksupervisor.Supervisor
 
+	// NotebookJWTSecret is the HS256 key used to sign tokens minted by
+	// POST /api/notebooks/{ws}/session. Empty disables the route (503).
+	// Must match the secret the notebook pod's IdentityProvider verifies
+	// with — both come from the same Helm Secret in production.
+	NotebookJWTSecret []byte
+
 	// In-memory pending device code flows (OIDC credential creation).
 	deviceFlows   map[string]*pendingDeviceFlow
 	deviceFlowsMu sync.Mutex
@@ -364,6 +370,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/api/sandboxes/{id}/traces/{traceId}", s.handleTraceDetail)
 		r.Get("/api/workspaces/{wid}/traces", s.handleWorkspaceTraces)
 		r.Get("/api/workspaces/{wid}/traces/{traceId}", s.handleWorkspaceTraceDetail)
+
+		// Notebook session minting (Plan 3b). 503 if feature disabled.
+		r.Post("/api/notebooks/{ws}/session", s.postNotebookSession)
 
 		// Credential binding routes
 		r.Get("/api/workspaces/{id}/credentials/{kind}", s.handleListCredentialBindings)
