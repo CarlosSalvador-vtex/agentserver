@@ -200,6 +200,9 @@ func (s *Server) runBridgePump(ctx context.Context, session *bridgeSession) {
 			}
 			return
 		}
+		// Mark activity on every read from the bridge, even non-binary or
+		// wrong-stream_id ones — the connection IS being used.
+		session.touch()
 		if mt != websocket.MessageBinary {
 			continue
 		}
