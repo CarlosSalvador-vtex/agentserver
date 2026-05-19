@@ -42,7 +42,8 @@ func main() {
 		<-sigCh
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		httpServer.Shutdown(ctx)
+		httpServer.Shutdown(ctx) //nolint:errcheck
+		srv.Stop()
 	}()
 
 	log.Printf("codex-exec-gateway listening on :%s", cfg.Port)

@@ -16,6 +16,16 @@ type Config struct {
 	CapTokenHMACSecret        []byte
 	InternalSharedSecret      string
 	AgentserverInternalSecret string
+	// AgentserverInternalURL is the http(s):// base for agentserver's internal
+	// API — used by the SDK REST layer to validate proxy tokens via
+	// POST /internal/validate-proxy-token. Example: "http://agentserver:8080".
+	// Required when the SDK routes are enabled.
+	AgentserverInternalURL string
+	// SelfHTTPBaseURL is the http(s):// loopback base for this gateway process
+	// (e.g. "http://localhost:6060"). The SDK name-resolver calls
+	// /internal/sdk/connected on this host. If empty, the SDK tool layer will
+	// fail to resolve environment names (envs/list still works).
+	SelfHTTPBaseURL string
 	// PublicWSBaseURL is the wss:// origin used in the response of the
 	// upstream-compat `POST /cloud/executor/{exe_id}/register` endpoint.
 	// Example: "wss://codex-exec.agent.cs.ac.cn:443". When empty, the
@@ -57,6 +67,8 @@ func LoadConfigFromEnv() (Config, error) {
 		CapTokenHMACSecret:        []byte(os.Getenv("CXG_CAPTOKEN_HMAC_SECRET")),
 		InternalSharedSecret:      os.Getenv("CXG_INTERNAL_SHARED_SECRET"),
 		AgentserverInternalSecret: os.Getenv("CXG_AGENTSERVER_INTERNAL_SECRET"),
+		AgentserverInternalURL:    os.Getenv("CXG_AGENTSERVER_INTERNAL_URL"),
+		SelfHTTPBaseURL:           os.Getenv("CXG_SELF_HTTP_BASE_URL"),
 		PublicWSBaseURL:           os.Getenv("CXG_PUBLIC_WS_BASE_URL"),
 		PublicHTTPSBaseURL:        os.Getenv("CXG_PUBLIC_HTTPS_BASE_URL"),
 		RelayDefaultTTL:           parseDurationOr("CXG_RELAY_DEFAULT_TTL", 5*time.Minute),

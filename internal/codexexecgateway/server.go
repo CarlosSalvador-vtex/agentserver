@@ -1,13 +1,22 @@
 package codexexecgateway
 
 import (
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/agentserver/agentserver/internal/codexexecgateway/handlers"
 	"github.com/agentserver/agentserver/internal/codexexecgateway/relay"
+	sdkpkg "github.com/agentserver/agentserver/internal/codexexecgateway/sdk"
+	"github.com/agentserver/agentserver/internal/envtools/bridge"
+	"github.com/agentserver/agentserver/internal/envtools/nameresolver"
+	"github.com/agentserver/agentserver/internal/envtools/processes"
+	"github.com/agentserver/agentserver/internal/envtools/tools"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -22,6 +31,8 @@ type Server struct {
 	registry      *ConnRegistry
 	revoked       *RevokedSet
 	relayRegistry *relay.Registry // nil if PublicHTTPSBaseURL unset (dev/disabled)
+	sdkServer     *sdkpkg.Server  // nil if AgentserverInternalURL unset (dev/disabled)
+	sdkSessions   *processes.Manager
 	logger        *slog.Logger
 }
 
@@ -41,14 +52,91 @@ func NewServer(cfg Config, store *Store) (*Server, error) {
 	if cfg.PublicHTTPSBaseURL != "" {
 		relayReg = relay.NewRegistry(cfg.RelayMaxPerWorkspace, cfg.RelayDefaultTTL, logger)
 	}
+
+	registry := NewConnRegistry()
+
+	// Build the SDK REST surface.  Enabled when AgentserverInternalURL is
+	// set; disabled (nil sdkServer) in dev/test environments where the
+	// agentserver validate-proxy-token endpoint is not available.
+	var sdkSrv *sdkpkg.Server
+	var sdkSessions *processes.Manager
+	if cfg.AgentserverInternalURL != "" {
+		sdkSessions = processes.NewManager(30 * time.Minute)
+		sdkSessions.Run() // starts the idle-session GC goroutine
+
+		sdkAuth := sdkpkg.NewProxyTokenAuth(
+			cfg.AgentserverInternalURL,
+			cfg.AgentserverInternalSecret,
+			5*time.Minute,
+			30*time.Second,
+		)
+
+		// Bridge pool: dial the gateway's own /bridge/<exe_id> over ws.
+		// PublicWSBaseURL is "wss://…" in production; fall back to the
+		// loopback if only SelfHTTPBaseURL is set (dev mode).
+		bridgeBaseURL := cfg.PublicWSBaseURL
+		if bridgeBaseURL == "" && cfg.SelfHTTPBaseURL != "" {
+			bridgeBaseURL = strings.Replace(cfg.SelfHTTPBaseURL, "https://", "wss://", 1)
+			bridgeBaseURL = strings.Replace(bridgeBaseURL, "http://", "ws://", 1)
+		}
+		sdkPool := bridge.NewPool(bridgeBaseURL+"/bridge", "", logger)
+
+		// Name resolver: calls the gateway's own /internal/sdk/connected
+		// loopback with X-Loopback-Token == InternalSharedSecret so env-name
+		// → exe_id resolution works for tool calls without an extra HTTP hop.
+		var resolverURL string
+		if cfg.SelfHTTPBaseURL != "" {
+			resolverURL = strings.TrimRight(cfg.SelfHTTPBaseURL, "/") + "/internal/sdk/connected"
+		}
+		sdkResolver := nameresolver.NewResolver(resolverURL, cfg.InternalSharedSecret, logger)
+
+		// Tool registry keyed by the name the SDK sends in tool/call requests.
+		// UnifiedExecTool owns a SessionStore shared with the process manager;
+		// for the SDK path the processes.Manager handles session lifecycle
+		// (sdkSessions) while the tools.SessionStore handles the bridge-level
+		// write_stdin/read_output/terminate sub-calls.
+		unifiedSessions := tools.NewSessionStore()
+		relayClient := bridge.NewRelayClient(cfg.PublicHTTPSBaseURL, cfg.InternalSharedSecret, "", logger)
+
+		toolRegistry := map[string]tools.Tool{
+			"shell":        tools.NewShellTool(sdkPool, sdkResolver),
+			"read_file":    tools.NewReadFileTool(sdkPool, sdkResolver),
+			"apply_patch":  tools.NewApplyPatchTool(sdkPool, sdkResolver),
+			"copy_path":    tools.NewCopyPathTool(sdkPool, sdkResolver, relayClient),
+			"exec_command": tools.NewUnifiedExecTool(sdkPool, unifiedSessions, sdkResolver),
+		}
+
+		sdkSrv = &sdkpkg.Server{
+			Auth:     sdkAuth,
+			Pool:     sdkPool,
+			Resolver: sdkResolver,
+			Sessions: sdkSessions,
+			Registry: sdkConnectedAdapter{store: store, registry: registry},
+			Tools:    toolRegistry,
+		}
+		logger.Info("sdk REST surface enabled", "agentserver_url", cfg.AgentserverInternalURL)
+	} else {
+		logger.Warn("sdk REST surface disabled: CXG_AGENTSERVER_INTERNAL_URL not set")
+	}
+
 	return &Server{
 		config:        cfg,
 		store:         store,
-		registry:      NewConnRegistry(),
+		registry:      registry,
 		revoked:       NewRevokedSet(10000),
 		relayRegistry: relayReg,
+		sdkServer:     sdkSrv,
+		sdkSessions:   sdkSessions,
 		logger:        logger,
 	}, nil
+}
+
+// Stop releases background goroutines (currently: the SDK session GC).
+// Call from main's signal handler after http.Server.Shutdown returns.
+func (s *Server) Stop() {
+	if s.sdkSessions != nil {
+		s.sdkSessions.Stop()
+	}
 }
 
 // newServerNoStoreForTesting constructs a Server with a nil store. ONLY
@@ -121,8 +209,47 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/relay/create", s.handleRelayCreate)
 	})
 
-	// More routes added in later tasks.
+	// Loopback endpoint for the SDK name-resolver (nameresolver.Resolver).
+	// Called by the in-process bridge.Pool/tools when they need to map an
+	// environment name → exe_id.  Auth: X-Loopback-Token == InternalSharedSecret
+	// (same value, different header than RequireSharedSecret's Bearer check).
+	r.Get("/internal/sdk/connected", s.handleSDKConnectedLoopback)
+
+	// SDK REST surface (/api/sdk/*). Mounted last so SDK routes don't
+	// shadow any existing paths.
+	if s.sdkServer != nil {
+		s.sdkServer.Mount(r)
+	}
+
 	return r
+}
+
+// handleSDKConnectedLoopback serves GET /internal/sdk/connected for the
+// SDK name-resolver. It verifies X-Loopback-Token == InternalSharedSecret,
+// reads workspace_id from the query string, and returns the connected
+// executor list in the same JSON shape as /api/exec-gateway/connected.
+func (s *Server) handleSDKConnectedLoopback(w http.ResponseWriter, r *http.Request) {
+	tok := r.Header.Get("X-Loopback-Token")
+	if tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.config.InternalSharedSecret)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	wid := r.URL.Query().Get("workspace_id")
+	if wid == "" {
+		http.Error(w, "workspace_id required", http.StatusBadRequest)
+		return
+	}
+	rows, err := s.store.ConnectedExecutorsForWorkspace(r.Context(), wid, s.registry.ConnectedIDs())
+	if err != nil {
+		s.logger.Warn("sdk loopback connected: store error", "workspace_id", wid, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if rows == nil {
+		rows = []ConnectedExecutor{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rows)
 }
 
 // (real ConnRegistry lives in registry.go; real RevokedSet in revocation.go)
