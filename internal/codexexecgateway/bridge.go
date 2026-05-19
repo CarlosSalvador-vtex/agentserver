@@ -96,7 +96,7 @@ func (s *Server) handleBridge(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("bridge: ws accept", "exe_id", exeID, "error", err)
 		return
 	}
-	bridgeWS.SetReadLimit(-1)
+	bridgeWS.SetReadLimit(s.config.MaxFrameBytes)
 
 	// 6. Peek the Resume frame — env-mcp's BridgeClient always sends it
 	// first on dial; that's where we learn the stream_id for routing.

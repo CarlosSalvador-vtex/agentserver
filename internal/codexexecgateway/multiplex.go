@@ -38,9 +38,12 @@ type inboundConn struct {
 	closeErr  error
 }
 
-func newInboundConn(exeID string, ws *websocket.Conn, logger *slog.Logger) *inboundConn {
+func newInboundConn(exeID string, ws *websocket.Conn, logger *slog.Logger, maxFrameBytes int64) *inboundConn {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if ws != nil {
+		ws.SetReadLimit(maxFrameBytes)
 	}
 	return &inboundConn{
 		exeID:  exeID,

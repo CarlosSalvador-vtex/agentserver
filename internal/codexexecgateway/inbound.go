@@ -51,9 +51,7 @@ func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("inbound: ws accept", "exe_id", exeID, "error", err)
 		return
 	}
-	ws.SetReadLimit(-1) // codex exec-server streams large process/read responses
-
-	ic := newInboundConn(exeID, ws, s.logger.With("exe_id", exeID))
+	ic := newInboundConn(exeID, ws, s.logger.With("exe_id", exeID), s.config.MaxFrameBytes)
 	if evicted := s.registry.Register(exeID, ic); evicted != nil {
 		s.logger.Info("inbound: evicted prior conn", "exe_id", exeID)
 		evicted.close(nil)

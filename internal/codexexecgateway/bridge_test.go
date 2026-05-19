@@ -132,7 +132,7 @@ func TestBridge_Rejects503WhenExecutorOffline(t *testing.T) {
 func TestBridge_RejectsRevokedTurn(t *testing.T) {
 	hs, srv := newBridgeNoDBServer(t)
 	// Register a fake inbound so the revocation check is reached.
-	srv.registry.Register("exe_rev", newInboundConn("exe_rev", nil, nil))
+	srv.registry.Register("exe_rev", newInboundConn("exe_rev", nil, nil, 0))
 	now := time.Now().Unix()
 	srv.revoked.Add("trn_revoked", now+60)
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{
