@@ -66,14 +66,14 @@ func TestCodexInboundHappyPath(t *testing.T) {
 	sendURL, sends, stop := newCapturingImbridge(t)
 	defer stop()
 
-	h := &codexInboundHandler{
-		codex: &fakeCodexClient{
+	h := newCodexInboundHandler(
+		&fakeCodexClient{
 			resp: &CodexTurnResponse{
 				ThreadID: "thr-new",
 				Turn:     json.RawMessage(`{"id":"trn-1","status":"completed","items":[{"type":"agentMessage","id":"m1","text":"hello"}],"itemsView":"full","error":null}`),
 			},
 		},
-		sessions: &fakeSessionStore{
+		&fakeSessionStore{
 			get: func(_ context.Context, _, _ string) (sessionView, error) {
 				return sessionView{ID: "sess-1", CodexThreadID: nil}, nil
 			},
@@ -84,8 +84,10 @@ func TestCodexInboundHappyPath(t *testing.T) {
 				return nil
 			},
 		},
-		imbridgeSendURL: sendURL,
-	}
+		sendURL,
+		"",
+	)
+	defer h.dispatcher.Stop()
 
 	body := map[string]any{
 		"channel_id":     "ch-1",
@@ -114,21 +116,23 @@ func TestCodexInboundFailedWithUsageLimit(t *testing.T) {
 	sendURL, sends, stop := newCapturingImbridge(t)
 	defer stop()
 
-	h := &codexInboundHandler{
-		codex: &fakeCodexClient{
+	h := newCodexInboundHandler(
+		&fakeCodexClient{
 			resp: &CodexTurnResponse{
 				ThreadID: "thr-x",
 				Turn:     json.RawMessage(`{"id":"trn-1","status":"failed","items":[],"itemsView":"full","error":{"message":"quota","codexErrorInfo":"usageLimitExceeded","additionalDetails":null}}`),
 			},
 		},
-		sessions: &fakeSessionStore{
+		&fakeSessionStore{
 			get: func(_ context.Context, _, _ string) (sessionView, error) {
 				return sessionView{ID: "sess-1", CodexThreadID: strPtr("thr-x")}, nil
 			},
 			set: func(context.Context, string, *string) error { return nil },
 		},
-		imbridgeSendURL: sendURL,
-	}
+		sendURL,
+		"",
+	)
+	defer h.dispatcher.Stop()
 	r := newCodexInboundRequest(map[string]any{
 		"channel_id": "ch", "workspace_id": "ws", "wechat_user_id": "u", "text": "x",
 	})
@@ -146,14 +150,14 @@ func TestCodexInboundContextWindowClearsThread(t *testing.T) {
 	defer stop()
 
 	var cleared int32
-	h := &codexInboundHandler{
-		codex: &fakeCodexClient{
+	h := newCodexInboundHandler(
+		&fakeCodexClient{
 			resp: &CodexTurnResponse{
 				ThreadID: "thr-old",
 				Turn:     json.RawMessage(`{"id":"trn-1","status":"failed","items":[],"itemsView":"full","error":{"message":"too long","codexErrorInfo":"contextWindowExceeded","additionalDetails":null}}`),
 			},
 		},
-		sessions: &fakeSessionStore{
+		&fakeSessionStore{
 			get: func(_ context.Context, _, _ string) (sessionView, error) {
 				return sessionView{ID: "sess-1", CodexThreadID: strPtr("thr-old")}, nil
 			},
@@ -165,8 +169,10 @@ func TestCodexInboundContextWindowClearsThread(t *testing.T) {
 				return nil
 			},
 		},
-		imbridgeSendURL: sendURL,
-	}
+		sendURL,
+		"",
+	)
+	defer h.dispatcher.Stop()
 	r := newCodexInboundRequest(map[string]any{
 		"channel_id": "ch", "workspace_id": "ws", "wechat_user_id": "u", "text": "x",
 	})
@@ -181,21 +187,23 @@ func TestCodexInboundContextWindowClearsThread(t *testing.T) {
 func TestCodexInboundTransportError(t *testing.T) {
 	sendURL, sends, stop := newCapturingImbridge(t)
 	defer stop()
-	h := &codexInboundHandler{
-		codex: &fakeCodexClient{
+	h := newCodexInboundHandler(
+		&fakeCodexClient{
 			resp: &CodexTurnResponse{
 				ThreadID:  "thr-x",
 				Transport: &CodexTransportError{Code: "brokerTimeout", Message: "..."},
 			},
 		},
-		sessions: &fakeSessionStore{
+		&fakeSessionStore{
 			get: func(_ context.Context, _, _ string) (sessionView, error) {
 				return sessionView{ID: "sess-1"}, nil
 			},
 			set: func(context.Context, string, *string) error { return nil },
 		},
-		imbridgeSendURL: sendURL,
-	}
+		sendURL,
+		"",
+	)
+	defer h.dispatcher.Stop()
 	r := newCodexInboundRequest(map[string]any{
 		"channel_id": "ch", "workspace_id": "ws", "wechat_user_id": "u", "text": "x",
 	})

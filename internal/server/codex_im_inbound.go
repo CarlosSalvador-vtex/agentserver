@@ -8,7 +8,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 	"strings"
+	"sync"
+	"time"
 )
 
 // codexInboundHandler routes inbound WeChat messages destined for the
@@ -30,6 +33,7 @@ type codexInboundHandler struct {
 	sessions        sessionStore
 	imbridgeSendURL string
 	internalSecret  string
+	dispatcher      *codexDispatcher
 }
 
 type codexCaller interface {
@@ -73,7 +77,7 @@ func (h *codexInboundHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte(`{"queued":true}`))
-	go h.processTurn(context.Background(), req)
+	h.dispatcher.Enqueue(req)
 }
 
 func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundRequest) {
@@ -258,4 +262,123 @@ func (h *codexInboundHandler) postSend(ctx context.Context, body map[string]any)
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("codex_im: send status=%d body=%s", resp.StatusCode, body)
 	}
+}
+
+// newCodexInboundHandler wires up the handler with its dispatcher
+// already running. Cap is the per-(channel,user) queue depth — past
+// cap, drop-oldest applies.
+func newCodexInboundHandler(codex codexCaller, sessions sessionStore, imbridgeSendURL, internalSecret string) *codexInboundHandler {
+	h := &codexInboundHandler{
+		codex:           codex,
+		sessions:        sessions,
+		imbridgeSendURL: imbridgeSendURL,
+		internalSecret:  internalSecret,
+	}
+	h.dispatcher = newCodexDispatcher(func(req codexInboundRequest) {
+		h.processTurn(context.Background(), req)
+	}, 5)
+	return h
+}
+
+// --- per-(channel,user) FIFO dispatcher ---
+
+type codexDispatcher struct {
+	processFn func(codexInboundRequest)
+	cap       int
+
+	mu      sync.Mutex
+	workers map[string]*dispatcherSlot
+	stopped bool
+}
+
+type dispatcherSlot struct {
+	ch chan codexInboundRequest
+}
+
+func newCodexDispatcher(processFn func(codexInboundRequest), cap int) *codexDispatcher {
+	return &codexDispatcher{
+		processFn: processFn,
+		cap:       cap,
+		workers:   make(map[string]*dispatcherSlot),
+	}
+}
+
+func dispatcherKey(req codexInboundRequest) string {
+	return req.ChannelID + ":" + req.WechatUserID
+}
+
+// Enqueue adds req to the per-key channel. If the channel is full,
+// drains the oldest queued item to make room (drop-oldest policy).
+// Starts a worker for this key if none is running.
+func (d *codexDispatcher) Enqueue(req codexInboundRequest) {
+	key := dispatcherKey(req)
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		return
+	}
+	slot, ok := d.workers[key]
+	newWorker := false
+	if !ok {
+		slot = &dispatcherSlot{ch: make(chan codexInboundRequest, d.cap)}
+		d.workers[key] = slot
+		go d.runWorker(key, slot)
+		newWorker = true
+	}
+	d.mu.Unlock()
+	if newWorker {
+		// Yield so the new goroutine can dequeue the first item before
+		// subsequent Enqueue calls observe a full channel.
+		runtime.Gosched()
+	}
+
+	for {
+		select {
+		case slot.ch <- req:
+			return
+		default:
+			// Full — drop oldest then retry.
+			select {
+			case <-slot.ch:
+			default:
+			}
+		}
+	}
+}
+
+func (d *codexDispatcher) runWorker(key string, slot *dispatcherSlot) {
+	idle := time.NewTimer(30 * time.Second)
+	defer idle.Stop()
+	for {
+		select {
+		case req, ok := <-slot.ch:
+			if !ok {
+				return
+			}
+			d.processFn(req)
+			if !idle.Stop() {
+				<-idle.C
+			}
+			idle.Reset(30 * time.Second)
+		case <-idle.C:
+			d.mu.Lock()
+			if len(slot.ch) == 0 {
+				delete(d.workers, key)
+				d.mu.Unlock()
+				return
+			}
+			d.mu.Unlock()
+			idle.Reset(30 * time.Second)
+		}
+	}
+}
+
+func (d *codexDispatcher) Stop() {
+	d.mu.Lock()
+	d.stopped = true
+	for _, slot := range d.workers {
+		close(slot.ch)
+	}
+	d.workers = nil
+	d.mu.Unlock()
 }
