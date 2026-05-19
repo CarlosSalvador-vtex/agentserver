@@ -22,13 +22,16 @@ RUN pip install --no-cache-dir /tmp/agentserver_jupyter_ext && rm -rf /tmp/agent
 
 COPY notebook/jupyter_server_config.py /etc/jupyter/
 
-RUN mkdir -p /root/.ipython/profile_default/startup
-COPY notebook/ipython_startup/00-ctx.py /root/.ipython/profile_default/startup/00-ctx.py
-
 RUN useradd -m -u 1000 agent && mkdir -p /home/agent && chown -R agent:agent /home/agent
+
+RUN mkdir -p /home/agent/.ipython/profile_default/startup
+COPY notebook/ipython_startup/00-ctx.py /home/agent/.ipython/profile_default/startup/00-ctx.py
+RUN chown -R agent:agent /home/agent/.ipython
+
 WORKDIR /home/agent
 
 ENV JUPYTER_CONFIG_DIR=/etc/jupyter
 
 EXPOSE 8888
+USER 1000
 ENTRYPOINT ["tini", "--", "jupyter", "server", "--config=/etc/jupyter/jupyter_server_config.py"]
