@@ -31,9 +31,15 @@ type connectedClient interface {
 type Server struct {
 	cfg     ServeConfig
 	auth    auth.Authenticator
-	sup     *supervisor.Supervisor
-	homeMgr *codexhome.Manager
-	logger  *slog.Logger
+	// notebookAuth verifies /notebook/ws Bearer tokens. Agentserver's
+	// sandbox manager mints these for jupyter sandboxes (HMAC over
+	// wsID with the shared inbound secret), so they live in-cluster
+	// and don't appear in the codex_tokens DB table that RemoteVerifier
+	// queries. Nil falls back to the primary auth Authenticator.
+	notebookAuth auth.Authenticator
+	sup          *supervisor.Supervisor
+	homeMgr      *codexhome.Manager
+	logger       *slog.Logger
 
 	// buildConfig produces the per-spawn config + env vars (e.g. a
 	// workspace-scoped LLM API key). Receives the per-spawn loopback
@@ -86,13 +92,18 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 	})
 	execClient := NewExecGatewayClient(cfg.ExecGatewayInternalURL, cfg.ExecGatewayInternalSecret)
 	wsTokenClient := NewWorkspaceTokenClient(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret)
+	var notebookAuth auth.Authenticator
+	if len(cfg.InboundHMACSecret) > 0 {
+		notebookAuth = auth.NewHMAC(cfg.InboundHMACSecret)
+	}
 	s := &Server{
-		cfg:        cfg,
-		auth:       auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
-		sup:        sup,
-		homeMgr:    mgr,
-		logger:     logger,
-		execClient: execClient,
+		cfg:          cfg,
+		auth:         auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
+		notebookAuth: notebookAuth,
+		sup:          sup,
+		homeMgr:      mgr,
+		logger:       logger,
+		execClient:   execClient,
 	}
 	s.buildConfig = makeBuildConfig(cfg, execClient, wsTokenClient, selfBin, logger)
 	if cfg.OperationLogURL != "" && cfg.OperationLogSecret != "" {
@@ -304,8 +315,13 @@ func (s *Server) handleNotebookWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing Bearer", http.StatusUnauthorized)
 		return
 	}
-	id, err := s.auth.Verify(r.Context(), tok)
+	verifier := s.notebookAuth
+	if verifier == nil {
+		verifier = s.auth
+	}
+	id, err := verifier.Verify(r.Context(), tok)
 	if err != nil {
+		s.logger.Warn("notebook ws auth", "err", err)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
