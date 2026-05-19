@@ -91,14 +91,20 @@ func Dial(ctx context.Context, wsURL string) (*Conn, error) {
 func (c *Conn) readLoop() {
 	defer c.failAllPending(errors.New("connection closed"))
 
-	for {
-		ctx, cancel := context.WithCancel(context.Background())
-		// Tie reader lifecycle to Close.
-		go func() { <-c.closed; cancel() }()
-		_, data, err := c.ws.Read(ctx)
+	// One context + one watcher goroutine for the connection lifetime.
+	// Previously a new watcher was spawned per frame; cancel() does not
+	// unblock <-c.closed, so goroutines accumulated one-per-frame.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-c.closed
 		cancel()
+	}()
+
+	for {
+		_, data, err := c.ws.Read(ctx)
 		if err != nil {
-			c.closeErr.Store(&errHolder{err})
+			c.closeErr.CompareAndSwap(nil, &errHolder{err})
 			return
 		}
 		c.dispatchFrame(data)
@@ -190,6 +196,16 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 
 	resp, ok := waitResp(ctx, respCh)
 	if !ok {
+		// Either readLoop died (channel closed) or caller's ctx cancelled.
+		// Remove our registration so the reader doesn't deliver into an
+		// abandoned channel and the map entry doesn't persist until Close().
+		// If deliverResponse already deleted it, this delete is a no-op.
+		c.mu.Lock()
+		delete(c.pendingResp, id)
+		c.mu.Unlock()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, c.closeErrOr(errors.New("connection closed before turn/start response"))
 	}
 	if resp.Error != nil {
