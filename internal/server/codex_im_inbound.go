@@ -394,12 +394,22 @@ func (d *codexDispatcher) runWorker(key string, slot *dispatcherSlot) {
 
 func (d *codexDispatcher) Stop() {
 	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.stopped {
+		return
+	}
 	d.stopped = true
 	for _, slot := range d.workers {
 		close(slot.ch)
 	}
 	d.workers = nil
-	d.mu.Unlock()
+}
+
+// Close stops the FIFO dispatcher. Safe to call multiple times.
+// In-flight worker goroutines complete their current task then exit.
+// Call from the agentserver shutdown sequence.
+func (h *codexInboundHandler) Close() {
+	h.dispatcher.Stop()
 }
 
 // dbSessionStore is the production sessionStore that reads/writes the

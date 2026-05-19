@@ -95,6 +95,10 @@ type Server struct {
 	// In-memory pending device code flows (OIDC credential creation).
 	deviceFlows   map[string]*pendingDeviceFlow
 	deviceFlowsMu sync.Mutex
+
+	// codexHandler is set by Router() when CODEX_APP_GATEWAY_URL is
+	// configured. Kept here so Close() can stop its dispatcher.
+	codexHandler *codexInboundHandler
 }
 
 func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore *sbxstore.Store, processManager process.Manager, driveManager storage.DriveManager, nsMgr *namespace.Manager, tunnelReg *tunnel.Registry, staticFS fs.FS, passwordAuthEnabled bool) *Server {
@@ -150,6 +154,15 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 	// Background sweep for expired device code flows (OIDC).
 	go s.sweepExpiredDeviceFlows()
 	return s
+}
+
+// Close releases resources owned by the Server. Safe to call after
+// Router() returns; a no-op if called before Router() or if the codex
+// routing path was not configured.
+func (s *Server) Close() {
+	if s.codexHandler != nil {
+		s.codexHandler.Close()
+	}
 }
 
 // createDefaultWorkspace creates a "Default workspace" for a newly registered user.
@@ -276,6 +289,7 @@ func (s *Server) Router() http.Handler {
 			imbridgeSendURL = "http://127.0.0.1:8080"
 		}
 		codexHandler := newCodexInboundHandler(codexClient, &dbSessionStore{db: s.DB}, imbridgeSendURL, os.Getenv("INTERNAL_API_SECRET"))
+		s.codexHandler = codexHandler
 		r.Post("/api/internal/imbridge/codex/turn", func(w http.ResponseWriter, r *http.Request) {
 			secret := os.Getenv("INTERNAL_API_SECRET")
 			if secret != "" {

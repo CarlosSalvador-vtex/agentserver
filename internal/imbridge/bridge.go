@@ -500,7 +500,7 @@ func (b *Bridge) forwardToCodex(ctx context.Context, binding BridgeBinding, msg 
 		return false, fmt.Errorf("forward codex: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 {
+	if resp.StatusCode != http.StatusAccepted {
 		return false, fmt.Errorf("codex inbound: status %d", resp.StatusCode)
 	}
 	return true, nil

@@ -76,6 +76,12 @@ func TestDispatcherIndependentKeysRunConcurrently(t *testing.T) {
 	}
 }
 
+func TestDispatcherStopIsIdempotent(t *testing.T) {
+	d := newCodexDispatcher(func(codexInboundRequest) {}, 5)
+	d.Stop()
+	d.Stop() // must not panic
+}
+
 func TestDispatcherDropsOldestPastCap(t *testing.T) {
 	var processed []string
 	var mu sync.Mutex
