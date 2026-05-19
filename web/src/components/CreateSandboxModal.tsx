@@ -5,13 +5,13 @@ import { getWorkspaceDefaults, type WorkspaceSandboxDefaults } from '../lib/api'
 interface CreateSandboxModalProps {
   workspaceId: string
   onClose: () => void
-  onCreate: (name: string, type: 'opencode' | 'nanoclaw' | 'claudecode', cpu?: number, memory?: number, idleTimeout?: number, metadata?: Record<string, unknown>) => void
+  onCreate: (name: string, type: 'opencode' | 'nanoclaw' | 'claudecode' | 'jupyter', cpu?: number, memory?: number, idleTimeout?: number, metadata?: Record<string, unknown>) => void
   creating: boolean
 }
 
 export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }: CreateSandboxModalProps) {
   const [name, setName] = useState('New Sandbox')
-  const [sandboxType, setSandboxType] = useState<'opencode' | 'nanoclaw' | 'claudecode'>('opencode')
+  const [sandboxType, setSandboxType] = useState<'opencode' | 'nanoclaw' | 'claudecode' | 'jupyter'>('opencode')
   const [defaults, setDefaults] = useState<WorkspaceSandboxDefaults | null>(null)
   const [loadingDefaults, setLoadingDefaults] = useState(true)
 
@@ -160,7 +160,23 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
               >
                 Claude Code
               </button>
+              <button
+                type="button"
+                onClick={() => setSandboxType('jupyter')}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                  sandboxType === 'jupyter'
+                    ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]'
+                    : 'border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] hover:bg-[var(--secondary)]'
+                }`}
+              >
+                Jupyter
+              </button>
             </div>
+            {sandboxType === 'jupyter' && (
+              <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+                Pausing this sandbox stops the Jupyter server — kernel state and unsaved variables are lost. Notebook files (.ipynb) on the session volume are preserved.
+              </p>
+            )}
           </div>
 
           {sandboxType === 'nanoclaw' && (
