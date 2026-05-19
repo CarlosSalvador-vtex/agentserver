@@ -61,13 +61,17 @@ func (s *Server) handleJupyterSubdomainProxy(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Defense-in-depth: authenticate to Jupyter using its native header
-	// format. Jupyter Server accepts `Authorization: token <X>` (legacy
-	// but still honored in 2.x); Basic Auth is silently ignored and
-	// Jupyter falls back to its login page. The container is started
-	// with JUPYTER_TOKEN=proxyToken (set in manager.go), so we send
-	// that same value here.
+	// The notebook image runs with `AgentserverIdentityProvider`
+	// (notebook/agentserver_jupyter_ext/identity_provider.py), which
+	// authenticates the request from X-Forwarded-User and rejects
+	// (302 /login) anything without it. The proxy IS the trust boundary
+	// — by this point we've already validated the cookie and confirmed
+	// workspace membership. Token/Basic Auth headers are ignored by
+	// that IdP.
+	r.Header.Set("X-Forwarded-User", userID)
 	if sbx.ProxyToken != "" {
+		// Belt-and-braces: also send Jupyter's native token format in
+		// case a deployer swaps in the stock IdP.
 		r.Header.Set("Authorization", "token "+sbx.ProxyToken)
 	}
 
