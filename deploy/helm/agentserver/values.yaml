@@ -106,6 +106,10 @@ sandbox:
     image: ""                # e.g. ghcr.io/agentserver/claudecode-agent:main
     runtimeClassName: ""
     subdomainPrefix: "claude" # subdomain: {prefix}-{sessionID}.{baseDomain}
+  jupyter:
+    image: ""                # e.g. ghcr.io/agentserver/agentserver-jupyter:main
+    runtimeClassName: ""
+    subdomainPrefix: "jupyter" # subdomain: {prefix}-{sandboxID}.{baseDomain}
   nanoclaw:
     image: ""                # e.g. ghcr.io/agentserver/nanoclaw-agent:v1.2.42
     runtimeClassName: ""
@@ -384,40 +388,3 @@ gateway:
       namespace: cilium-gateway
   host: agentserver.example.com
 
-notebook:
-  # Image for the per-workspace Jupyter Server. Built by
-  # Dockerfile.notebook (Plan 1) + .github/workflows/build.yml.
-  image:
-    repository: ghcr.io/agentserver/agentserver-notebook
-    tag: latest
-    pullPolicy: IfNotPresent
-  # Per-workspace resource limits. Apply to the notebook container.
-  resources:
-    cpuRequest: "500m"
-    cpuLimit: "2"
-    memoryRequest: "1Gi"
-    memoryLimit: "4Gi"
-    ephemeralStorage: "5Gi"
-  # Lifecycle.
-  idleTTLSeconds: 14400      # 4h
-  reapIntervalSeconds: 300   # 5min
-  readyTimeoutSeconds: 60
-  # PVC name pattern. Must match the existing workspace-volume provisioner
-  # (internal/storage/workspacedrive.go names workspace PVCs
-  # `agent-ws-<first-8-of-workspace-id>-disk`).
-  # Placeholders substituted at runtime by the supervisor:
-  #   {workspace_id}        – full UUID
-  #   {workspace_id_short}  – first 8 chars
-  workspacePVCName: "agent-ws-{workspace_id_short}-disk"
-  jwtSecret: ""  # Empty = feature disabled. Generate with `openssl rand -hex 32`
-  baseURLPattern: "/api/notebooks/{workspace_id}/"
-  # Per-workspace notebook subdomain vhost (Plan 3c follow-up).
-  # When baseDomain is non-empty, the session endpoint returns
-  #   https://{prefix}-{workspace_id_short}.{baseDomain}/auth?token=…
-  # which sets an HttpOnly cookie and 302s to /lab. The reverse proxy
-  # then forwards the full path to Jupyter (base_url=/ on the upstream).
-  # When baseDomain is empty, the legacy /api/notebooks/{ws}/lab proxy
-  # on the main host is used.
-  host:
-    baseDomain: ""
-    subdomainPrefix: "nb"

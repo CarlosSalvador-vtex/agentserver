@@ -45,6 +45,7 @@ type Server struct {
 	OpencodeSubdomainPrefix   string
 	OpenclawSubdomainPrefix   string
 	ClaudeCodeSubdomainPrefix string
+	JupyterSubdomainPrefix    string
 
 	activityMu   sync.Mutex
 	activityLast map[string]time.Time
@@ -63,6 +64,7 @@ func New(cfg Config, authSvc *auth.Auth, database *db.DB, sandboxStore *sbxstore
 		OpencodeSubdomainPrefix: cfg.OpencodeSubdomainPrefix,
 		OpenclawSubdomainPrefix:   cfg.OpenclawSubdomainPrefix,
 		ClaudeCodeSubdomainPrefix: cfg.ClaudeCodeSubdomainPrefix,
+		JupyterSubdomainPrefix:    cfg.JupyterSubdomainPrefix,
 		activityLast:            make(map[string]time.Time),
 	}
 	s.initOpencodeAssetIndex()
@@ -105,6 +107,7 @@ func (s *Server) Router() http.Handler {
 			opcodePrefix := s.OpencodeSubdomainPrefix + "-"
 			clawPrefix := s.OpenclawSubdomainPrefix + "-"
 			claudePrefix := s.ClaudeCodeSubdomainPrefix + "-"
+			jupyterPrefix := s.JupyterSubdomainPrefix + "-"
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				host := r.Host
 				if idx := strings.LastIndex(host, ":"); idx != -1 {
@@ -136,6 +139,11 @@ func (s *Server) Router() http.Handler {
 					if strings.HasPrefix(sub, claudePrefix) {
 						sandboxID := sub[len(claudePrefix):]
 						s.handleClaudeCodeSubdomainProxy(w, r, sandboxID)
+						return
+					}
+					if strings.HasPrefix(sub, jupyterPrefix) {
+						sandboxID := sub[len(jupyterPrefix):]
+						s.handleJupyterSubdomainProxy(w, r, sandboxID)
 						return
 					}
 				}

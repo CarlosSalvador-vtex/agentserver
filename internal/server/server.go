@@ -24,7 +24,6 @@ import (
 	"github.com/agentserver/agentserver/internal/bridge"
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
-	"github.com/agentserver/agentserver/internal/notebooksupervisor"
 	"github.com/agentserver/agentserver/internal/process"
 	"github.com/agentserver/agentserver/internal/sbxstore"
 	"github.com/agentserver/agentserver/internal/shortid"
@@ -46,6 +45,7 @@ type Server struct {
 	OpencodeSubdomainPrefix  string   // e.g. "code" — subdomain: code-{id}.{baseDomain}
 	OpenclawSubdomainPrefix    string // e.g. "claw" — subdomain: claw-{id}.{baseDomain}
 	ClaudeCodeSubdomainPrefix  string // e.g. "claude" — subdomain: claude-{id}.{baseDomain}
+	JupyterSubdomainPrefix     string // e.g. "jupyter" — subdomain: jupyter-{id}.{baseDomain}
 	PasswordAuthEnabled      bool   // when false, /api/auth/login and /api/auth/register are not registered
 	LLMProxyURL              string // base URL for the llmproxy service (e.g. "http://agentserver-llmproxy:8081")
 
@@ -87,32 +87,6 @@ type Server struct {
 	ExecutorsClient            *ExecutorsClient
 	CodexExecGatewayPublicHost string // e.g. "codex-exec.example.com" — used to compose connect commands
 
-	// NotebookSupervisor manages per-workspace Jupyter notebook pods.
-	// nil when no k8s client is available (e.g. docker backend or k8s
-	// init failure). Plan 3b's handler reads this; do not access until
-	// boot completes.
-	NotebookSupervisor *notebooksupervisor.Supervisor
-
-	// NotebookJWTSecret is the HS256 key used to sign tokens minted by
-	// POST /api/notebooks/{ws}/session. Empty disables the route (503).
-	// Must match the secret the notebook pod's IdentityProvider verifies
-	// with — both come from the same Helm Secret in production.
-	NotebookJWTSecret []byte
-
-	// NotebookHostBaseDomain enables the per-workspace notebook subdomain
-	// vhost (e.g. "agent.cs.ac.cn" → "nb-<8hex>.agent.cs.ac.cn"). Empty
-	// disables the vhost; postNotebookSession falls back to returning the
-	// legacy "/api/notebooks/{ws}/lab" path-based proxy URL.
-	NotebookHostBaseDomain string
-
-	// NotebookSubdomainPrefix is the leftmost label of the vhost (default
-	// "nb"). Subdomain pattern: "{prefix}-{ws_short}.{baseDomain}".
-	NotebookSubdomainPrefix string
-
-	// testNotebookUpstream, if non-nil, replaces the supervisor lookup
-	// in notebookProxy. ONLY used in tests; never set in production.
-	testNotebookUpstream func(wsID string) (string, error)
-
 	// OperationsRetention is the TTL for rows in the operations table.
 	// 0 disables the background retention loop. Configurable via
 	// AGENTSERVER_OPERATIONS_RETENTION_DAYS (default 90).
@@ -147,6 +121,10 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 	if claudecodePrefix == "" {
 		claudecodePrefix = "claude"
 	}
+	jupyterPrefix := os.Getenv("JUPYTER_SUBDOMAIN_PREFIX")
+	if jupyterPrefix == "" {
+		jupyterPrefix = "jupyter"
+	}
 
 	s := &Server{
 		Auth:                      a,
@@ -162,6 +140,7 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		OpencodeSubdomainPrefix:   opcodePrefix,
 		OpenclawSubdomainPrefix:   openclawPrefix,
 		ClaudeCodeSubdomainPrefix: claudecodePrefix,
+		JupyterSubdomainPrefix:    jupyterPrefix,
 		PasswordAuthEnabled:       passwordAuthEnabled,
 		deviceFlows:               make(map[string]*pendingDeviceFlow),
 	}
@@ -201,22 +180,6 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-
-	// Per-workspace notebook subdomain vhost (e.g. nb-<8hex>.agent.cs.ac.cn).
-	// When the Host matches, dispatch every path to notebookVhost and
-	// SHORT-CIRCUIT the rest of the router so paths like /lab don't
-	// accidentally hit a chi 404.
-	if s.NotebookHostBaseDomain != "" {
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if short := s.notebookVhostHostMatch(req); short != "" {
-					s.notebookVhost(w, req, short)
-					return
-				}
-				next.ServeHTTP(w, req)
-			})
-		})
-	}
 
 	// Health endpoint (no auth required, for K8s probes)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -431,16 +394,6 @@ func (s *Server) Router() http.Handler {
 		r.Get("/api/sandboxes/{id}/traces/{traceId}", s.handleTraceDetail)
 		r.Get("/api/workspaces/{wid}/traces", s.handleWorkspaceTraces)
 		r.Get("/api/workspaces/{wid}/traces/{traceId}", s.handleWorkspaceTraceDetail)
-
-		// Notebook session minting (Plan 3b). 503 if feature disabled.
-		// MUST come before the wildcard proxy below so /session isn't
-		// caught by the proxy.
-		r.Post("/api/notebooks/{ws}/session", s.postNotebookSession)
-		// HTTP + WS reverse proxy to per-workspace Jupyter Server
-		// (Plan 3b Task 4). HandleFunc accepts arbitrary methods so
-		// POST (kernel start), DELETE (kernel stop), and GET-then-
-		// Upgrade (WS) all pass through.
-		r.HandleFunc("/api/notebooks/{ws}/*", s.notebookProxy)
 
 		// Credential binding routes
 		r.Get("/api/workspaces/{id}/credentials/{kind}", s.handleListCredentialBindings)
@@ -753,6 +706,7 @@ type sandboxResponse struct {
 	OpencodeURL     string  `json:"opencode_url,omitempty"`
 	OpenclawURL     string  `json:"openclaw_url,omitempty"`
 	ClaudeCodeURL   string  `json:"claudecode_url,omitempty"`
+	JupyterURL      string  `json:"jupyter_url,omitempty"`
 	CustomURL       string  `json:"custom_url,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	LastActivityAt  *string `json:"last_activity_at"`
@@ -822,6 +776,8 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 			// NanoClaw has no Web UI — no URL to generate
 		case "claudecode":
 			resp.ClaudeCodeURL = "https://" + s.ClaudeCodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
+		case "jupyter":
+			resp.JupyterURL = "https://" + s.JupyterSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		case "custom":
 			// Custom agents use the opencode subdomain prefix (code-{id}.domain)
 			// but skip SPA fallback in the proxy handler.
@@ -1474,8 +1430,8 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	if sandboxType == "" {
 		sandboxType = "opencode"
 	}
-	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" {
-		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, or claudecode", http.StatusBadRequest)
+	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" {
+		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, or jupyter", http.StatusBadRequest)
 		return
 	}
 	// Override resource values if user provided them, with validation.
@@ -1531,11 +1487,18 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		wsNamespace = ws.K8sNamespace.String
 	}
 
-	// Ensure workspace drive exists.
-	workspaceVolumes, err := s.DriveManager.EnsureDrive(r.Context(), wsID, wsNamespace)
-	if err != nil {
-		log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
-		// Non-fatal: sandbox can still work without workspace drive.
+	// Ensure workspace drive exists. Jupyter sandboxes are intentionally
+	// isolated to their own session-data PVC (no shared workspace drive),
+	// so skip provisioning for that type — see design spec
+	// docs/superpowers/specs/2026-05-19-jupyter-sandbox-type-design.md
+	// ("Non-goals: Mounting workspace-drive in jupyter sandboxes").
+	var workspaceVolumes []process.VolumeMount
+	if sandboxType != "jupyter" {
+		workspaceVolumes, err = s.DriveManager.EnsureDrive(r.Context(), wsID, wsNamespace)
+		if err != nil {
+			log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
+			// Non-fatal: sandbox can still work without workspace drive.
+		}
 	}
 
 	id := uuid.New().String()
@@ -1560,6 +1523,9 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		// The bridge secret is stored separately after sandbox creation.
 	case "claudecode":
 		// Claude Code only uses proxyToken (as ANTHROPIC_API_KEY).
+	case "jupyter":
+		// Jupyter Server uses proxyToken as its built-in JUPYTER_TOKEN.
+		// No opencodeToken needed.
 	default: // "opencode"
 		opencodeToken = generatePassword()
 	}

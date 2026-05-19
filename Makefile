@@ -63,9 +63,9 @@ sdk-test:
 sdk-lint:
 	cd sdk/python && .venv/bin/ruff check . && .venv/bin/ruff format --check .
 
-notebook-image:
-	docker build -f Dockerfile.notebook -t agentserver-notebook:dev .
+jupyter-image:
+	docker build -f Dockerfile.jupyter -t agentserver-jupyter:dev .
 
-notebook-smoke: notebook-image
+jupyter-smoke: jupyter-image
 	mkdir -p notebook/smoke-workspace
 	docker compose -f notebook/docker-compose.smoke.yml up --build

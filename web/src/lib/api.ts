@@ -49,6 +49,7 @@ export interface Sandbox {
   opencode_url?: string
   openclaw_url?: string
   claudecode_url?: string
+  jupyter_url?: string
   custom_url?: string
   created_at: string
   last_activity_at: string | null
@@ -311,7 +312,7 @@ export async function listSandboxes(workspaceId: string): Promise<Sandbox[]> {
 export async function createSandbox(
   workspaceId: string,
   name?: string,
-  type?: 'opencode' | 'nanoclaw' | 'claudecode',
+  type?: 'opencode' | 'nanoclaw' | 'claudecode' | 'jupyter',
   cpu?: number,
   memory?: number,
   idleTimeout?: number,
@@ -1073,36 +1074,6 @@ export async function registerRemoteExecutor(workspaceId: string, req: RegisterE
 export async function unbindRemoteExecutor(workspaceId: string, exeId: string): Promise<void> {
   const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/executors/${encodeURIComponent(exeId)}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to unbind executor')
-}
-
-// === Notebook (Plan 3c) ===
-
-export interface NotebookSession {
-  url: string         // path to load in iframe (relative to current origin)
-  token: string       // JWT to include as ?token=
-  expires_at: number  // unix seconds
-}
-
-/**
- * Mint a fresh notebook session. The returned token is good for 10 min.
- * 503 if the notebook feature is not enabled for this deployment.
- * 403 if the current user is not a workspace member.
- *
- * Backend endpoint added in Plan 3b (#86).
- */
-export async function createNotebookSession(workspaceId: string): Promise<NotebookSession> {
-  const res = await fetch(`/api/notebooks/${encodeURIComponent(workspaceId)}/session`, {
-    method: 'POST',
-    credentials: 'include',
-  })
-  if (res.status === 503) {
-    throw new Error('Notebook feature is not enabled for this deployment.')
-  }
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`createNotebookSession: ${res.status} ${body || res.statusText}`)
-  }
-  return res.json()
 }
 
 // === Operations (Plan 3c) ===

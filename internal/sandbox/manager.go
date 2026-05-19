@@ -465,6 +465,22 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
 			corev1.EnvVar{Name: "AGENTSERVER_SANDBOX_ID", Value: opts.SandboxID},
 		)
+	case "jupyter":
+		if m.cfg.JupyterImage == "" {
+			return "", fmt.Errorf("JUPYTER_IMAGE not configured: set the environment variable to the jupyter container image (build with Dockerfile.jupyter)")
+		}
+		sandboxImage = m.cfg.JupyterImage
+		containerPort = m.cfg.JupyterPort
+
+		// Jupyter Server picks up JUPYTER_TOKEN as the built-in token
+		// (defense in depth — actual access control is the sandboxproxy
+		// jupyter-token cookie). NOTEBOOK_BASE_URL=/ keeps absolute
+		// URLs rooted at the subdomain (matches the vhost convention).
+		containerEnv = append(containerEnv,
+			corev1.EnvVar{Name: "JUPYTER_TOKEN", Value: opts.ProxyToken},
+			corev1.EnvVar{Name: "NOTEBOOK_BASE_URL", Value: "/"},
+			corev1.EnvVar{Name: "JUPYTER_ROOT_DIR", Value: "/home/agent"},
+		)
 	default: // "opencode"
 		if opts.OpencodeToken != "" {
 			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCODE_SERVER_PASSWORD", Value: opts.OpencodeToken})
@@ -908,6 +924,10 @@ func (m *Manager) runtimeClassNameFor(sandboxType string) *string {
 	case "claudecode":
 		if m.cfg.ClaudeCodeRuntimeClassName != "" {
 			return strPtr(m.cfg.ClaudeCodeRuntimeClassName)
+		}
+	case "jupyter":
+		if m.cfg.JupyterRuntimeClassName != "" {
+			return strPtr(m.cfg.JupyterRuntimeClassName)
 		}
 	}
 	return m.runtimeClassName()

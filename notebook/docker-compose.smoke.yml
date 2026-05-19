@@ -17,7 +17,7 @@ services:
   notebook:
     build:
       context: ..
-      dockerfile: Dockerfile.notebook
+      dockerfile: Dockerfile.jupyter
     depends_on:
       - stub-gateway
     environment:

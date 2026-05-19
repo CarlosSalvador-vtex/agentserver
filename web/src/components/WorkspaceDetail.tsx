@@ -64,7 +64,6 @@ import { TelegramConfigModal } from './TelegramConfigModal'
 import { MatrixConfigModal } from './MatrixConfigModal'
 import CodexTokensPanel from './CodexTokensPanel'
 import RemoteExecutorsPanel from './RemoteExecutorsPanel'
-import NotebooksPanel from './NotebooksPanel'
 import OperationsPanel from './OperationsPanel'
 import { SandboxList } from './SandboxList'
 
@@ -326,7 +325,6 @@ function ExplorersPanel({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="flex flex-col gap-6">
       <CodexTokensPanel workspaceId={workspaceId} />
-      <NotebooksPanel workspaceId={workspaceId} />
     </div>
   )
 }

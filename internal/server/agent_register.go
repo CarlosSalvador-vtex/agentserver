@@ -77,6 +77,8 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	if sandboxType == "" {
 		sandboxType = "opencode"
 	}
+	// jupyter sandboxes are created via POST /api/workspaces/{wid}/sandboxes only;
+	// they don't self-register through this endpoint.
 	if sandboxType != "opencode" && sandboxType != "claudecode" && sandboxType != "custom" {
 		http.Error(w, "invalid type: must be opencode, claudecode, or custom", http.StatusBadRequest)
 		return
