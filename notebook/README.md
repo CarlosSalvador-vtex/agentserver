@@ -1,13 +1,13 @@
 # Notebook image (Plan 1)
 
-`Dockerfile.notebook` at repo root builds a self-contained jupyter image
+`Dockerfile.jupyter` at repo root builds a self-contained jupyter image
 with `agentserver_sdk` pre-installed. `ctx` is auto-injected into every
 kernel via `ipython_startup/00-ctx.py`.
 
 ## Build
 
 ```bash
-docker build -f Dockerfile.notebook -t agentserver-notebook:dev .
+docker build -f Dockerfile.jupyter -t agentserver-jupyter:dev .
 ```
 
 ## Run (against a stub gateway)

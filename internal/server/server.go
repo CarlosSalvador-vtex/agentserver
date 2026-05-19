@@ -45,6 +45,7 @@ type Server struct {
 	OpencodeSubdomainPrefix  string   // e.g. "code" — subdomain: code-{id}.{baseDomain}
 	OpenclawSubdomainPrefix    string // e.g. "claw" — subdomain: claw-{id}.{baseDomain}
 	ClaudeCodeSubdomainPrefix  string // e.g. "claude" — subdomain: claude-{id}.{baseDomain}
+	JupyterSubdomainPrefix     string // e.g. "jupyter" — subdomain: jupyter-{id}.{baseDomain}
 	PasswordAuthEnabled      bool   // when false, /api/auth/login and /api/auth/register are not registered
 	LLMProxyURL              string // base URL for the llmproxy service (e.g. "http://agentserver-llmproxy:8081")
 
@@ -120,6 +121,10 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 	if claudecodePrefix == "" {
 		claudecodePrefix = "claude"
 	}
+	jupyterPrefix := os.Getenv("JUPYTER_SUBDOMAIN_PREFIX")
+	if jupyterPrefix == "" {
+		jupyterPrefix = "jupyter"
+	}
 
 	s := &Server{
 		Auth:                      a,
@@ -135,6 +140,7 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		OpencodeSubdomainPrefix:   opcodePrefix,
 		OpenclawSubdomainPrefix:   openclawPrefix,
 		ClaudeCodeSubdomainPrefix: claudecodePrefix,
+		JupyterSubdomainPrefix:    jupyterPrefix,
 		PasswordAuthEnabled:       passwordAuthEnabled,
 		deviceFlows:               make(map[string]*pendingDeviceFlow),
 	}
@@ -700,6 +706,7 @@ type sandboxResponse struct {
 	OpencodeURL     string  `json:"opencode_url,omitempty"`
 	OpenclawURL     string  `json:"openclaw_url,omitempty"`
 	ClaudeCodeURL   string  `json:"claudecode_url,omitempty"`
+	JupyterURL      string  `json:"jupyter_url,omitempty"`
 	CustomURL       string  `json:"custom_url,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	LastActivityAt  *string `json:"last_activity_at"`
@@ -769,6 +776,8 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 			// NanoClaw has no Web UI — no URL to generate
 		case "claudecode":
 			resp.ClaudeCodeURL = "https://" + s.ClaudeCodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
+		case "jupyter":
+			resp.JupyterURL = "https://" + s.JupyterSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		case "custom":
 			// Custom agents use the opencode subdomain prefix (code-{id}.domain)
 			// but skip SPA fallback in the proxy handler.

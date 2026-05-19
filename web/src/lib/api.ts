@@ -49,6 +49,7 @@ export interface Sandbox {
   opencode_url?: string
   openclaw_url?: string
   claudecode_url?: string
+  jupyter_url?: string
   custom_url?: string
   created_at: string
   last_activity_at: string | null

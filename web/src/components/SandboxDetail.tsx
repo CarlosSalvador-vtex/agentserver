@@ -183,7 +183,8 @@ export function SandboxDetail({ sandbox, onPause, onResume, onDelete, onRename }
   const isNanoClaw = sandbox.type === 'nanoclaw'
   const isClaudeCode = sandbox.type === 'claudecode'
   const isCustom = sandbox.type === 'custom'
-  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isClaudeCode ? sandbox.claudecode_url : isNanoClaw ? null : sandbox.opencode_url
+  const isJupyter = sandbox.type === 'jupyter'
+  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isClaudeCode ? sandbox.claudecode_url : isJupyter ? (sandbox.jupyter_url || sandbox.opencode_url) : isNanoClaw ? null : sandbox.opencode_url
 
   const totalRequests = usageData ? usageData.reduce((s, u) => s + u.request_count, 0) : 0
   const totalInput = usageData ? usageData.reduce((s, u) => s + u.input_tokens, 0) : 0
@@ -434,8 +435,9 @@ function OverviewTab({ sandbox, imBindings, usageData, totals, workspaceChannels
   const isNanoClaw = sandbox.type === 'nanoclaw'
   const isClaudeCode = sandbox.type === 'claudecode'
   const isCustom = sandbox.type === 'custom'
-  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isClaudeCode ? sandbox.claudecode_url : isNanoClaw ? null : sandbox.opencode_url
-  const fallbackLabel = isCustom ? 'Custom Agent' : isOpenClaw ? 'OpenClaw' : isClaudeCode ? 'Claude Code' : 'OpenCode'
+  const isJupyter = sandbox.type === 'jupyter'
+  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isClaudeCode ? sandbox.claudecode_url : isJupyter ? (sandbox.jupyter_url || sandbox.opencode_url) : isNanoClaw ? null : sandbox.opencode_url
+  const fallbackLabel = isCustom ? 'Custom Agent' : isOpenClaw ? 'OpenClaw' : isClaudeCode ? 'Claude Code' : isJupyter ? 'Jupyter' : 'OpenCode'
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">
