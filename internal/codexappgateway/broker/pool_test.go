@@ -87,6 +87,16 @@ func TestPoolReusesConnForSameWorkspace(t *testing.T) {
 	}
 }
 
+func TestPoolCloseIsIdempotent(t *testing.T) {
+	resolver := func(_ context.Context, _ string) (string, error) {
+		return "ws://nowhere.invalid", nil
+	}
+	p := NewPool(resolver, time.Hour)
+	// Two consecutive closes must not panic.
+	p.Close()
+	p.Close()
+}
+
 func TestPoolReapsIdleConn(t *testing.T) {
 	urlFn, dialCount, stop := countingCodexServer(t)
 	defer stop()

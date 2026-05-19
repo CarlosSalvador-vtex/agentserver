@@ -19,9 +19,10 @@ type Pool struct {
 	resolver WSURLResolver
 	idleTTL  time.Duration
 
-	mu      sync.Mutex
-	entries map[string]*poolEntry
-	stop    chan struct{}
+	mu        sync.Mutex
+	entries   map[string]*poolEntry
+	stop      chan struct{}
+	closeOnce sync.Once
 }
 
 type poolEntry struct {
@@ -91,19 +92,22 @@ func (e *poolEntry) connClosed() bool {
 }
 
 // Close stops the reaper and closes all live connections.
+// It is safe to call Close more than once; subsequent calls are no-ops.
 func (p *Pool) Close() {
-	close(p.stop)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, e := range p.entries {
-		e.mu.Lock()
-		if e.conn != nil {
-			e.conn.Close()
-			e.conn = nil
+	p.closeOnce.Do(func() {
+		close(p.stop)
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		for _, e := range p.entries {
+			e.mu.Lock()
+			if e.conn != nil {
+				e.conn.Close()
+				e.conn = nil
+			}
+			e.mu.Unlock()
 		}
-		e.mu.Unlock()
-	}
-	p.entries = map[string]*poolEntry{}
+		p.entries = map[string]*poolEntry{}
+	})
 }
 
 func (p *Pool) reaper() {
