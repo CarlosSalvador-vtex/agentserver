@@ -67,9 +67,8 @@ type ServeConfig struct {
 	// list_environments).
 	ListenAddr string
 
-	// OperationLog endpoint + auth. When OperationLogURL is empty, the
-	// /notebook/ws Interceptor is constructed but oplog Submit is a no-op
-	// (Client is nil and the Interceptor guards check nil).
+	// OperationLog endpoint + auth. When OperationLogURL is empty,
+	// oplogClient is nil and Submit calls are no-ops.
 	OperationLogURL    string
 	OperationLogSecret string // X-Internal-Secret header value
 	OperationLogChan   int    // bounded channel capacity, default 1024
