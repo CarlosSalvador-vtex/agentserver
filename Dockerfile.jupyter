@@ -23,6 +23,10 @@ RUN pip install --no-cache-dir /tmp/agentserver_jupyter_ext && rm -rf /tmp/agent
 COPY notebook/jupyter_server_config.py /etc/jupyter/
 
 RUN useradd -m -u 1000 agent && mkdir -p /home/agent && chown -R agent:agent /home/agent
+# Jupyter Core writes a /etc/jupyter/migrated marker on first start
+# (jupyter_core.application.migrate_config). Give the agent user write
+# access to its config dir so startup doesn't crash with EACCES.
+RUN chown -R agent:agent /etc/jupyter
 
 RUN mkdir -p /home/agent/.ipython/profile_default/startup
 COPY notebook/ipython_startup/00-ctx.py /home/agent/.ipython/profile_default/startup/00-ctx.py
