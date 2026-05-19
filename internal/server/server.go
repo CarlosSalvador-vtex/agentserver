@@ -1474,8 +1474,8 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	if sandboxType == "" {
 		sandboxType = "opencode"
 	}
-	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" {
-		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, or claudecode", http.StatusBadRequest)
+	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" {
+		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, or jupyter", http.StatusBadRequest)
 		return
 	}
 	// Override resource values if user provided them, with validation.
@@ -1531,11 +1531,18 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		wsNamespace = ws.K8sNamespace.String
 	}
 
-	// Ensure workspace drive exists.
-	workspaceVolumes, err := s.DriveManager.EnsureDrive(r.Context(), wsID, wsNamespace)
-	if err != nil {
-		log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
-		// Non-fatal: sandbox can still work without workspace drive.
+	// Ensure workspace drive exists. Jupyter sandboxes are intentionally
+	// isolated to their own session-data PVC (no shared workspace drive),
+	// so skip provisioning for that type — see design spec
+	// docs/superpowers/specs/2026-05-19-jupyter-sandbox-type-design.md
+	// ("Non-goals: Mounting workspace-drive in jupyter sandboxes").
+	var workspaceVolumes []process.VolumeMount
+	if sandboxType != "jupyter" {
+		workspaceVolumes, err = s.DriveManager.EnsureDrive(r.Context(), wsID, wsNamespace)
+		if err != nil {
+			log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
+			// Non-fatal: sandbox can still work without workspace drive.
+		}
 	}
 
 	id := uuid.New().String()
