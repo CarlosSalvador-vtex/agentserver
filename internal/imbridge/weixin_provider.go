@@ -32,8 +32,8 @@ func (p *WeixinProvider) Poll(ctx context.Context, creds *Credentials, cursor st
 	// Handle API-level errors
 	if resp.Ret != 0 || resp.ErrCode != 0 {
 		if resp.ErrCode == weixin.SessionExpiredErrCode || resp.Ret == weixin.SessionExpiredErrCode {
-			log.Printf("imbridge: weixin session expired for bot=%s, backing off 5m", creds.BotID)
-			return &PollResult{ShouldBackoff: 5 * time.Minute}, nil
+			log.Printf("imbridge: weixin session expired for bot=%s, backing off 1h", creds.BotID)
+			return &PollResult{ShouldBackoff: 1 * time.Hour}, nil
 		}
 		return nil, fmt.Errorf("ilink API error: ret=%d errcode=%d errmsg=%s", resp.Ret, resp.ErrCode, resp.ErrMsg)
 	}
@@ -210,8 +210,13 @@ func describeWeixinMedia(items []weixin.MessageItem) string {
 
 // SendImage implements ImageSendProvider for WeChat.
 // Uploads the image to CDN and sends it, then sends the caption as a separate text message.
-func (p *WeixinProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string) error {
+// Both calls carry the meta["context_token"] so the iLink server can route the
+// outbound back through the originating conversation.
+func (p *WeixinProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string, meta map[string]string) error {
 	contextToken := ""
+	if meta != nil {
+		contextToken = meta["context_token"]
+	}
 	if err := weixin.UploadAndSendImage(ctx, creds.BaseURL, "", creds.BotToken, toUserID, imageData, contextToken); err != nil {
 		return err
 	}
@@ -221,6 +226,19 @@ func (p *WeixinProvider) SendImage(ctx context.Context, creds *Credentials, toUs
 	return nil
 }
 
+// OnPollerStart implements LifecycleProvider — notifies the iLink server
+// that this client is starting to long-poll for the given bot, so the
+// server can reconcile per-account online state. Best-effort.
+func (p *WeixinProvider) OnPollerStart(ctx context.Context, creds *Credentials) error {
+	return weixin.NotifyStart(ctx, creds.BaseURL, creds.BotToken)
+}
+
+// OnPollerStop implements LifecycleProvider — notifies the iLink server
+// that this client is going offline. Best-effort.
+func (p *WeixinProvider) OnPollerStop(ctx context.Context, creds *Credentials) error {
+	return weixin.NotifyStop(ctx, creds.BaseURL, creds.BotToken)
+}
+
 // --- QR Login session management (delegates to weixin package) ---
 
 // StartQRLogin initiates a WeChat QR code login flow.
@@ -228,9 +246,17 @@ func (p *WeixinProvider) StartQRLogin(ctx context.Context) (*weixin.Session, err
 	return weixin.StartLogin(ctx, weixin.DefaultAPIBaseURL)
 }
 
-// PollQRLogin polls for the QR code scan status.
-func (p *WeixinProvider) PollQRLogin(ctx context.Context, qrCode string) (*weixin.StatusResult, error) {
-	return weixin.PollLoginStatus(ctx, weixin.DefaultAPIBaseURL, qrCode)
+// PollQRLogin polls for the QR code scan status using the session's
+// CurrentAPIBaseURL (which may differ from DefaultAPIBaseURL after a
+// scaned_but_redirect IDC migration). Callers are responsible for
+// updating session.CurrentAPIBaseURL when the result is
+// scaned_but_redirect, before the next call.
+func (p *WeixinProvider) PollQRLogin(ctx context.Context, session *weixin.Session) (*weixin.StatusResult, error) {
+	baseURL := session.CurrentAPIBaseURL
+	if baseURL == "" {
+		baseURL = weixin.DefaultAPIBaseURL
+	}
+	return weixin.PollLoginStatus(ctx, baseURL, session.QRCode)
 }
 
 // SetSession stores a QR login session for a sandbox.

@@ -128,7 +128,7 @@ func (s *Server) handleNanoclawIMSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "image sending not supported for provider: "+provider.Name(), http.StatusBadRequest)
 			return
 		}
-		if err := isp.SendImage(r.Context(), creds, userID, mediaData, reqMeta.Text); err != nil {
+		if err := isp.SendImage(r.Context(), creds, userID, mediaData, reqMeta.Text, meta); err != nil {
 			log.Printf("nanoclaw im send image: failed sandbox=%s to=%s: %v", sandboxID, userID, err)
 			http.Error(w, "failed to send image: "+err.Error(), http.StatusBadGateway)
 			return
@@ -288,7 +288,8 @@ func (s *Server) handleImbridgeDirectSendImage(w http.ResponseWriter, r *http.Re
 		BaseURL:   channel.BaseURL,
 	}
 
-	if err := isp.SendImage(r.Context(), creds, req.ToUserID, data, req.Caption); err != nil {
+	meta, _ := s.db.GetAllChannelMeta(channel.ID, req.ToUserID)
+	if err := isp.SendImage(r.Context(), creds, req.ToUserID, data, req.Caption, meta); err != nil {
 		log.Printf("imbridge direct send-image: failed channel=%s provider=%s to=%s: %v",
 			channel.ID, provider.Name(), req.ToUserID, err)
 		http.Error(w, "failed to send image", http.StatusBadGateway)
@@ -364,7 +365,7 @@ func (s *Server) handleIMWeixinQRWait(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := wp.PollQRLogin(r.Context(), session.QRCode)
+	result, err := wp.PollQRLogin(r.Context(), session)
 	if err != nil {
 		log.Printf("weixin qr-wait: poll error: %v", err)
 		http.Error(w, "poll failed", http.StatusBadGateway)
@@ -407,7 +408,45 @@ func (s *Server) handleIMWeixinQRWait(w http.ResponseWriter, r *http.Request) {
 			"qrcode_url": newSession.QRCodeURL,
 		})
 
+	case "scaned_but_redirect":
+		// IDC migration: subsequent polls must target the new host.
+		if result.RedirectHost != "" {
+			session.CurrentAPIBaseURL = "https://" + result.RedirectHost
+			wp.SetSession(id, session)
+			log.Printf("weixin qr-wait: IDC redirect, switching polling host to %s", result.RedirectHost)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected": false,
+			"status":    "scaned",
+			"message":   statusMessage("scaned"),
+		})
+
+	case "binded_redirect":
+		wp.TakeSession(id)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected":        false,
+			"status":           "binded_redirect",
+			"already_connected": true,
+			"message":          "已连接过此实例，无需重复连接",
+		})
+
+	case "verify_code_blocked":
+		wp.ClearSession(id)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected": false,
+			"status":    "verify_code_blocked",
+			"message":   "配对码错误次数过多，请稍后再试",
+		})
+
 	default:
+		// Includes "wait", "scaned", "need_verifycode" (logged-and-waited),
+		// and any unknown future status.
+		if result.Status == "need_verifycode" {
+			log.Printf("weixin qr-wait: need_verifycode received (interactive pair-code not supported yet, sandbox=%s)", id)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"connected": false,
@@ -983,7 +1022,7 @@ func (s *Server) handleWorkspaceWeixinQRWait(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	result, err := wp.PollQRLogin(r.Context(), session.QRCode)
+	result, err := wp.PollQRLogin(r.Context(), session)
 	if err != nil {
 		log.Printf("weixin qr-wait: poll error: %v", err)
 		http.Error(w, "poll failed", http.StatusBadGateway)
@@ -1047,7 +1086,41 @@ func (s *Server) handleWorkspaceWeixinQRWait(w http.ResponseWriter, r *http.Requ
 			"qrcode_url": newSession.QRCodeURL,
 		})
 
+	case "scaned_but_redirect":
+		if result.RedirectHost != "" {
+			session.CurrentAPIBaseURL = "https://" + result.RedirectHost
+			wp.SetSession(wsID, session)
+			log.Printf("weixin qr-wait: IDC redirect, switching polling host to %s", result.RedirectHost)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected": false,
+			"status":    "scaned",
+		})
+
+	case "binded_redirect":
+		wp.TakeSession(wsID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected":         false,
+			"status":            "binded_redirect",
+			"already_connected": true,
+			"message":           "已连接过此实例，无需重复连接",
+		})
+
+	case "verify_code_blocked":
+		wp.ClearSession(wsID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected": false,
+			"status":    "verify_code_blocked",
+			"message":   "配对码错误次数过多，请稍后再试",
+		})
+
 	default:
+		if result.Status == "need_verifycode" {
+			log.Printf("weixin qr-wait: need_verifycode received (interactive pair-code not supported yet, workspace=%s)", wsID)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"connected": false,

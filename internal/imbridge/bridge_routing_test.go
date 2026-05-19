@@ -1,7 +1,6 @@
 package imbridge
 
 import (
-	"context"
 	"sync"
 	"testing"
 )
@@ -14,7 +13,7 @@ import (
 func TestForwardMessageChannelRoutingOverridesBinding(t *testing.T) {
 	b := &Bridge{
 		providers:        map[string]Provider{},
-		pollers:          map[string]context.CancelFunc{},
+		pollers:          map[string]pollerEntry{},
 		registeredGroups: map[string]string{},
 		channelMention:   map[string]bool{},
 		channelRouting:   map[string]string{},
@@ -45,7 +44,7 @@ func TestForwardMessageChannelRoutingOverridesBinding(t *testing.T) {
 func TestSetChannelRoutingModeConcurrent(t *testing.T) {
 	b := &Bridge{
 		providers:        map[string]Provider{},
-		pollers:          map[string]context.CancelFunc{},
+		pollers:          map[string]pollerEntry{},
 		registeredGroups: map[string]string{},
 		channelMention:   map[string]bool{},
 		channelRouting:   map[string]string{},

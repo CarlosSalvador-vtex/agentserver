@@ -52,6 +52,13 @@ type BridgeBinding struct {
 	RoutingMode string // "nanoclaw" (default) or "stateless_cc"
 }
 
+// pollerEntry tracks an active poller so the bridge can both cancel it and
+// invoke its provider's lifecycle hooks (e.g. notifyStop) on shutdown.
+type pollerEntry struct {
+	cancel  context.CancelFunc
+	binding BridgeBinding
+}
+
 // Bridge manages per-binding poll goroutines for all IM providers.
 type Bridge struct {
 	db               BridgeDB
@@ -59,11 +66,11 @@ type Bridge struct {
 	exec             ExecCommander
 	agentserverURL   string
 	providers        map[string]Provider
-	pollers          map[string]context.CancelFunc // key: channelID
-	registeredGroups map[string]string             // key: "sandboxID:chatJID" → cached settings hash
-	channelMention   map[string]bool               // key: channelID → require_mention setting
-	channelRouting   map[string]string             // key: channelID → routing_mode (runtime override of binding)
-	typingSessions   map[string]func()             // key: "channelID:userID" → cancel func
+	pollers          map[string]pollerEntry // key: channelID
+	registeredGroups map[string]string      // key: "sandboxID:chatJID" → cached settings hash
+	channelMention   map[string]bool        // key: channelID → require_mention setting
+	channelRouting   map[string]string      // key: channelID → routing_mode (runtime override of binding)
+	typingSessions   map[string]func()      // key: "channelID:userID" → cancel func
 	mu               sync.Mutex
 }
 
@@ -83,7 +90,7 @@ func NewBridge(db BridgeDB, resolver SandboxResolver, exec ExecCommander, provid
 		exec:             exec,
 		agentserverURL:   agentserverURL,
 		providers:        pm,
-		pollers:          make(map[string]context.CancelFunc),
+		pollers:          make(map[string]pollerEntry),
 		registeredGroups: make(map[string]string),
 		channelMention:   make(map[string]bool),
 		channelRouting:   make(map[string]string),
@@ -107,13 +114,18 @@ func (b *Bridge) GetProvider(name string) Provider {
 
 // StartPoller starts a long-poll goroutine for a channel.
 // If a poller already exists for this channel, it is stopped first.
+//
+// If the provider implements LifecycleProvider, OnPollerStart is invoked
+// best-effort in a separate goroutine; failures are logged but do not
+// block poller startup.
 func (b *Bridge) StartPoller(binding BridgeBinding) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	key := binding.ChannelID
-	if cancel, ok := b.pollers[key]; ok {
-		cancel()
+	prevEntry, replacing := b.pollers[key]
+	if replacing {
+		prevEntry.cancel()
 	}
 
 	// Seed the in-memory routing map so getChannelRoutingMode returns
@@ -122,34 +134,87 @@ func (b *Bridge) StartPoller(binding BridgeBinding) {
 	b.channelRouting[key] = binding.RoutingMode
 
 	ctx, cancel := context.WithCancel(context.Background())
-	b.pollers[key] = cancel
+	b.pollers[key] = pollerEntry{cancel: cancel, binding: binding}
 
+	if replacing {
+		// Same channelID often means same bot account (re-login). Serialize
+		// notifyStop(old) → notifyStart(new) so the upstream server's per-account
+		// online state is not corrupted by reordering. Detached from the bridge
+		// lock; the new pollLoop starts in parallel since it doesn't depend on
+		// notify lifecycle.
+		go func() {
+			invokeOnPollerStop(prevEntry.binding)
+			invokeOnPollerStart(binding)
+		}()
+	} else {
+		go invokeOnPollerStart(binding)
+	}
 	go b.pollLoop(ctx, binding)
 }
 
-// StopPoller stops the polling goroutine for a specific channel.
+// StopPoller stops the polling goroutine for a specific channel and, if the
+// provider implements LifecycleProvider, fires OnPollerStop in a separate
+// goroutine (best-effort, won't block return).
 func (b *Bridge) StopPoller(channelID string) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if cancel, ok := b.pollers[channelID]; ok {
-		cancel()
+	entry, ok := b.pollers[channelID]
+	if ok {
+		entry.cancel()
 		delete(b.pollers, channelID)
+	}
+	b.mu.Unlock()
+	if ok {
+		go invokeOnPollerStop(entry.binding)
 	}
 }
 
 // StopAllPollers stops all polling goroutines and typing sessions.
+// LifecycleProvider hooks fire best-effort in goroutines.
 func (b *Bridge) StopAllPollers() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	for key, cancel := range b.pollers {
-		cancel()
+	entries := make([]pollerEntry, 0, len(b.pollers))
+	for key, entry := range b.pollers {
+		entry.cancel()
+		entries = append(entries, entry)
 		delete(b.pollers, key)
 	}
 	for key, cancel := range b.typingSessions {
 		cancel()
 		delete(b.typingSessions, key)
+	}
+	b.mu.Unlock()
+	for _, e := range entries {
+		go invokeOnPollerStop(e.binding)
+	}
+}
+
+// invokeOnPollerStart fires the optional LifecycleProvider.OnPollerStart hook
+// with a short timeout. Failures are logged and ignored.
+func invokeOnPollerStart(binding BridgeBinding) {
+	lp, ok := binding.Provider.(LifecycleProvider)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := lp.OnPollerStart(ctx, &binding.Credentials); err != nil {
+		log.Printf("imbridge: %s OnPollerStart failed (ignored) channel=%s: %v",
+			binding.Provider.Name(), binding.ChannelID, err)
+	}
+}
+
+// invokeOnPollerStop fires the optional LifecycleProvider.OnPollerStop hook
+// with a short timeout. Failures are logged and ignored.
+func invokeOnPollerStop(binding BridgeBinding) {
+	lp, ok := binding.Provider.(LifecycleProvider)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := lp.OnPollerStop(ctx, &binding.Credentials); err != nil {
+		log.Printf("imbridge: %s OnPollerStop failed (ignored) channel=%s: %v",
+			binding.Provider.Name(), binding.ChannelID, err)
 	}
 }
 

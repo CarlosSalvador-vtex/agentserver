@@ -73,4 +73,23 @@ func TestBuildILinkHeaders(t *testing.T) {
 	if h.Get("Content-Type") != "application/json" {
 		t.Errorf("got ct=%q", h.Get("Content-Type"))
 	}
+	if h.Get("iLink-App-Id") != iLinkAppID {
+		t.Errorf("got iLink-App-Id=%q, want %q", h.Get("iLink-App-Id"), iLinkAppID)
+	}
+	if h.Get("iLink-App-ClientVersion") != iLinkAppClientVersion {
+		t.Errorf("got iLink-App-ClientVersion=%q, want %q", h.Get("iLink-App-ClientVersion"), iLinkAppClientVersion)
+	}
+	if h.Get("X-WECHAT-UIN") == "" {
+		t.Error("X-WECHAT-UIN must be present")
+	}
+}
+
+func TestBuildILinkHeadersNoToken(t *testing.T) {
+	h := buildILinkHeaders("")
+	if h.Get("Authorization") != "" {
+		t.Errorf("expected no Authorization when token empty, got %q", h.Get("Authorization"))
+	}
+	if h.Get("iLink-App-Id") != iLinkAppID {
+		t.Errorf("App-Id must be set even without token, got %q", h.Get("iLink-App-Id"))
+	}
 }

@@ -218,7 +218,8 @@ func (p *TelegramProvider) ValidateCredentials(ctx context.Context, baseURL, tok
 }
 
 // SendImage implements ImageSendProvider for Telegram.
-func (p *TelegramProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string) error {
+// meta is unused (Telegram has no per-conversation context_token).
+func (p *TelegramProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string, _ map[string]string) error {
 	chatID, err := strconv.ParseInt(strings.TrimSuffix(toUserID, "@tg"), 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid telegram chat ID %q: %w", toUserID, err)

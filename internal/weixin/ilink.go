@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,25 +32,77 @@ const (
 	configTimeout        = 10 * time.Second
 	SessionExpiredErrCode = -14
 
+	// iLink app identification headers. The server uses these to
+	// gate features and identify the upstream app. Values match
+	// @tencent-weixin/openclaw-weixin@2.4.3 (ilink_appid="bot",
+	// version 2.4.3 encoded as major<<16|minor<<8|patch = 0x020403).
+	iLinkAppID            = "bot"
+	iLinkAppClientVersion = "132099" // (2<<16)|(4<<8)|3
+
+	// BotAgent sent in every request's base_info. iLink uses this
+	// UA-style string for upstream-app identification.
+	defaultBotAgent = "agentserver"
+
 	// TypingStatus values for SendTyping.
 	TypingStatusTyping = 1
 	TypingStatusCancel = 2
 )
 
-// Session holds the state of an in-progress QR login for a single sandbox.
-type Session struct {
-	QRCode    string    // opaque qrcode string for status polling
-	QRCodeURL string    // image URL for frontend rendering
-	StartedAt time.Time
+// ErrSessionExpired is returned by outbound API helpers when the iLink
+// server reports session-expired (ret/errcode == -14). Callers should
+// treat the bot as needing re-login. Test with errors.Is.
+var ErrSessionExpired = errors.New("weixin: session expired (errcode -14)")
+
+// IsSessionExpired reports whether err (or any wrapped err) is ErrSessionExpired.
+func IsSessionExpired(err error) bool {
+	return errors.Is(err, ErrSessionExpired)
 }
 
-// StatusResult is the parsed response from get_qrcode_status.
+// checkAPIError converts an iLink response envelope into either
+// ErrSessionExpired (when ret/errcode == -14) or a generic error
+// when ret != 0 or errcode != 0. Returns nil on success.
+func checkAPIError(label string, ret, errcode int, errmsg string) error {
+	if ret == SessionExpiredErrCode || errcode == SessionExpiredErrCode {
+		return fmt.Errorf("%s: %w", label, ErrSessionExpired)
+	}
+	if ret != 0 || errcode != 0 {
+		return fmt.Errorf("%s: ret=%d errcode=%d errmsg=%s", label, ret, errcode, errmsg)
+	}
+	return nil
+}
+
+// newBaseInfo returns the base_info envelope attached to every API request.
+func newBaseInfo() BaseInfo {
+	return BaseInfo{ChannelVersion: channelVersion, BotAgent: defaultBotAgent}
+}
+
+// Session holds the state of an in-progress QR login for a single sandbox.
+// CurrentAPIBaseURL tracks the base URL polling should use for the *next*
+// PollLoginStatus call. It starts as the original DefaultAPIBaseURL and may
+// switch mid-flight when the server returns scaned_but_redirect with a new
+// redirect_host (IDC migration).
+type Session struct {
+	QRCode            string    // opaque qrcode string for status polling
+	QRCodeURL         string    // image URL for frontend rendering
+	CurrentAPIBaseURL string    // host to use for next PollLoginStatus
+	StartedAt         time.Time
+}
+
+// StatusResult is the parsed response from get_qrcode_status. The set of
+// statuses matches @tencent-weixin/openclaw-weixin@2.4.3:
+//
+//   wait / scaned / confirmed / expired — original states.
+//   scaned_but_redirect — IDC migration; caller must switch to RedirectHost.
+//   binded_redirect — bot already bound to this instance; no re-login needed.
+//   need_verifycode — server requires a pair-code from the WeChat client.
+//   verify_code_blocked — too many wrong codes; refresh QR and try again.
 type StatusResult struct {
-	Status  string `json:"status"` // "wait", "scaned", "confirmed", "expired"
-	Token   string `json:"bot_token,omitempty"`
-	BotID   string `json:"ilink_bot_id,omitempty"`
-	BaseURL string `json:"baseurl,omitempty"`
-	UserID  string `json:"ilink_user_id,omitempty"`
+	Status       string `json:"status"`
+	Token        string `json:"bot_token,omitempty"`
+	BotID        string `json:"ilink_bot_id,omitempty"`
+	BaseURL      string `json:"baseurl,omitempty"`
+	UserID       string `json:"ilink_user_id,omitempty"`
+	RedirectHost string `json:"redirect_host,omitempty"` // host (no scheme) for scaned_but_redirect
 }
 
 // --- iLink Message API types ---
@@ -57,6 +110,7 @@ type StatusResult struct {
 // BaseInfo is common metadata attached to every iLink API request.
 type BaseInfo struct {
 	ChannelVersion string `json:"channel_version,omitempty"`
+	BotAgent       string `json:"bot_agent,omitempty"`
 }
 
 // MessageItem represents a single content item in a WeixinMessage.
@@ -171,16 +225,25 @@ func purgeExpired() {
 	}
 }
 
+// GetSession returns a copy of the active QR-login session for sandboxID,
+// or nil when none is active or the stored one has expired. The returned
+// pointer is detached from the in-memory map: callers may mutate fields
+// (e.g. CurrentAPIBaseURL on IDC redirect) and persist via SetSession
+// without racing concurrent readers of the same map entry.
 func GetSession(sandboxID string) *Session {
 	mu.Lock()
 	defer mu.Unlock()
 	purgeExpired()
 	s := sessions[sandboxID]
-	if s != nil && time.Since(s.StartedAt) > sessionTTL {
+	if s == nil {
+		return nil
+	}
+	if time.Since(s.StartedAt) > sessionTTL {
 		delete(sessions, sandboxID)
 		return nil
 	}
-	return s
+	cp := *s
+	return &cp
 }
 
 func SetSession(sandboxID string, s *Session) {
@@ -211,6 +274,13 @@ type qrCodeResponse struct {
 }
 
 // StartLogin calls the ilink API to generate a new QR code for WeChat login.
+//
+// Since openclaw-weixin@2.3.1, this is a POST with body
+// {"local_token_list": [...]} so the server can return binded_redirect
+// when the scanning bot is already bound to a known token. We do not
+// currently track previously-issued tokens here, so an empty list is
+// always sent — losing the binded_redirect optimization but matching
+// the current wire protocol.
 func StartLogin(ctx context.Context, apiBaseURL string) (*Session, error) {
 	if apiBaseURL == "" {
 		apiBaseURL = DefaultAPIBaseURL
@@ -224,12 +294,22 @@ func StartLogin(ctx context.Context, apiBaseURL string) (*Session, error) {
 	q.Set("bot_type", defaultBotType)
 	u.RawQuery = q.Encode()
 
+	body, err := json.Marshal(map[string]interface{}{
+		"local_token_list": []string{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal get_bot_qrcode body: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
+	}
+	for k, v := range buildILinkHeaders("") {
+		req.Header[k] = v
 	}
 
 	resp, err := http.DefaultClient.Do(req)
@@ -250,9 +330,10 @@ func StartLogin(ctx context.Context, apiBaseURL string) (*Session, error) {
 	}
 
 	return &Session{
-		QRCode:    qr.QRCode,
-		QRCodeURL: qr.QRCodeImgContent,
-		StartedAt: time.Now(),
+		QRCode:            qr.QRCode,
+		QRCodeURL:         qr.QRCodeImgContent,
+		CurrentAPIBaseURL: apiBaseURL,
+		StartedAt:         time.Now(),
 	}, nil
 }
 
@@ -261,6 +342,10 @@ func buildILinkHeaders(botToken string) http.Header {
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
 	h.Set("AuthorizationType", "ilink_bot_token")
+	// iLink app identification — required since openclaw-weixin@2.4.2,
+	// where missing/empty values caused production fetch failures.
+	h.Set("iLink-App-Id", iLinkAppID)
+	h.Set("iLink-App-ClientVersion", iLinkAppClientVersion)
 	// X-WECHAT-UIN: random uint32 as decimal string, base64-encoded.
 	// Required by iLink API (matches openclaw-weixin's randomWechatUin).
 	uin := make([]byte, 4)
@@ -287,7 +372,7 @@ func GetUpdates(ctx context.Context, apiBaseURL, botToken, getUpdatesBuf string)
 
 	body := GetUpdatesRequest{
 		GetUpdatesBuf: getUpdatesBuf,
-		BaseInfo:      BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo:      newBaseInfo(),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -350,7 +435,7 @@ func SendTextMessage(ctx context.Context, apiBaseURL, botToken, toUserID, text, 
 				TextItem: &TextItem{Text: text},
 			}},
 		},
-		BaseInfo: BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo: newBaseInfo(),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -380,13 +465,14 @@ func SendTextMessage(ctx context.Context, apiBaseURL, botToken, toUserID, text, 
 
 	// Check response body for API-level errors (iLink returns HTTP 200 with ret != 0 on failure).
 	var result struct {
-		Ret    int    `json:"ret"`
-		ErrMsg string `json:"errmsg"`
+		Ret     int    `json:"ret"`
+		ErrCode int    `json:"errcode,omitempty"`
+		ErrMsg  string `json:"errmsg,omitempty"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err == nil && result.Ret != 0 {
-		return fmt.Errorf("ilink sendmessage: ret=%d errmsg=%s", result.Ret, result.ErrMsg)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil // tolerate empty/unknown body (matches prior behavior)
 	}
-	return nil
+	return checkAPIError("ilink sendmessage", result.Ret, result.ErrCode, result.ErrMsg)
 }
 
 // --- iLink CDN Media Upload ---
@@ -412,7 +498,7 @@ func GetUploadURL(ctx context.Context, apiBaseURL, botToken string, params map[s
 	}
 	u.Path = "/ilink/bot/getuploadurl"
 
-	params["base_info"] = BaseInfo{ChannelVersion: channelVersion}
+	params["base_info"] = newBaseInfo()
 	bodyBytes, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("marshal getuploadurl: %w", err)
@@ -444,8 +530,8 @@ func GetUploadURL(ctx context.Context, apiBaseURL, botToken string, params map[s
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("ilink getuploadurl: decode: %w", err)
 	}
-	if result.Ret != 0 {
-		return nil, fmt.Errorf("ilink getuploadurl: ret=%d errcode=%d errmsg=%s", result.Ret, result.ErrCode, result.ErrMsg)
+	if err := checkAPIError("ilink getuploadurl", result.Ret, result.ErrCode, result.ErrMsg); err != nil {
+		return nil, err
 	}
 	if result.UploadFullURL == "" && result.UploadParam == "" {
 		return nil, fmt.Errorf("ilink getuploadurl: empty upload_param and upload_full_url")
@@ -528,7 +614,7 @@ func SendImageMessage(ctx context.Context, apiBaseURL, botToken, toUserID string
 				},
 			}},
 		},
-		BaseInfo: BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo: newBaseInfo(),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -556,13 +642,14 @@ func SendImageMessage(ctx context.Context, apiBaseURL, botToken, toUserID string
 		return fmt.Errorf("ilink sendImageMessage: status %d", resp.StatusCode)
 	}
 	var result struct {
-		Ret    int    `json:"ret"`
-		ErrMsg string `json:"errmsg"`
+		Ret     int    `json:"ret"`
+		ErrCode int    `json:"errcode,omitempty"`
+		ErrMsg  string `json:"errmsg,omitempty"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err == nil && result.Ret != 0 {
-		return fmt.Errorf("ilink sendImageMessage: ret=%d errmsg=%s", result.Ret, result.ErrMsg)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
 	}
-	return nil
+	return checkAPIError("ilink sendImageMessage", result.Ret, result.ErrCode, result.ErrMsg)
 }
 
 // UploadAndSendImage handles the complete flow: encrypt → CDN upload → send message.
@@ -793,7 +880,8 @@ func isMediaItem(item *MessageItem) bool {
 // GetConfigResponse is the response from ilink/bot/getconfig.
 type GetConfigResponse struct {
 	Ret          int    `json:"ret"`
-	ErrMsg       string `json:"errmsg"`
+	ErrCode      int    `json:"errcode,omitempty"`
+	ErrMsg       string `json:"errmsg,omitempty"`
 	TypingTicket string `json:"typing_ticket"`
 }
 
@@ -811,7 +899,7 @@ func GetConfig(ctx context.Context, apiBaseURL, botToken, userID, contextToken s
 	body := map[string]interface{}{
 		"ilink_user_id": userID,
 		"context_token": contextToken,
-		"base_info":     BaseInfo{ChannelVersion: channelVersion},
+		"base_info":     newBaseInfo(),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -839,6 +927,9 @@ func GetConfig(ctx context.Context, apiBaseURL, botToken, userID, contextToken s
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("ilink getconfig: decode: %w", err)
 	}
+	if err := checkAPIError("ilink getconfig", result.Ret, result.ErrCode, result.ErrMsg); err != nil {
+		return nil, err
+	}
 	return &result, nil
 }
 
@@ -858,7 +949,7 @@ func SendTyping(ctx context.Context, apiBaseURL, botToken, userID, typingTicket 
 		"ilink_user_id": userID,
 		"typing_ticket": typingTicket,
 		"status":        status,
-		"base_info":     BaseInfo{ChannelVersion: channelVersion},
+		"base_info":     newBaseInfo(),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -881,7 +972,81 @@ func SendTyping(ctx context.Context, apiBaseURL, botToken, userID, typingTicket 
 		return fmt.Errorf("ilink sendtyping: %w", err)
 	}
 	defer resp.Body.Close()
-	return nil
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ilink sendtyping: status %d", resp.StatusCode)
+	}
+	var result struct {
+		Ret     int    `json:"ret"`
+		ErrCode int    `json:"errcode,omitempty"`
+		ErrMsg  string `json:"errmsg,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+	return checkAPIError("ilink sendtyping", result.Ret, result.ErrCode, result.ErrMsg)
+}
+
+// notifyLifecycle posts to the given lifecycle endpoint (notifystart / notifystop).
+// Returns ErrSessionExpired when the iLink server reports -14. Other non-zero ret/errcode
+// values surface as a generic error. Network/HTTP errors are returned as-is.
+func notifyLifecycle(ctx context.Context, apiBaseURL, botToken, endpoint, label string) error {
+	if apiBaseURL == "" {
+		apiBaseURL = DefaultAPIBaseURL
+	}
+	u, err := url.Parse(apiBaseURL)
+	if err != nil {
+		return fmt.Errorf("invalid apiBaseURL: %w", err)
+	}
+	u.Path = endpoint
+
+	body, err := json.Marshal(map[string]interface{}{
+		"base_info": newBaseInfo(),
+	})
+	if err != nil {
+		return fmt.Errorf("marshal %s body: %w", label, err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, configTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	for k, v := range buildILinkHeaders(botToken) {
+		req.Header[k] = v
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: status %d", label, resp.StatusCode)
+	}
+	var result struct {
+		Ret     int    `json:"ret"`
+		ErrCode int    `json:"errcode,omitempty"`
+		ErrMsg  string `json:"errmsg,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+	return checkAPIError(label, result.Ret, result.ErrCode, result.ErrMsg)
+}
+
+// NotifyStart tells the iLink server that this channel client is starting
+// to poll for the given bot, so the server can reconcile per-account online
+// state. Best-effort: failures are non-fatal to the poller lifecycle.
+func NotifyStart(ctx context.Context, apiBaseURL, botToken string) error {
+	return notifyLifecycle(ctx, apiBaseURL, botToken, "/ilink/bot/msg/notifystart", "ilink notifystart")
+}
+
+// NotifyStop tells the iLink server that this channel client is shutting down.
+// Best-effort: failures are logged by the caller but do not affect shutdown.
+func NotifyStop(ctx context.Context, apiBaseURL, botToken string) error {
+	return notifyLifecycle(ctx, apiBaseURL, botToken, "/ilink/bot/msg/notifystop", "ilink notifystop")
 }
 
 // PollLoginStatus long-polls the ilink API for QR code scan status.
@@ -906,7 +1071,11 @@ func PollLoginStatus(ctx context.Context, apiBaseURL, qrcode string) (*StatusRes
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("iLink-App-ClientVersion", "1")
+	// QR polling is unauthenticated; pass empty token so buildILinkHeaders
+	// still sets iLink-App-Id / iLink-App-ClientVersion / X-WECHAT-UIN.
+	for k, v := range buildILinkHeaders("") {
+		req.Header[k] = v
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

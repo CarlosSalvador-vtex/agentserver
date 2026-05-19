@@ -44,8 +44,9 @@ type TypingProvider interface {
 }
 
 // ImageSendProvider is an optional interface for providers that support sending images.
+// meta carries provider-specific state (e.g., WeChat context_token). May be nil.
 type ImageSendProvider interface {
-	SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string) error
+	SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string, meta map[string]string) error
 }
 
 // ConfigurableProvider validates credentials during configure.
@@ -62,6 +63,15 @@ type DisconnectProvider interface {
 // InitializableProvider can be initialized with server-level configuration.
 type InitializableProvider interface {
 	InitProvider(dbURL string) error
+}
+
+// LifecycleProvider lets a provider react when its poller is started or
+// stopped — for example, to notify the upstream server about per-account
+// online state. Implementations should be best-effort and tolerate
+// network errors without affecting the poller's own startup/shutdown.
+type LifecycleProvider interface {
+	OnPollerStart(ctx context.Context, creds *Credentials) error
+	OnPollerStop(ctx context.Context, creds *Credentials) error
 }
 
 // InboundMessage represents a single incoming message from the IM platform.

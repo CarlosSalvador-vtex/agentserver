@@ -145,7 +145,8 @@ func (p *MatrixProvider) Send(ctx context.Context, creds *Credentials, toUserID,
 }
 
 // SendImage implements ImageSendProvider for Matrix.
-func (p *MatrixProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string) error {
+// meta is unused (Matrix room ID is encoded in toUserID).
+func (p *MatrixProvider) SendImage(ctx context.Context, creds *Credentials, toUserID string, imageData []byte, caption string, _ map[string]string) error {
 	roomID := strings.TrimSuffix(toUserID, "@matrix")
 
 	if p.CryptoManager != nil {
