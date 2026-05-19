@@ -27,7 +27,6 @@ import (
 	"github.com/agentserver/agentserver/internal/container"
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
-	"github.com/agentserver/agentserver/internal/notebooksupervisor"
 	"github.com/agentserver/agentserver/internal/process"
 	"github.com/agentserver/agentserver/internal/sandbox"
 	"github.com/agentserver/agentserver/internal/sbxstore"
@@ -77,7 +76,6 @@ var serveCmd = &cobra.Command{
 		var procMgr process.Manager
 		var driveMgr storage.DriveManager
 		var nsMgr *namespace.Manager
-		var k8sClient kubernetes.Interface // shared k8s clientset (nil when backend != "k8s")
 
 		// Load known sandbox/container names from DB to avoid cleaning paused sandboxes.
 		knownNames, err := database.ListAllActiveSandboxNames()
@@ -123,7 +121,6 @@ var serveCmd = &cobra.Command{
 			if err != nil {
 				log.Fatalf("K8s clientset for namespace manager: %v", err)
 			}
-			k8sClient = nsClientset
 			nsMgr = namespace.NewManager(nsClientset, namespace.Config{
 				Prefix: nsPrefix,
 				NetworkPolicy: namespace.NetworkPolicyConfig{
@@ -299,57 +296,6 @@ var serveCmd = &cobra.Command{
 		// Leak worker: cleans up stale active turns and responders.
 		lw := server.NewLeakWorker(srv, server.LeakWorkerConfig{})
 		go lw.Run(healthCtx)
-
-		// Notebook supervisor (Plan 3a). Gated on having a k8s client.
-		// HTTP route + JWT proxy land in Plan 3b — this just constructs
-		// the supervisor and starts the reaper so per-workspace pods get
-		// cleaned up when idle.
-		if k8sClient != nil {
-			nbCfg := notebooksupervisor.Config{
-				Image:            envOrDefault("NOTEBOOK_IMAGE", "ghcr.io/agentserver/agentserver-notebook:dev"),
-				ImagePullPolicy:  envOrDefault("NOTEBOOK_IMAGE_PULL_POLICY", "IfNotPresent"),
-				CPURequest:       envOrDefault("NOTEBOOK_CPU_REQUEST", "500m"),
-				CPULimit:         envOrDefault("NOTEBOOK_CPU_LIMIT", "2"),
-				MemoryRequest:    envOrDefault("NOTEBOOK_MEM_REQUEST", "1Gi"),
-				MemoryLimit:      envOrDefault("NOTEBOOK_MEM_LIMIT", "4Gi"),
-				EphemeralStorage: envOrDefault("NOTEBOOK_EPHEMERAL_STORAGE", "5Gi"),
-				WorkspacePVCName: envOrDefault("NOTEBOOK_WORKSPACE_PVC", "ws-{workspace_id}"),
-			}
-			if v := os.Getenv("NOTEBOOK_IDLE_TTL_SECONDS"); v != "" {
-				if n, err := strconv.Atoi(v); err == nil && n > 0 {
-					nbCfg.IdleTTL = time.Duration(n) * time.Second
-				}
-			}
-			if v := os.Getenv("NOTEBOOK_REAP_INTERVAL_SECONDS"); v != "" {
-				if n, err := strconv.Atoi(v); err == nil && n > 0 {
-					nbCfg.ReapInterval = time.Duration(n) * time.Second
-				}
-			}
-			if v := os.Getenv("NOTEBOOK_READY_TIMEOUT_SECONDS"); v != "" {
-				if n, err := strconv.Atoi(v); err == nil && n > 0 {
-					nbCfg.ReadyTimeout = time.Duration(n) * time.Second
-				}
-			}
-			// Plan 3b: per-workspace base URL via ExtraEnvVars.
-			baseURLPattern := envOrDefault("NOTEBOOK_BASE_URL_PATTERN", "/api/notebooks/{workspace_id}/")
-			nbCfg.ExtraEnvVars = map[string]string{
-				"NOTEBOOK_BASE_URL": baseURLPattern,
-			}
-			srv.NotebookSupervisor = notebooksupervisor.New(k8sClient, nbCfg, nil)
-			go srv.NotebookSupervisor.StartReaper(healthCtx)
-			log.Printf("Notebook supervisor started (image: %s, idle TTL: %s)", nbCfg.Image, nbCfg.WithDefaults().IdleTTL)
-			// Plan 3b: HMAC secret for the per-workspace JWT cookie. Empty
-			// disables the /api/notebooks/{ws}/session endpoint + reverse
-			// proxy (they 503).
-			if v := os.Getenv("NOTEBOOK_JWT_SECRET"); v != "" {
-				srv.NotebookJWTSecret = []byte(v)
-			}
-			// Per-workspace notebook subdomain vhost. Empty disables the
-			// vhost; postNotebookSession falls back to returning the
-			// legacy "/api/notebooks/{ws}/lab" relative URL.
-			srv.NotebookHostBaseDomain = os.Getenv("NOTEBOOK_HOST_BASE_DOMAIN")
-			srv.NotebookSubdomainPrefix = envOrDefault("NOTEBOOK_SUBDOMAIN_PREFIX", "nb")
-		}
 
 		// Operations retention background loop. Disabled when TTL is 0.
 		go srv.StartRetentionLoop(healthCtx, srv.OperationsRetention, time.Hour)

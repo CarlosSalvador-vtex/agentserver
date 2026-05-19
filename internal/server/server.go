@@ -24,7 +24,6 @@ import (
 	"github.com/agentserver/agentserver/internal/bridge"
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
-	"github.com/agentserver/agentserver/internal/notebooksupervisor"
 	"github.com/agentserver/agentserver/internal/process"
 	"github.com/agentserver/agentserver/internal/sbxstore"
 	"github.com/agentserver/agentserver/internal/shortid"
@@ -86,32 +85,6 @@ type Server struct {
 	// Codex exec gateway
 	ExecutorsClient            *ExecutorsClient
 	CodexExecGatewayPublicHost string // e.g. "codex-exec.example.com" — used to compose connect commands
-
-	// NotebookSupervisor manages per-workspace Jupyter notebook pods.
-	// nil when no k8s client is available (e.g. docker backend or k8s
-	// init failure). Plan 3b's handler reads this; do not access until
-	// boot completes.
-	NotebookSupervisor *notebooksupervisor.Supervisor
-
-	// NotebookJWTSecret is the HS256 key used to sign tokens minted by
-	// POST /api/notebooks/{ws}/session. Empty disables the route (503).
-	// Must match the secret the notebook pod's IdentityProvider verifies
-	// with — both come from the same Helm Secret in production.
-	NotebookJWTSecret []byte
-
-	// NotebookHostBaseDomain enables the per-workspace notebook subdomain
-	// vhost (e.g. "agent.cs.ac.cn" → "nb-<8hex>.agent.cs.ac.cn"). Empty
-	// disables the vhost; postNotebookSession falls back to returning the
-	// legacy "/api/notebooks/{ws}/lab" path-based proxy URL.
-	NotebookHostBaseDomain string
-
-	// NotebookSubdomainPrefix is the leftmost label of the vhost (default
-	// "nb"). Subdomain pattern: "{prefix}-{ws_short}.{baseDomain}".
-	NotebookSubdomainPrefix string
-
-	// testNotebookUpstream, if non-nil, replaces the supervisor lookup
-	// in notebookProxy. ONLY used in tests; never set in production.
-	testNotebookUpstream func(wsID string) (string, error)
 
 	// OperationsRetention is the TTL for rows in the operations table.
 	// 0 disables the background retention loop. Configurable via
@@ -201,22 +174,6 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-
-	// Per-workspace notebook subdomain vhost (e.g. nb-<8hex>.agent.cs.ac.cn).
-	// When the Host matches, dispatch every path to notebookVhost and
-	// SHORT-CIRCUIT the rest of the router so paths like /lab don't
-	// accidentally hit a chi 404.
-	if s.NotebookHostBaseDomain != "" {
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if short := s.notebookVhostHostMatch(req); short != "" {
-					s.notebookVhost(w, req, short)
-					return
-				}
-				next.ServeHTTP(w, req)
-			})
-		})
-	}
 
 	// Health endpoint (no auth required, for K8s probes)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -431,16 +388,6 @@ func (s *Server) Router() http.Handler {
 		r.Get("/api/sandboxes/{id}/traces/{traceId}", s.handleTraceDetail)
 		r.Get("/api/workspaces/{wid}/traces", s.handleWorkspaceTraces)
 		r.Get("/api/workspaces/{wid}/traces/{traceId}", s.handleWorkspaceTraceDetail)
-
-		// Notebook session minting (Plan 3b). 503 if feature disabled.
-		// MUST come before the wildcard proxy below so /session isn't
-		// caught by the proxy.
-		r.Post("/api/notebooks/{ws}/session", s.postNotebookSession)
-		// HTTP + WS reverse proxy to per-workspace Jupyter Server
-		// (Plan 3b Task 4). HandleFunc accepts arbitrary methods so
-		// POST (kernel start), DELETE (kernel stop), and GET-then-
-		// Upgrade (WS) all pass through.
-		r.HandleFunc("/api/notebooks/{ws}/*", s.notebookProxy)
 
 		// Credential binding routes
 		r.Get("/api/workspaces/{id}/credentials/{kind}", s.handleListCredentialBindings)
