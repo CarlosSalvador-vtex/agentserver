@@ -30,15 +30,9 @@ type connectedClient interface {
 
 // Server is the codex-app-gateway HTTP/WS server.
 type Server struct {
-	cfg     ServeConfig
-	auth    auth.Authenticator
-	// notebookAuth verifies /notebook/ws Bearer tokens. Agentserver's
-	// sandbox manager mints these for jupyter sandboxes (HMAC over
-	// wsID with the shared inbound secret), so they live in-cluster
-	// and don't appear in the codex_tokens DB table that RemoteVerifier
-	// queries. Nil falls back to the primary auth Authenticator.
-	notebookAuth auth.Authenticator
-	sup          *supervisor.Supervisor
+	cfg  ServeConfig
+	auth auth.Authenticator
+	sup  *supervisor.Supervisor
 	homeMgr      *codexhome.Manager
 	logger       *slog.Logger
 
@@ -50,8 +44,7 @@ type Server struct {
 
 	execClient connectedClient // exposed for the loopback /internal/connected handler
 
-	// oplog clients. nil when OperationLogURL/Secret are empty; the
-	// /notebook/ws handler degrades to a transparent proxy in that case.
+	// oplogClient is nil when OperationLogURL/Secret are empty.
 	oplogClient *oplog.Client
 	oplogList   *oplog.ListClient
 
@@ -97,15 +90,10 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 	})
 	execClient := NewExecGatewayClient(cfg.ExecGatewayInternalURL, cfg.ExecGatewayInternalSecret)
 	wsTokenClient := NewWorkspaceTokenClient(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret)
-	var notebookAuth auth.Authenticator
-	if len(cfg.InboundHMACSecret) > 0 {
-		notebookAuth = auth.NewHMAC(cfg.InboundHMACSecret)
-	}
 	s := &Server{
-		cfg:          cfg,
-		auth:         auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
-		notebookAuth: notebookAuth,
-		sup:          sup,
+		cfg:  cfg,
+		auth: auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
+		sup:  sup,
 		homeMgr:      mgr,
 		logger:       logger,
 		execClient:   execClient,
@@ -117,7 +105,6 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 	)
 	if cfg.OperationLogURL != "" && cfg.OperationLogSecret != "" {
 		s.oplogClient = oplog.NewClient(cfg.OperationLogURL, cfg.OperationLogSecret, cfg.OperationLogChan)
-		s.oplogList = oplog.NewListClient(cfg.OperationLogURL, cfg.OperationLogSecret)
 	}
 	return s, nil
 }
@@ -262,7 +249,6 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	r.Get("/", s.handleCodexAppWS)
 	r.Get("/codex-app/ws", s.handleCodexAppWS)
-	r.Get("/notebook/ws", s.handleNotebookWS)
 	r.Get("/internal/connected", s.handleInternalConnected)
 	turnHandler := &turnAPIHandler{
 		runner: newPoolRunner(s.brokerPool),
@@ -346,96 +332,3 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleNotebookWS is the SDK-facing variant of handleCodexAppWS. It uses
-// wsbridge.RunProxyWithInterceptor to (1) intercept operations/list RPCs
-// and serve them from agentserver's oplog (codex has no such method), and
-// (2) observe tool/call frames to emit Operation records. WorkspaceID is
-// pinned from the verified Identity, never trusted from frame payload.
-func (s *Server) handleNotebookWS(w http.ResponseWriter, r *http.Request) {
-	tok, ok := auth.ExtractBearer(r)
-	if !ok {
-		http.Error(w, "missing Bearer", http.StatusUnauthorized)
-		return
-	}
-	verifier := s.notebookAuth
-	if verifier == nil {
-		verifier = s.auth
-	}
-	id, err := verifier.Verify(r.Context(), tok)
-	if err != nil {
-		s.logger.Warn("notebook ws auth", "err", err)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userWS, err := websocket.Accept(w, r, nil)
-	if err != nil {
-		s.logger.Warn("notebook ws accept", "err", err)
-		return
-	}
-	userWS.SetReadLimit(maxWSFrameBytes)
-	defer userWS.Close(websocket.StatusNormalClosure, "client closing")
-
-	ctx := r.Context()
-	key := supervisor.Key{WorkspaceID: id.WorkspaceID}
-	handle, err := s.sup.EnsureSubprocess(ctx, key, func(loopbackToken string) (supervisor.SpawnConfig, error) {
-		return s.buildConfig(ctx, id.WorkspaceID, loopbackToken)
-	})
-	if err != nil {
-		s.logger.Error("ensure subprocess", "err", err, "key", key)
-		_ = userWS.Close(websocket.StatusInternalError, "subprocess unavailable")
-		return
-	}
-
-	childWS, _, err := websocket.Dial(ctx, handle.WSURL, &websocket.DialOptions{
-		CompressionMode: websocket.CompressionDisabled,
-	})
-	if err != nil {
-		s.logger.Error("dial child", "err", err, "url", handle.WSURL)
-		_ = userWS.Close(websocket.StatusInternalError, "subprocess dial failed")
-		return
-	}
-	childWS.SetReadLimit(maxWSFrameBytes)
-	defer childWS.Close(websocket.StatusNormalClosure, "gateway closing")
-
-	// Per-connection Interceptor — workspaceID pinned from the verified
-	// Identity, not from any client-supplied tag. nil when oplog disabled.
-	var perConn *oplog.Interceptor
-	if s.oplogClient != nil {
-		perConn = oplog.NewInterceptor(s.oplogClient, oplog.Config{
-			Source: "sdk", WorkspaceID: id.WorkspaceID,
-		})
-	}
-
-	intc := wsbridge.Interceptor{
-		OnClientFrame: func(frame []byte) []byte {
-			// 1) operations/list — handle in gateway, never forward.
-			if s.oplogList != nil {
-				if resp, handled := oplog.TryHandleOperationsList(ctx, s.oplogList, id.WorkspaceID, frame); handled {
-					if werr := userWS.Write(ctx, websocket.MessageText, resp); werr != nil {
-						s.logger.Warn("notebook oplog list write", "err", werr, "workspace_id", id.WorkspaceID)
-					}
-					return wsbridge.DropFrame
-				}
-			}
-			// 2) observe for oplog write side.
-			if perConn != nil {
-				perConn.OnClientFrame(frame)
-			}
-			return nil
-		},
-		OnServerFrame: func(frame []byte) []byte {
-			if perConn != nil {
-				perConn.OnServerFrame(frame)
-			}
-			return nil
-		},
-	}
-
-	s.sup.Touch(key)
-	if err := wsbridge.RunProxyWithInterceptor(ctx, userWS, childWS, intc, func() {
-		s.sup.Touch(key)
-	}); err != nil {
-		s.logger.Info("notebook proxy ended", "err", err, "key", key)
-	}
-}

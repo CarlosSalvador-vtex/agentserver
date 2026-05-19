@@ -160,11 +160,15 @@ spec:
             - name: JUPYTER_RUNTIME_CLASS
               value: {{ .Values.sandbox.jupyter.runtimeClassName | quote }}
             {{- end }}
+            {{- if .Values.codexExecGateway.enabled }}
+            - name: CODEX_EXEC_GATEWAY_URL
+              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
+            {{- end }}
             {{- if .Values.codexAppGateway.enabled }}
-            - name: CODEX_APP_GATEWAY_URL
-              value: {{ printf "ws://%s-codex-app-gateway.%s.svc:%v/notebook/ws" .Release.Name .Release.Namespace (int .Values.codexAppGateway.port) | quote }}
             # REST base URL for /api/turns (codex routing path, e.g. WeChat).
-            # Distinct from the ws URL above which is consumed by the jupyter SDK.
+            # Distinct from CODEX_EXEC_GATEWAY_URL above (which serves the
+            # jupyter SDK). The /notebook/ws WS path was removed in chart
+            # 0.61.0 along with the SDK transport switch.
             - name: CODEX_APP_GATEWAY_REST_URL
               value: {{ printf "http://%s-codex-app-gateway.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.codexAppGateway.port) | quote }}
             - name: CODEX_INBOUND_HMAC_SECRET
@@ -212,10 +216,6 @@ spec:
             {{- end }}
             - name: AGENTSERVER_OPERATIONS_RETENTION_DAYS
               value: {{ .Values.operations.retentionDays | quote }}
-            {{- if .Values.codexExecGateway.enabled }}
-            - name: CODEX_EXEC_GATEWAY_INTERNAL_URL
-              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
-            {{- end }}
             {{- if .Values.codexExecGateway.publicHost }}
             - name: CODEX_EXEC_GATEWAY_PUBLIC_HOST
               value: {{ .Values.codexExecGateway.publicHost | quote }}
