@@ -481,6 +481,17 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			corev1.EnvVar{Name: "NOTEBOOK_BASE_URL", Value: "/"},
 			corev1.EnvVar{Name: "JUPYTER_ROOT_DIR", Value: "/home/agent"},
 		)
+		// agentserver Python SDK (bundled in the jupyter image) reads
+		// these to dial the codex-app-gateway's /notebook/ws endpoint.
+		// Without them `ctx.envs()` etc. fail with ECONNREFUSED on
+		// the SDK's localhost:8086 default.
+		if m.cfg.CodexAppGatewayURL != "" {
+			containerEnv = append(containerEnv,
+				corev1.EnvVar{Name: "AGENTSERVER_GATEWAY_URL", Value: m.cfg.CodexAppGatewayURL},
+				corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_TOKEN", Value: opts.ProxyToken},
+				corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
+			)
+		}
 	default: // "opencode"
 		if opts.OpencodeToken != "" {
 			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCODE_SERVER_PASSWORD", Value: opts.OpencodeToken})

@@ -33,6 +33,12 @@ type Config struct {
 	JupyterImage               string
 	JupyterPort                int
 	JupyterRuntimeClassName    string
+	// CodexAppGatewayURL is the ws URL the agentserver Python SDK
+	// (installed in the jupyter image) dials to call envs/processes etc.
+	// Example: "ws://agentserver-codex-app-gateway.agentserver.svc:8086/notebook/ws".
+	// Empty leaves the SDK on its localhost:8086 default, which fails
+	// with ECONNREFUSED inside a jupyter sandbox.
+	CodexAppGatewayURL         string
 	AgentServerInternalURL     string // agentserver API URL for sandbox MCP bridge (e.g. "http://agentserver.agentserver.svc:8080")
 	CredproxyPublicURL         string // URL sandboxes use to reach credentialproxy (e.g. "http://credentialproxy.agentserver.svc:8083")
 }
@@ -63,6 +69,7 @@ func DefaultConfig() Config {
 		JupyterImage:               os.Getenv("JUPYTER_IMAGE"),
 		JupyterPort:                8888,
 		JupyterRuntimeClassName:    os.Getenv("JUPYTER_RUNTIME_CLASS"),
+		CodexAppGatewayURL:         os.Getenv("CODEX_APP_GATEWAY_URL"),
 		AgentServerInternalURL:     os.Getenv("AGENTSERVER_INTERNAL_URL"),
 		CredproxyPublicURL:         os.Getenv("CREDPROXY_PUBLIC_URL"),
 	}
