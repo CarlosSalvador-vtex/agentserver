@@ -240,6 +240,46 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 	}
 }
 
+// StartThread issues thread/start with empty params and returns the new
+// thread id. Other ThreadStartResponse fields are discarded — CXG only
+// owns the loopback, agentserver tracks per-conversation state.
+func (c *Conn) StartThread(ctx context.Context) (string, error) {
+	id := c.nextID.Add(1)
+	respCh := make(chan rpcResponse, 1)
+	c.mu.Lock()
+	c.pendingResp[id] = respCh
+	c.mu.Unlock()
+
+	if err := c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", ID: &id, Method: "thread/start", Params: json.RawMessage(`{}`)}); err != nil {
+		c.mu.Lock()
+		delete(c.pendingResp, id)
+		c.mu.Unlock()
+		return "", fmt.Errorf("write thread/start: %w", err)
+	}
+	resp, ok := waitResp(ctx, respCh)
+	if !ok {
+		// Same cleanup as Turn() — see fix in commit fc24e81.
+		c.mu.Lock()
+		delete(c.pendingResp, id)
+		c.mu.Unlock()
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", c.closeErrOr(errors.New("connection closed before thread/start response"))
+	}
+	if resp.Error != nil {
+		return "", &TurnRPCError{Code: resp.Error.Code, Message: resp.Error.Message, Data: resp.Error.Data}
+	}
+	var tsResp threadStartResponse
+	if err := json.Unmarshal(resp.Result, &tsResp); err != nil {
+		return "", fmt.Errorf("decode thread/start: %w", err)
+	}
+	if tsResp.Thread.ID == "" {
+		return "", errors.New("thread/start result missing thread.id")
+	}
+	return tsResp.Thread.ID, nil
+}
+
 func waitResp(ctx context.Context, ch chan rpcResponse) (rpcResponse, bool) {
 	select {
 	case resp, open := <-ch:
