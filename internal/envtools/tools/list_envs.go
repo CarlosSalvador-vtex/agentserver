@@ -12,7 +12,7 @@ var listEnvironmentsSchema = json.RawMessage(`{"type":"object","properties":{}}`
 
 // ListEnvironmentsTool returns the workspace's connected executors.
 // Per v0.54.0 the LLM-facing view shows only name + description +
-// last_seen (no exe_id). The shared NameResolver populates its cache
+// last_seen (no exe_id). The shared nameresolver.Resolver populates its cache
 // as a side effect of every call, so subsequent shell/apply_patch/etc
 // tool calls can look up name → exe_id.
 type ListEnvironmentsTool struct {

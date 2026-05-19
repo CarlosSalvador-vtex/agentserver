@@ -37,7 +37,7 @@ type RunArgs struct {
 	ExecGatewayInternalSecret string // --exec-gateway-internal-secret-env (env var name; value injected by gateway)
 }
 
-// Run constructs the BridgePool, builds the tool registry, and serves
+// Run constructs the bridge.Pool, builds the tool registry, and serves
 // the MCP loop on stdin/stdout until EOF or context cancellation.
 //
 // stdout is the MCP JSON-RPC stream; do not write to it from outside
