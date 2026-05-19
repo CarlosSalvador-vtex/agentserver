@@ -1577,6 +1577,10 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		startOpts.SandboxID = id
 		startOpts.WorkspaceID = wsID
 	}
+	if sandboxType == "jupyter" {
+		startOpts.SandboxID = id
+		startOpts.WorkspaceID = wsID
+	}
 	// Priority: modelserver > BYOK > platform default
 	if msConn != nil {
 		// Modelserver connection: sandbox routes through llmproxy (no BYOK injection)
