@@ -1,9 +1,9 @@
-"""Process — async context manager wrapping exec_command/stdin/output/terminate."""
+"""Process — async context manager wrapping exec_command / stdin / output / terminate."""
 
 from __future__ import annotations
 
 import base64
-import contextlib
+import json as _json
 from typing import TYPE_CHECKING, Any
 
 from .errors import ToolError
@@ -13,56 +13,63 @@ if TYPE_CHECKING:
 
 
 class Process:
-    def __init__(self, env: Env, command: str) -> None:
+    def __init__(self, env: "Env", command: str) -> None:
         self.env = env
         self.command = command
         self.session_id: str | None = None
         self._terminated = False
+        self._read_seq = 0
 
-    async def __aenter__(self) -> Process:
+    async def __aenter__(self) -> "Process":
         raw = await self.env.call("exec_command", {"command": self.command})
         sc = raw.get("structuredContent") or {}
-        session_id = sc.get("session_id")
-        if not session_id:
+        sid = sc.get("session_id")
+        if not sid:
+            # exec_command's text content carries the session_id when the
+            # gateway didn't populate structuredContent (older response shape).
+            content = raw.get("content") or []
+            if content and content[0].get("type") == "text":
+                try:
+                    body = _json.loads(content[0]["text"])
+                    sid = body.get("session_id")
+                except Exception:
+                    sid = None
+        if not sid:
             raise ToolError(
                 tool="exec_command",
                 env=self.env.name,
                 message="exec_command did not return session_id",
                 raw=raw,
             )
-        self.session_id = session_id
+        self.session_id = sid
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         await self.terminate()
 
     async def write_stdin(self, data: bytes) -> None:
-        await self.env.call(
-            "write_stdin",
-            {
-                "session_id": self.session_id,
-                "data_b64": base64.b64encode(data).decode("ascii"),
-            },
+        await self.env._client.post(
+            f"/api/sdk/processes/{self.session_id}/stdin",
+            {"data_b64": base64.b64encode(data).decode("ascii")},
         )
 
-    async def read_output(self, timeout: float | None = None) -> bytes:
-        args: dict[str, Any] = {"session_id": self.session_id}
-        if timeout is not None:
-            args["timeout_ms"] = int(timeout * 1000)
-        raw = await self.env.call("read_output", args)
-        sc = raw.get("structuredContent") or {}
-        b64 = sc.get("chunk_b64")
-        if b64 is not None:
-            return base64.b64decode(b64)
-        # fallback to text content
-        texts = [it.get("text", "") for it in raw.get("content", []) if it.get("type") == "text"]
-        return "".join(texts).encode("utf-8")
+    async def read_output(self, since: int | None = None) -> dict:
+        params = {"since": str(since if since is not None else self._read_seq)}
+        resp = await self.env._client.get(
+            f"/api/sdk/processes/{self.session_id}/output",
+            params=params,
+        )
+        for c in resp.get("chunks", []):
+            self._read_seq = max(self._read_seq, c["seq"])
+        return resp
 
     async def terminate(self) -> None:
-        if self._terminated or self.session_id is None:
-            self._terminated = True
+        if self._terminated:
             return
-        self._terminated = True
-        # best-effort; don't mask a user exception
-        with contextlib.suppress(Exception):
-            await self.env.call("terminate", {"session_id": self.session_id})
+        try:
+            await self.env._client.post(
+                f"/api/sdk/processes/{self.session_id}/terminate",
+                {},
+            )
+        finally:
+            self._terminated = True

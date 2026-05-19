@@ -9,6 +9,10 @@ class SdkError(Exception):
     """Base class for all SDK errors."""
 
 
+class SdkConfigError(SdkError):
+    """Required environment variable or configuration is missing."""
+
+
 class ConnectionError(SdkError):
     """Failure to establish or maintain the connection to the gateway."""
 

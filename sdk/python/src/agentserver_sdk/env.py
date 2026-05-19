@@ -14,8 +14,6 @@ if TYPE_CHECKING:
     from .process import Process
 
 
-_TOOL_SERVER = "env_mcp"  # all env-mcp tools live under one MCP server name
-
 
 @dataclass
 class Env:
@@ -56,12 +54,12 @@ class Env:
         `environment_id` is injected automatically. Raises ToolError on
         isError=true. Returns the raw MCP result dict.
         """
+        from urllib.parse import quote
         args = dict(arguments or {})
         args.setdefault("environment_id", self.name)
-        raw = await self._client.mcp_tool_call(
-            server=_TOOL_SERVER,
-            tool=tool,
-            arguments=args,
+        raw = await self._client.post(
+            f"/api/sdk/envs/{quote(self.name)}/tool/call",
+            {"tool": tool, "arguments": args},
         )
         if raw.get("isError"):
             msg = _extract_error_text(raw)
