@@ -3,50 +3,283 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"nhooyr.io/websocket"
 )
 
 // Conn is one loopback ws to a codex app-server subprocess. Safe for
 // concurrent Turn() / StartThread() calls — internally serializes
-// writes and demuxes notifications by turnId.
+// writes and demuxes responses + turn/completed notifications.
 type Conn struct {
-	ws        *websocket.Conn
-	writeMu   sync.Mutex
-	nextID    atomic.Int64
+	ws      *websocket.Conn
+	writeMu sync.Mutex
+	nextID  atomic.Int64
+
+	mu           sync.Mutex
+	pendingResp  map[int64]chan rpcResponse  // request id → 1-buffered chan
+	pendingTurns map[string]chan turnPayload // turn id → 1-buffered chan
+
 	closeOnce sync.Once
 	closed    chan struct{}
+	closeErr  atomic.Value // stores *errHolder, set when reader exits
 }
 
-// dialAndHandshake dials wsURL, runs initialize → initialized, returns
-// a ready-to-use Conn. Caller must Close() it.
-func dialAndHandshake(ctx context.Context, wsURL string) (*Conn, error) {
+// errHolder wraps an error so atomic.Value always sees the same concrete type.
+type errHolder struct{ err error }
+
+// Dial opens a fresh ws, performs the codex initialize / initialized
+// handshake, and starts the reader goroutine. Caller must Close().
+func Dial(ctx context.Context, wsURL string) (*Conn, error) {
 	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		CompressionMode: websocket.CompressionDisabled, // codex rejects permessage-deflate
+		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", wsURL, err)
 	}
-	ws.SetReadLimit(64 << 20) // match server-side limit
+	ws.SetReadLimit(64 << 20)
 
-	c := &Conn{ws: ws, closed: make(chan struct{})}
+	c := &Conn{
+		ws:           ws,
+		pendingResp:  make(map[int64]chan rpcResponse),
+		pendingTurns: make(map[string]chan turnPayload),
+		closed:       make(chan struct{}),
+	}
 
-	// initialize (request)
-	initParams := json.RawMessage(`{"clientInfo":{"name":"agentserver-codex-broker","version":"0.1.0"},"protocolVersion":"2025-06-18","capabilities":{}}`)
-	if _, err := c.callRaw(ctx, "initialize", initParams); err != nil {
+	// Send initialize synchronously (no reader yet, so we read inline).
+	id := c.nextID.Add(1)
+	if err := c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", ID: &id, Method: "initialize", Params: json.RawMessage(`{"clientInfo":{"name":"agentserver-codex-broker","version":"0.1.0"},"protocolVersion":"2025-06-18","capabilities":{}}`)}); err != nil {
 		ws.Close(websocket.StatusInternalError, "")
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
-
-	// initialized (notification)
-	if err := c.notifyRaw(ctx, "initialized", json.RawMessage(`{}`)); err != nil {
+	for {
+		_, data, err := ws.Read(ctx)
+		if err != nil {
+			ws.Close(websocket.StatusInternalError, "")
+			return nil, fmt.Errorf("initialize read: %w", err)
+		}
+		var resp rpcResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			ws.Close(websocket.StatusInternalError, "")
+			return nil, fmt.Errorf("initialize decode: %w", err)
+		}
+		if resp.ID != nil && *resp.ID == id {
+			if resp.Error != nil {
+				ws.Close(websocket.StatusInternalError, "")
+				return nil, fmt.Errorf("initialize rpc error: %s", resp.Error.Message)
+			}
+			break
+		}
+	}
+	// initialized (notification).
+	if err := c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", Method: "initialized", Params: json.RawMessage(`{}`)}); err != nil {
 		ws.Close(websocket.StatusInternalError, "")
 		return nil, fmt.Errorf("initialized: %w", err)
 	}
+
+	go c.readLoop()
 	return c, nil
+}
+
+// readLoop consumes every inbound frame and routes it: rpc responses
+// to pendingResp[id]; turn/completed notifications to pendingTurns;
+// approval requests get auto-replied; everything else is dropped.
+func (c *Conn) readLoop() {
+	defer c.failAllPending(errors.New("connection closed"))
+
+	for {
+		ctx, cancel := context.WithCancel(context.Background())
+		// Tie reader lifecycle to Close.
+		go func() { <-c.closed; cancel() }()
+		_, data, err := c.ws.Read(ctx)
+		cancel()
+		if err != nil {
+			c.closeErr.Store(&errHolder{err})
+			return
+		}
+		c.dispatchFrame(data)
+	}
+}
+
+func (c *Conn) dispatchFrame(data []byte) {
+	var f rpcResponse // shape covers both response and notification
+	if err := json.Unmarshal(data, &f); err != nil {
+		return
+	}
+	if f.ID != nil && f.Method == "" {
+		c.deliverResponse(*f.ID, f)
+		return
+	}
+	// Notification or server request.
+	if f.ID != nil && isApprovalRequest(f.Method) {
+		_ = c.writeJSON(context.Background(), rpcResponse{
+			JSONRPC: "2.0", ID: f.ID, Result: approvalReply(f.Method),
+		})
+		return
+	}
+	if f.Method == "turn/completed" {
+		var p turnCompletedParams
+		if err := json.Unmarshal(f.Params, &p); err != nil {
+			return
+		}
+		c.deliverTurn(p.Turn.ID, p.Turn)
+		return
+	}
+	// Drop other notifications.
+}
+
+func (c *Conn) deliverResponse(id int64, resp rpcResponse) {
+	c.mu.Lock()
+	ch, ok := c.pendingResp[id]
+	delete(c.pendingResp, id)
+	c.mu.Unlock()
+	if ok {
+		ch <- resp
+	}
+}
+
+func (c *Conn) deliverTurn(turnID string, payload turnPayload) {
+	c.mu.Lock()
+	ch, ok := c.pendingTurns[turnID]
+	delete(c.pendingTurns, turnID)
+	c.mu.Unlock()
+	if ok {
+		ch <- payload
+	}
+}
+
+func (c *Conn) failAllPending(err error) {
+	c.mu.Lock()
+	for id, ch := range c.pendingResp {
+		close(ch)
+		delete(c.pendingResp, id)
+	}
+	for tid, ch := range c.pendingTurns {
+		close(ch)
+		delete(c.pendingTurns, tid)
+	}
+	c.mu.Unlock()
+	c.closeErr.CompareAndSwap(nil, &errHolder{err})
+}
+
+// Turn sends turn/start and blocks until the matching turn/completed
+// notification arrives or timeout elapses. Returns the raw codex Turn
+// JSON for verbatim REST passthrough.
+func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawMessage, timeout time.Duration) (json.RawMessage, error) {
+	mergedParams, err := mergeTurnParams(threadID, callerParams)
+	if err != nil {
+		return nil, fmt.Errorf("merge params: %w", err)
+	}
+
+	id := c.nextID.Add(1)
+	respCh := make(chan rpcResponse, 1)
+	c.mu.Lock()
+	c.pendingResp[id] = respCh
+	c.mu.Unlock()
+
+	if err := c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", ID: &id, Method: "turn/start", Params: mergedParams}); err != nil {
+		c.mu.Lock()
+		delete(c.pendingResp, id)
+		c.mu.Unlock()
+		return nil, fmt.Errorf("write turn/start: %w", err)
+	}
+
+	resp, ok := waitResp(ctx, respCh)
+	if !ok {
+		return nil, c.closeErrOr(errors.New("connection closed before turn/start response"))
+	}
+	if resp.Error != nil {
+		return nil, &TurnRPCError{Code: resp.Error.Code, Message: resp.Error.Message, Data: resp.Error.Data}
+	}
+	var startResp turnStartResponse
+	if err := json.Unmarshal(resp.Result, &startResp); err != nil {
+		return nil, fmt.Errorf("decode turn/start result: %w", err)
+	}
+	if startResp.Turn.ID == "" {
+		return nil, fmt.Errorf("turn/start result missing turn.id")
+	}
+
+	turnCh := make(chan turnPayload, 1)
+	c.mu.Lock()
+	c.pendingTurns[startResp.Turn.ID] = turnCh
+	c.mu.Unlock()
+
+	tctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	select {
+	case payload, open := <-turnCh:
+		if !open {
+			return nil, c.closeErrOr(errors.New("connection closed before turn/completed"))
+		}
+		return payload.Raw, nil
+	case <-tctx.Done():
+		c.mu.Lock()
+		delete(c.pendingTurns, startResp.Turn.ID)
+		c.mu.Unlock()
+		return nil, &TimeoutError{ThreadID: threadID, TurnID: startResp.Turn.ID}
+	}
+}
+
+func waitResp(ctx context.Context, ch chan rpcResponse) (rpcResponse, bool) {
+	select {
+	case resp, open := <-ch:
+		return resp, open
+	case <-ctx.Done():
+		return rpcResponse{}, false
+	}
+}
+
+func (c *Conn) closeErrOr(fallback error) error {
+	if v := c.closeErr.Load(); v != nil {
+		if h, ok := v.(*errHolder); ok && h.err != nil {
+			return h.err
+		}
+	}
+	return fallback
+}
+
+// mergeTurnParams takes the caller-supplied params blob (which must be
+// a JSON object) and merges {"threadId": threadID} into it without
+// overwriting other caller fields. The caller MUST NOT include
+// threadId — broker owns thread routing.
+func mergeTurnParams(threadID string, caller json.RawMessage) (json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if len(caller) == 0 {
+		m = map[string]json.RawMessage{}
+	} else if err := json.Unmarshal(caller, &m); err != nil {
+		return nil, fmt.Errorf("caller params is not a JSON object: %w", err)
+	}
+	if _, exists := m["threadId"]; exists {
+		return nil, errors.New("caller params must not include threadId")
+	}
+	tid, _ := json.Marshal(threadID)
+	m["threadId"] = tid
+	return json.Marshal(m)
+}
+
+// TurnRPCError is returned by Turn when codex returns a JSON-RPC error
+// in response to turn/start (rare; usually means malformed request).
+type TurnRPCError struct {
+	Code    int
+	Message string
+	Data    json.RawMessage
+}
+
+func (e *TurnRPCError) Error() string {
+	return fmt.Sprintf("codex rpc error %d: %s", e.Code, e.Message)
+}
+
+// TimeoutError is returned when timeoutMs elapses without turn/completed.
+type TimeoutError struct {
+	ThreadID, TurnID string
+}
+
+func (e *TimeoutError) Error() string {
+	return fmt.Sprintf("turn timed out (thread=%s turn=%s)", e.ThreadID, e.TurnID)
 }
 
 // Close shuts down the ws. Safe to call multiple times.
@@ -55,38 +288,6 @@ func (c *Conn) Close() {
 		close(c.closed)
 		c.ws.Close(websocket.StatusNormalClosure, "")
 	})
-}
-
-// callRaw sends a JSON-RPC request and synchronously reads frames until
-// the matching response is found. THIS IS A STUB for handshake only —
-// real call flow goes through the demuxed reader in later tasks.
-func (c *Conn) callRaw(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-	id := c.nextID.Add(1)
-	req := rpcRequest{JSONRPC: "2.0", ID: &id, Method: method, Params: params}
-	if err := c.writeJSON(ctx, req); err != nil {
-		return nil, err
-	}
-	for {
-		_, data, err := c.ws.Read(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("read: %w", err)
-		}
-		var resp rpcResponse
-		if err := json.Unmarshal(data, &resp); err != nil {
-			return nil, fmt.Errorf("decode response: %w", err)
-		}
-		if resp.ID != nil && *resp.ID == id {
-			if resp.Error != nil {
-				return nil, fmt.Errorf("rpc error %d: %s", resp.Error.Code, resp.Error.Message)
-			}
-			return resp.Result, nil
-		}
-		// Drop notifications during handshake; demux comes later.
-	}
-}
-
-func (c *Conn) notifyRaw(ctx context.Context, method string, params json.RawMessage) error {
-	return c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", Method: method, Params: params})
 }
 
 func (c *Conn) writeJSON(ctx context.Context, v any) error {
