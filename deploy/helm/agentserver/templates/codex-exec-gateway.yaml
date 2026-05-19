@@ -86,6 +86,8 @@ spec:
               value: {{ .Values.codexExecGateway.pingInterval | quote }}
             - name: CXG_IDLE_TIMEOUT
               value: {{ .Values.codexExecGateway.idleTimeout | quote }}
+            - name: CXG_AGENTSERVER_INTERNAL_URL
+              value: "http://{{ .Release.Name }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}"
             - name: CXG_AGENTSERVER_INTERNAL_SECRET
               value: {{ required "internal.apiSecret is required when codexExecGateway.enabled is true" .Values.internal.apiSecret | quote }}
             {{- if .Values.codexExecGateway.publicHost }}

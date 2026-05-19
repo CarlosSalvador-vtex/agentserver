@@ -14,6 +14,11 @@ func TestProxyTokenAuth_VerifySuccess(t *testing.T) {
 		if r.Header.Get("X-Internal-Secret") != "test-secret" {
 			t.Errorf("missing X-Internal-Secret header")
 		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["proxy_token"] != "tok-1" {
+			t.Errorf("expected proxy_token=tok-1 in body, got %+v", body)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"workspace_id": "ws-1", "user_id": "u-1",
 		})

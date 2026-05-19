@@ -56,7 +56,7 @@ func (a *ProxyTokenAuth) Verify(ctx context.Context, token string) (workspaceID,
 		return e.workspaceID, e.userID, nil
 	}
 
-	body, _ := json.Marshal(map[string]string{"token": token})
+	body, _ := json.Marshal(map[string]string{"proxy_token": token})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		a.agentserverURL+"/internal/validate-proxy-token", bytes.NewReader(body))
 	if err != nil {
