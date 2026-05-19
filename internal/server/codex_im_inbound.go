@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -292,7 +291,8 @@ type codexDispatcher struct {
 }
 
 type dispatcherSlot struct {
-	ch chan codexInboundRequest
+	ch    chan codexInboundRequest
+	ready chan struct{}
 }
 
 func newCodexDispatcher(processFn func(codexInboundRequest), cap int) *codexDispatcher {
@@ -310,6 +310,11 @@ func dispatcherKey(req codexInboundRequest) string {
 // Enqueue adds req to the per-key channel. If the channel is full,
 // drains the oldest queued item to make room (drop-oldest policy).
 // Starts a worker for this key if none is running.
+//
+// When a new worker is spawned the first item is placed on the channel and
+// Enqueue then blocks on <-slot.ready until the worker has dequeued it.
+// This ensures subsequent Enqueues always observe an empty channel rather
+// than racing to evict the first item via drop-oldest.
 func (d *codexDispatcher) Enqueue(req codexInboundRequest) {
 	key := dispatcherKey(req)
 	d.mu.Lock()
@@ -318,19 +323,22 @@ func (d *codexDispatcher) Enqueue(req codexInboundRequest) {
 		return
 	}
 	slot, ok := d.workers[key]
-	newWorker := false
 	if !ok {
-		slot = &dispatcherSlot{ch: make(chan codexInboundRequest, d.cap)}
+		slot = &dispatcherSlot{
+			ch:    make(chan codexInboundRequest, d.cap),
+			ready: make(chan struct{}),
+		}
 		d.workers[key] = slot
+		slot.ch <- req // buffered, never blocks (fresh channel, cap >= 1)
 		go d.runWorker(key, slot)
-		newWorker = true
+		d.mu.Unlock()
+		// Block until the worker has dequeued the first item. The
+		// closed-channel receive is a Go memory-model happens-before barrier;
+		// no runtime.Gosched advisory yield needed.
+		<-slot.ready
+		return
 	}
 	d.mu.Unlock()
-	if newWorker {
-		// Yield so the new goroutine can dequeue the first item before
-		// subsequent Enqueue calls observe a full channel.
-		runtime.Gosched()
-	}
 
 	for {
 		select {
@@ -347,6 +355,15 @@ func (d *codexDispatcher) Enqueue(req codexInboundRequest) {
 }
 
 func (d *codexDispatcher) runWorker(key string, slot *dispatcherSlot) {
+	// Dequeue and signal the first item separately so Enqueue's
+	// <-slot.ready barrier fires as soon as the item is out of the
+	// channel, not after the full processFn call returns.
+	first, ok := <-slot.ch
+	close(slot.ready) // unblock the spawning Enqueue
+	if !ok {
+		return
+	}
+	d.processFn(first)
 	idle := time.NewTimer(30 * time.Second)
 	defer idle.Stop()
 	for {
