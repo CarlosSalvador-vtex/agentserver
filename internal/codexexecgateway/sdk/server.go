@@ -7,6 +7,11 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/agentserver/agentserver/internal/envtools/bridge"
+	"github.com/agentserver/agentserver/internal/envtools/nameresolver"
+	"github.com/agentserver/agentserver/internal/envtools/processes"
+	"github.com/agentserver/agentserver/internal/envtools/tools"
 )
 
 // ConnectedExecutor mirrors the fields codex-exec-gateway's existing
@@ -30,7 +35,11 @@ type ConnectedLister interface {
 // and call Mount(r chi.Router) once at startup.
 type Server struct {
 	Auth     *ProxyTokenAuth
+	Pool     *bridge.Pool
+	Resolver *nameresolver.Resolver
+	Sessions *processes.Manager
 	Registry ConnectedLister
+	Tools    map[string]tools.Tool
 }
 
 // Mount registers every SDK route under /api/sdk/*. Each handler runs
@@ -39,6 +48,7 @@ func (s *Server) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Post("/api/sdk/envs/list", s.handleEnvsList)
+		r.Post("/api/sdk/envs/{name}/tool/call", s.handleToolCall)
 	})
 }
 

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/agentserver/agentserver/internal/envtools/tools"
 )
 
 // connectedListerStub returns hard-coded envs for one workspace.
@@ -60,5 +62,26 @@ func TestEnvsList_MissingBearer_401(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rec.Code)
+	}
+}
+
+func TestToolCall_UnknownTool_400(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"workspace_id": "ws-1", "user_id": "u-1"})
+	}))
+	defer upstream.Close()
+	s := &Server{
+		Auth:  NewProxyTokenAuth(upstream.URL, "x", time.Minute, time.Second),
+		Tools: map[string]tools.Tool{}, // empty registry
+	}
+	r := chi.NewRouter()
+	s.Mount(r)
+	body := bytes.NewReader([]byte(`{"tool":"unknown","arguments":{}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sdk/envs/my-mac/tool/call", body)
+	req.Header.Set("Authorization", "Bearer tok-1")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

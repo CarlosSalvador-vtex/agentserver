@@ -1,7 +1,13 @@
 package sdk
 
 import (
+	"encoding/json"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/agentserver/agentserver/internal/envtools/processes"
+	"github.com/agentserver/agentserver/internal/envtools/tools"
 )
 
 // toolDesc is the per-tool entry in envs/list responses. The SDK uses
@@ -33,6 +39,61 @@ type envEntry struct {
 	IsDefault bool       `json:"is_default"`
 	Tools     []toolDesc `json:"tools"`
 	LastSeen  string     `json:"last_seen,omitempty"`
+}
+
+// toolCallReq is the request body for POST /api/sdk/envs/{name}/tool/call.
+type toolCallReq struct {
+	Tool      string         `json:"tool"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+func (s *Server) handleToolCall(w http.ResponseWriter, r *http.Request) {
+	wsID := workspaceFromCtx(r.Context())
+	_ = chi.URLParam(r, "name") // env name; tools are workspace-scoped by their embedded resolver/pool
+	var req toolCallReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	tool, ok := s.Tools[req.Tool]
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unknown_tool", "no such tool: "+req.Tool)
+		return
+	}
+	argsJSON, err := json.Marshal(req.Arguments)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_arguments", err.Error())
+		return
+	}
+	result, err := tool.Call(r.Context(), argsJSON)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "tool_error", err.Error())
+		return
+	}
+	// exec_command encodes session_id as JSON text in Content[0].Text.
+	// Register a Session row so subsequent /processes/{sid}/* calls find it.
+	if sid := extractSessionID(result); sid != "" && s.Sessions != nil {
+		s.Sessions.Register(&processes.Session{
+			ID:          sid,
+			WorkspaceID: wsID,
+		})
+	}
+	writeJSON(w, result)
+}
+
+// extractSessionID parses the session_id field from a tool result whose
+// first content item is a JSON-encoded object (as exec_command returns).
+// Returns "" if the result contains no such field.
+func extractSessionID(result tools.MCPCallToolResult) string {
+	if len(result.Content) == 0 {
+		return ""
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &obj); err != nil {
+		return ""
+	}
+	sid, _ := obj["session_id"].(string)
+	return sid
 }
 
 func (s *Server) handleEnvsList(w http.ResponseWriter, r *http.Request) {
