@@ -14,9 +14,7 @@ import (
 	"github.com/agentserver/agentserver/internal/codexexecgateway/relay"
 	sdkpkg "github.com/agentserver/agentserver/internal/codexexecgateway/sdk"
 	"github.com/agentserver/agentserver/internal/envtools/bridge"
-	"github.com/agentserver/agentserver/internal/envtools/nameresolver"
 	"github.com/agentserver/agentserver/internal/envtools/processes"
-	"github.com/agentserver/agentserver/internal/envtools/tools"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -71,48 +69,35 @@ func NewServer(cfg Config, store *Store) (*Server, error) {
 			30*time.Second,
 		)
 
-		// Bridge pool: dial the gateway's own /bridge/<exe_id> over ws.
-		// PublicWSBaseURL is "wss://…" in production; fall back to the
-		// loopback if only SelfHTTPBaseURL is set (dev mode).
+		// Per-workspace bridge.Pool, name resolver, and tool registry
+		// are built lazily inside sdkpkg.Server.wsCtxFor — we just hand
+		// it the inputs it needs (ws base URL, cap-token secret, and a
+		// RelayClient factory for copy_path).
 		bridgeBaseURL := cfg.PublicWSBaseURL
 		if bridgeBaseURL == "" && cfg.SelfHTTPBaseURL != "" {
 			bridgeBaseURL = strings.Replace(cfg.SelfHTTPBaseURL, "https://", "wss://", 1)
 			bridgeBaseURL = strings.Replace(bridgeBaseURL, "http://", "ws://", 1)
 		}
-		sdkPool := bridge.NewPool(bridgeBaseURL+"/bridge", "", logger)
 
-		// Name resolver: calls the gateway's own /internal/sdk/connected
-		// loopback with X-Loopback-Token == InternalSharedSecret so env-name
-		// → exe_id resolution works for tool calls without an extra HTTP hop.
-		var resolverURL string
-		if cfg.SelfHTTPBaseURL != "" {
-			resolverURL = strings.TrimRight(cfg.SelfHTTPBaseURL, "/") + "/internal/sdk/connected"
-		}
-		sdkResolver := nameresolver.NewResolver(resolverURL, cfg.InternalSharedSecret, logger)
-
-		// Tool registry keyed by the name the SDK sends in tool/call requests.
-		// UnifiedExecTool owns a SessionStore shared with the process manager;
-		// for the SDK path the processes.Manager handles session lifecycle
-		// (sdkSessions) while the tools.SessionStore handles the bridge-level
-		// write_stdin/read_output/terminate sub-calls.
-		unifiedSessions := tools.NewSessionStore()
-		relayClient := bridge.NewRelayClient(cfg.PublicHTTPSBaseURL, cfg.InternalSharedSecret, "", logger)
-
-		toolRegistry := map[string]tools.Tool{
-			"shell":        tools.NewShellTool(sdkPool, sdkResolver),
-			"read_file":    tools.NewReadFileTool(sdkPool, sdkResolver),
-			"apply_patch":  tools.NewApplyPatchTool(sdkPool, sdkResolver),
-			"copy_path":    tools.NewCopyPathTool(sdkPool, sdkResolver, relayClient),
-			"exec_command": tools.NewUnifiedExecTool(sdkPool, unifiedSessions, sdkResolver),
+		// RelayFactory: copy_path needs a workspace-scoped RelayClient,
+		// authenticated with the same cap-token used by the bridge.
+		// nil when PublicHTTPSBaseURL is unset (relay disabled in dev) —
+		// wsCtxFor handles that by simply not registering copy_path.
+		var relayFactory sdkpkg.RelayClientFactory
+		if cfg.PublicHTTPSBaseURL != "" {
+			relayFactory = func(workspaceID, capToken string) *bridge.RelayClient {
+				return bridge.NewRelayClient(cfg.PublicHTTPSBaseURL, cfg.InternalSharedSecret, capToken, logger)
+			}
 		}
 
 		sdkSrv = &sdkpkg.Server{
-			Auth:     sdkAuth,
-			Pool:     sdkPool,
-			Resolver: sdkResolver,
-			Sessions: sdkSessions,
-			Registry: sdkConnectedAdapter{store: store, registry: registry},
-			Tools:    toolRegistry,
+			Auth:             sdkAuth,
+			Sessions:         sdkSessions,
+			Registry:         sdkConnectedAdapter{store: store, registry: registry},
+			ExecGatewayWSURL: bridgeBaseURL + "/bridge",
+			CapTokenSecret:   cfg.CapTokenHMACSecret,
+			RelayFactory:     relayFactory,
+			Logger:           logger,
 		}
 		logger.Info("sdk REST surface enabled", "agentserver_url", cfg.AgentserverInternalURL)
 	} else {

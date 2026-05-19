@@ -51,13 +51,18 @@ type toolCallReq struct {
 
 func (s *Server) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	wsID := workspaceFromCtx(r.Context())
-	_ = chi.URLParam(r, "name") // env name; tools are workspace-scoped by their embedded resolver/pool
+	wsCtx, err := s.wsCtxFor(wsID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "workspace_init", err.Error())
+		return
+	}
+	_ = chi.URLParam(r, "name") // env name; tool args carry environment_id, resolver maps to exe
 	var req toolCallReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	tool, ok := s.Tools[req.Tool]
+	tool, ok := wsCtx.tools[req.Tool]
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "unknown_tool", "no such tool: "+req.Tool)
 		return

@@ -91,3 +91,70 @@ func (t *ReadFileTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallTo
 		Content: []MCPToolContent{{Type: "text", Text: string(data)}},
 	}, nil
 }
+
+// WriteFileTool implements `write_file` via exec-server fs/writeFile.
+// The caller passes content_b64 (base64-encoded raw bytes); we validate
+// the encoding locally and forward the same string to the bridge in
+// bridge.FsWriteFileParams.DataBase64 — exec-server expects base64 on
+// the wire, so a re-encode would be wasted work.
+type WriteFileTool struct {
+	pool     *bridge.Pool
+	resolver *nameresolver.Resolver
+}
+
+func NewWriteFileTool(pool *bridge.Pool, resolver *nameresolver.Resolver) *WriteFileTool {
+	return &WriteFileTool{pool: pool, resolver: resolver}
+}
+
+var writeFileSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "environment_id": {"type": "string", "description": "Target environment's name from list_environments output"},
+    "path":   {"type": "string", "description": "Absolute path on the executor"},
+    "content_b64": {"type": "string", "description": "Base64-encoded file content"}
+  },
+  "required": ["environment_id", "path", "content_b64"]
+}`)
+
+func (t *WriteFileTool) Name() string                 { return "write_file" }
+func (t *WriteFileTool) InputSchema() json.RawMessage { return writeFileSchema }
+func (t *WriteFileTool) Description() string {
+	return "Write a file to the named environment. Content must be base64-encoded raw bytes."
+}
+
+func (t *WriteFileTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolResult, error) {
+	var a struct {
+		EnvironmentID string `json:"environment_id"`
+		Path          string `json:"path"`
+		ContentB64    string `json:"content_b64"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return errResult("invalid arguments: " + err.Error()), nil
+	}
+	if a.EnvironmentID == "" || a.Path == "" {
+		return errResult("environment_id and path are required"), nil
+	}
+	// Validate locally so a malformed body fails fast with a clear
+	// error rather than bouncing off the exec-server's generic decoder.
+	if _, err := base64.StdEncoding.DecodeString(a.ContentB64); err != nil {
+		return errResult("content_b64 invalid: " + err.Error()), nil
+	}
+	exeID, err := t.resolver.Resolve(ctx, a.EnvironmentID)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+	bc, err := t.pool.Get(ctx, exeID)
+	if err != nil {
+		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvironmentID, err)), nil
+	}
+	params, _ := json.Marshal(bridge.FsWriteFileParams{
+		Path:       a.Path,
+		DataBase64: a.ContentB64,
+	})
+	if _, err := bc.Call(ctx, bridge.ExecMethodFsWriteFile, params); err != nil {
+		return errResult(fmt.Sprintf("write_file failed: %v", err)), nil
+	}
+	return MCPCallToolResult{
+		Content: []MCPToolContent{{Type: "text", Text: "ok"}},
+	}, nil
+}

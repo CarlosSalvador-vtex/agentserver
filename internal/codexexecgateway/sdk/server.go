@@ -3,8 +3,11 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -31,15 +34,132 @@ type ConnectedLister interface {
 	Connected(ctx context.Context, workspaceID string) ([]ConnectedExecutor, error)
 }
 
+// RelayClientFactory builds a workspace-scoped bridge.RelayClient on
+// demand for copy_path. The CopyPathTool constructor wants a concrete
+// *bridge.RelayClient (not an interface), and the relay token is a
+// workspace-scoped cap-token — so each workspace gets its own.
+type RelayClientFactory func(workspaceID, capToken string) *bridge.RelayClient
+
 // Server holds the SDK REST surface. Construct in cmd/codex-exec-gateway/main.go
 // and call Mount(r chi.Router) once at startup.
+//
+// Per-workspace state — Pool, Resolver, tool registry — is built lazily
+// on the first request for a workspace and cached for the Server's
+// lifetime in wsCache. Each workspace gets its own cap-token (so the
+// bridge layer authorises only that workspace's executors) and its own
+// resolver Fetcher (so name → exe_id lookups are scoped to its
+// connected list).
 type Server struct {
 	Auth     *ProxyTokenAuth
-	Pool     *bridge.Pool
-	Resolver *nameresolver.Resolver
 	Sessions *processes.Manager
 	Registry ConnectedLister
-	Tools    map[string]tools.Tool
+
+	// ExecGatewayWSURL is the ws(s):// base URL the per-workspace Pool
+	// uses to dial /bridge/<exe_id>. The exe_id is appended per dial
+	// (see bridge.NewPool — first arg is treated as the base, the
+	// pool's own .Dial appends /<exe_id>). Must end without a trailing
+	// slash; e.g. "wss://codex-exec.example.com/bridge" or
+	// "ws://localhost:6060/bridge".
+	ExecGatewayWSURL string
+
+	// CapTokenSecret is the HMAC secret used to mint per-workspace
+	// cap-tokens consumed by the same process's /bridge verifier. Must
+	// match cfg.CapTokenHMACSecret in production.
+	CapTokenSecret []byte
+
+	// RelayFactory, if non-nil, builds a workspace-scoped
+	// bridge.RelayClient used by copy_path. Optional — copy_path is
+	// only registered when this is set.
+	RelayFactory RelayClientFactory
+
+	Logger *slog.Logger
+
+	mu      sync.Mutex
+	wsCache map[string]*workspaceCtx
+}
+
+// workspaceCtx caches the per-workspace bridge.Pool, name resolver,
+// and tool registry for the duration of the Server's life. Pool itself
+// already reconnects on connection loss (see bridge.Pool.Get); the
+// cached entry survives transient executor churn.
+type workspaceCtx struct {
+	pool     *bridge.Pool
+	resolver *nameresolver.Resolver
+	tools    map[string]tools.Tool
+}
+
+// wsCtxFor returns (and lazily builds) the per-workspace pool +
+// resolver + tool registry. Cached forever on this Server (no eviction
+// today; deployments restart frequently enough that workspace turnover
+// won't accrue meaningful state). The Pool inside survives across
+// /bridge reconnects on its own.
+func (s *Server) wsCtxFor(workspaceID string) (*workspaceCtx, error) {
+	if workspaceID == "" {
+		return nil, fmt.Errorf("workspace_id empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.wsCache[workspaceID]; ok {
+		return c, nil
+	}
+	tok, err := mintWorkspaceToken(s.CapTokenSecret, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("mint cap token: %w", err)
+	}
+
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	pool := bridge.NewPool(s.ExecGatewayWSURL, tok, logger)
+	resolver := s.newWorkspaceResolver(workspaceID)
+
+	toolMap := map[string]tools.Tool{
+		"shell":        tools.NewShellTool(pool, resolver),
+		"read_file":    tools.NewReadFileTool(pool, resolver),
+		"write_file":   tools.NewWriteFileTool(pool, resolver),
+		"apply_patch":  tools.NewApplyPatchTool(pool, resolver),
+		"exec_command": tools.NewUnifiedExecTool(pool, tools.NewSessionStore(), resolver),
+	}
+	if s.RelayFactory != nil {
+		toolMap["copy_path"] = tools.NewCopyPathTool(pool, resolver, s.RelayFactory(workspaceID, tok))
+	}
+
+	c := &workspaceCtx{pool: pool, resolver: resolver, tools: toolMap}
+	if s.wsCache == nil {
+		s.wsCache = map[string]*workspaceCtx{}
+	}
+	s.wsCache[workspaceID] = c
+	return c, nil
+}
+
+// newWorkspaceResolver returns a Resolver scoped to workspaceID by
+// hitting the in-process Registry directly — no loopback HTTP, no
+// X-Loopback-Token. Each workspace gets its own Resolver so the cached
+// name → exe_id map can't leak across tenants.
+func (s *Server) newWorkspaceResolver(workspaceID string) *nameresolver.Resolver {
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	fetch := func(ctx context.Context) ([]nameresolver.ConnectedEntry, error) {
+		rows, err := s.Registry.Connected(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]nameresolver.ConnectedEntry, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, nameresolver.ConnectedEntry{
+				ExeID:      r.ExeID,
+				Name:       r.Name,
+				IsDefault:  r.IsDefault,
+				LastSeenAt: r.LastSeenAt,
+			})
+		}
+		return out, nil
+	}
+	return nameresolver.NewResolverWithFetcher(fetch, logger)
 }
 
 // Mount registers every SDK route under /api/sdk/*. Each handler runs
