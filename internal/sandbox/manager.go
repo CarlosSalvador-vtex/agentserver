@@ -479,6 +479,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		containerEnv = append(containerEnv,
 			corev1.EnvVar{Name: "JUPYTER_TOKEN", Value: opts.ProxyToken},
 			corev1.EnvVar{Name: "NOTEBOOK_BASE_URL", Value: "/"},
+			corev1.EnvVar{Name: "JUPYTER_ROOT_DIR", Value: "/home/agent"},
 		)
 	default: // "opencode"
 		if opts.OpencodeToken != "" {

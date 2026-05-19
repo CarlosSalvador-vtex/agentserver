@@ -10,7 +10,7 @@ c.ServerApp.port = 8888
 c.ServerApp.open_browser = False
 c.ServerApp.disable_check_xsrf = True
 c.ServerApp.allow_origin = "*"
-c.ServerApp.root_dir = "/workspace"
+c.ServerApp.root_dir = os.environ.get("JUPYTER_ROOT_DIR", "/workspace")
 c.ServerApp.allow_root = True
 c.ServerApp.base_url = os.environ.get("NOTEBOOK_BASE_URL", "/")
 
