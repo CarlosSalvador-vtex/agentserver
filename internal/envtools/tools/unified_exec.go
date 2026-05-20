@@ -134,11 +134,18 @@ func (t *UnifiedExecTool) Call(ctx context.Context, raw json.RawMessage) (MCPCal
 		return errResult(fmt.Sprintf("environment %q unavailable: %v", a.EnvironmentID, err)), nil
 	}
 	pid := fmt.Sprintf("uexec-%d", t.pidSeq.Add(1))
+	// Same cross-platform cwd default as ShellTool — exec-server requires
+	// cwd to be present, "" trips Windows ERROR_DIRECTORY 267, "." is the
+	// one value valid everywhere.
+	cwd := a.Cwd
+	if cwd == "" {
+		cwd = "."
+	}
 	startParams, _ := json.Marshal(bridge.ProcessStartParams{
 		ProcessID: pid,
 		Argv:      a.Command,
-		Cwd:       a.Cwd,
-		Env:       map[string]string{"PATH": "/usr/bin:/bin:/usr/local/bin"},
+		Cwd:       cwd,
+		Env:       nil,
 		TTY:       a.TTY,
 		PipeStdin: a.PipeStdin,
 	})
