@@ -167,7 +167,12 @@ func (s *Server) Routes() http.Handler {
 
 	// Upstream codex `exec-server --remote` compat: clients POST here
 	// with bearer auth, get back the ws URL above.
-	r.Post("/cloud/executor/{exe_id}/register", handlers.CloudRegister(s.store, s.config.PublicWSBaseURL))
+	r.Post("/cloud/executor/{exe_id}/register",
+		handlers.CloudRegister(s.store, s.config.PublicWSBaseURL,
+			handlers.AgentserverValidator{
+				BaseURL:        s.config.AgentserverInternalURL,
+				InternalSecret: s.config.AgentserverInternalSecret,
+			}))
 
 	// *Store satisfies handlers.Store, handlers.BindingStore, and
 	// handlers.InternalConnectedStore directly — no adapter needed because
