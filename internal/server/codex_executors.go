@@ -166,18 +166,27 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 				"export CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN='%s'\ncodex exec-server --remote '%s' --executor-id '%s' --name '%s'",
 				reg.RegistrationToken, gatewayURL, reg.ExeID, req.Name)
 		} else {
-			// codexAuth enabled — surface all 3 variants. Keep the legacy
-			// single-string field populated with the Agent Identity
-			// command so unrevised UI clients still get a working paste.
+			// codexAuth enabled — two practical paths:
+			//   1. Agent Identity — paste-and-go, no login.
+			//   2. ChatGPT device-auth — `codex login --device-auth
+			//      --experimental_issuer ...` shows a URL + short code;
+			//      user opens the URL in any browser (phone or laptop),
+			//      enters the code, clicks Approve.
+			//
+			// Note: the "pure browser" path `codex login
+			// --experimental_issuer ...` (without --device-auth) is
+			// BROKEN in codex 0.132 — `cli/src/main.rs:1194` calls
+			// run_login_with_chatgpt without forwarding
+			// login_cli.issuer_base_url, so the browser pops open
+			// auth.openai.com regardless of the flag. Device-auth path
+			// at `:1170` does plumb the override through. Until codex
+			// upstream fixes the browser path we don't expose it here.
 			resp.ConnectCommands = ConnectCommands{
 				AgentIdentity: fmt.Sprintf(
 					"export CODEX_ACCESS_TOKEN='%s'\nexport CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL='%s'\ncodex -c chatgpt.base_url='%s' exec-server --remote '%s' --executor-id '%s' --name '%s' --use-agent-identity-auth",
 					aiResult.JWT, issuer, issuer, gatewayURL, reg.ExeID, req.Name),
-				ChatgptBrowser: fmt.Sprintf(
-					"codex login --issuer %s\nexport CODEX_REFRESH_TOKEN_URL_OVERRIDE='%s/oauth/token'\ncodex exec-server --remote '%s' --executor-id '%s' --name '%s'",
-					issuer, issuer, gatewayURL, reg.ExeID, req.Name),
 				ChatgptDeviceAuth: fmt.Sprintf(
-					"codex login --device-auth --issuer %s\nexport CODEX_REFRESH_TOKEN_URL_OVERRIDE='%s/oauth/token'\ncodex exec-server --remote '%s' --executor-id '%s' --name '%s'",
+					"codex login --device-auth --experimental_issuer %s\nexport CODEX_REFRESH_TOKEN_URL_OVERRIDE='%s/oauth/token'\ncodex exec-server --remote '%s' --executor-id '%s' --name '%s'",
 					issuer, issuer, gatewayURL, reg.ExeID, req.Name),
 			}
 			resp.ConnectCommand = resp.ConnectCommands.AgentIdentity
