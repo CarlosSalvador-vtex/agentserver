@@ -92,6 +92,13 @@ type Server struct {
 	// flow / JWKS / Agent Identity). Mounted under /codex-auth/* when set.
 	CodexAuth *codexauth.Server
 
+	// CodexAuthIssuerURL is the public-facing issuer URL for the codex
+	// auth shim, e.g. "https://agent.cs.ac.cn/codex-auth". Mirrors the
+	// value used to construct CodexAuth.IssuerURL; surfaced separately so
+	// register-executor can build connect commands that point clients at
+	// the right `codex login --issuer` / token-refresh endpoints.
+	CodexAuthIssuerURL string
+
 	// OperationsRetention is the TTL for rows in the operations table.
 	// 0 disables the background retention loop. Configurable via
 	// AGENTSERVER_OPERATIONS_RETENTION_DAYS (default 90).
@@ -320,6 +327,18 @@ func (s *Server) Router() http.Handler {
 	if s.CodexAuth != nil {
 		r.Route("/codex-auth", func(r chi.Router) {
 			s.CodexAuth.Mount(r)
+		})
+		// Internal cross-scheme validator called by codex-exec-gateway.
+		// Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
+		r.Post("/internal/codex-auth/validate", func(w http.ResponseWriter, r *http.Request) {
+			secret := os.Getenv("INTERNAL_API_SECRET")
+			if secret != "" {
+				if r.Header.Get("X-Internal-Secret") != secret {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+			s.CodexAuth.HandleValidate(w, r)
 		})
 	}
 

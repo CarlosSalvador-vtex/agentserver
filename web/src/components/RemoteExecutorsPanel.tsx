@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Copy, Check, X, Server, Circle } from 'lucide-react'
 import {
-  type RemoteExecutor, type RegisterExecutorResponse,
+  type RemoteExecutor, type RegisterExecutorResponse, type ConnectCommands,
   listRemoteExecutors, registerRemoteExecutor, unbindRemoteExecutor,
 } from '../lib/api'
 import { ConfirmModal } from './Modals'
@@ -23,7 +23,6 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [generated, setGenerated] = useState<RegisterExecutorResponse | null>(null)
-  const [copied, setCopied] = useState(false)
   const [unbindTarget, setUnbindTarget] = useState<RemoteExecutor | null>(null)
 
   const refresh = useCallback(async () => {
@@ -70,13 +69,6 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }
-
-  const copyCommand = async () => {
-    if (!generated?.connect_command) return
-    await navigator.clipboard.writeText(generated.connect_command)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
   }
 
   const isOnline = (r: RemoteExecutor): boolean => {
@@ -241,17 +233,13 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
             <p className="mb-3 text-sm text-[var(--muted-foreground)]">
               Run this on the machine you want to expose. The token won't be shown again — copy it now.
             </p>
-            {generated.connect_command ? (
-              <div className="mb-4 flex items-center gap-2">
-                <pre className="flex-1 overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs text-[var(--foreground)] whitespace-pre-wrap break-all">{generated.connect_command}</pre>
-                <button
-                  onClick={copyCommand}
-                  className="rounded-md border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--secondary)]"
-                  aria-label="Copy command"
-                  title="Copy"
-                >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                </button>
+            {generated.connect_commands ? (
+              <div className="mb-4">
+                <ConnectCommandsPanel cmds={generated.connect_commands} />
+              </div>
+            ) : generated.connect_command ? (
+              <div className="mb-4">
+                <SingleCommandBlock cmd={generated.connect_command} />
               </div>
             ) : (
               <div className="mb-4 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs text-[var(--foreground)]">
@@ -284,6 +272,112 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
           onCancel={() => setUnbindTarget(null)}
         />
       )}
+    </div>
+  )
+}
+
+// --- Connect-command rendering helpers ---
+
+function SingleCommandBlock({ cmd }: { cmd: string }) {
+  const [copied, setCopied] = useState(false)
+  const onCopy = async () => {
+    await navigator.clipboard.writeText(cmd)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <pre className="flex-1 overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs text-[var(--foreground)] whitespace-pre-wrap break-all">{cmd}</pre>
+      <button
+        onClick={onCopy}
+        className="rounded-md border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--secondary)]"
+        aria-label="Copy command"
+        title="Copy"
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
+  )
+}
+
+type ConnectTabKey = keyof ConnectCommands
+
+const CONNECT_TABS: { key: ConnectTabKey; label: string; hint: string }[] = [
+  {
+    key: 'agent_identity',
+    label: 'Agent Identity (headless)',
+    hint: 'Best for unattended machines. One paste, done.',
+  },
+  {
+    key: 'chatgpt_browser',
+    label: 'codex login (browser)',
+    hint: 'For desktops. SSO with your agentserver session.',
+  },
+  {
+    key: 'chatgpt_device_auth',
+    label: 'codex login --device-auth',
+    hint: 'Headless + ChatGPT-account semantics. Enter a code in a browser.',
+  },
+]
+
+function ConnectCommandsPanel({ cmds }: { cmds: ConnectCommands }) {
+  // Default to the first tab whose command is actually populated, falling
+  // back to agent_identity if none are (so the panel still renders something).
+  const firstAvailable = CONNECT_TABS.find((t) => cmds[t.key])?.key ?? 'agent_identity'
+  const [tab, setTab] = useState<ConnectTabKey>(firstAvailable)
+  const [copied, setCopied] = useState(false)
+  const current = cmds[tab] || ''
+
+  const onCopy = async () => {
+    if (!current) return
+    await navigator.clipboard.writeText(current)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {CONNECT_TABS.map(({ key, label }) => {
+          const active = tab === key
+          const disabled = !cmds[key]
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={disabled}
+              onClick={() => setTab(key)}
+              className={[
+                'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
+                active
+                  ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]'
+                  : 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--secondary)]',
+                disabled ? 'cursor-not-allowed opacity-40' : '',
+              ].join(' ')}
+              title={disabled ? 'Not available for this connector' : undefined}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+      <p className="mb-2 text-[11px] text-[var(--muted-foreground)]">
+        {CONNECT_TABS.find((t) => t.key === tab)!.hint}
+      </p>
+      <div className="flex items-center gap-2">
+        <pre className="flex-1 overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs text-[var(--foreground)] whitespace-pre-wrap break-all">
+          {current || <span className="italic opacity-60">(not available)</span>}
+        </pre>
+        <button
+          onClick={onCopy}
+          disabled={!current}
+          className="rounded-md border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Copy command"
+          title="Copy"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+      </div>
     </div>
   )
 }

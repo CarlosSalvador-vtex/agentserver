@@ -249,6 +249,19 @@ func (s *Store) truncateForTest() {
 	s.db.Exec(`DELETE FROM executors`)           //nolint:errcheck
 }
 
+// UserIDForExecutor returns the owner user_id of an executor row.
+// Used by /cloud/executor/{id}/register to confirm the token holder
+// owns the executor they're trying to register as.
+func (s *Store) UserIDForExecutor(ctx context.Context, exeID string) (string, error) {
+	var uid string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT user_id FROM executors WHERE exe_id = $1`, exeID).Scan(&uid)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return uid, err
+}
+
 // ConnectedExecutorsForWorkspace returns the intersection of (workspace's bound
 // executors) ∩ (the connected exe_id list passed in). Used by the internal
 // `/api/exec-gateway/connected` endpoint.
