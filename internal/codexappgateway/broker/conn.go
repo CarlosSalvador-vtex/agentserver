@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,7 +153,20 @@ func (c *Conn) dispatchFrame(data []byte) {
 		c.deliverTurn(p.Turn.ID, p.Turn)
 		return
 	}
-	// Drop other notifications.
+	// Unknown server-side request (id-bearing, method not in our
+	// approval allowlist): reply with a JSON-RPC method-not-found error
+	// so codex doesn't block waiting for a response it'll never get.
+	// Silent drop would cause every subsequent Turn on this conn to
+	// time out — the prod symptom that led to commit 322c2db.
+	if f.ID != nil && f.Method != "" {
+		log.Printf("broker: unhandled server request method=%q id=%d — replying method-not-found", f.Method, *f.ID)
+		_ = c.writeJSON(context.Background(), rpcResponse{
+			JSONRPC: "2.0", ID: f.ID,
+			Error: &rpcError{Code: -32601, Message: "method not implemented by agentserver broker: " + f.Method},
+		})
+		return
+	}
+	// Drop genuine notifications (no id) silently — codex won't block on them.
 }
 
 func (c *Conn) deliverResponse(id int64, resp rpcResponse) {
