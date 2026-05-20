@@ -1,12 +1,13 @@
 """Ctx — the workspace-scoped SDK handle bundled into every notebook kernel.
 
-`Ctx.from_env()` constructs a lazy handle (no I/O). The first `await
-ctx.envs()` calls the gateway's REST endpoint.
+`Ctx.from_env()` constructs a lazy handle (no I/O). Every `await ctx.envs()`
+hits the gateway's REST endpoint — there is no client-side caching, because
+executors come and go and the right answer is whatever the gateway sees
+right now.
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 
 from .client import HTTPClient
@@ -18,8 +19,6 @@ from .types import ToolMetadata
 class Ctx:
     def __init__(self, client: HTTPClient) -> None:
         self._client = client
-        self._envs_lock = asyncio.Lock()
-        self._envs_cache: list[Env] | None = None
 
     @classmethod
     def from_env(cls) -> "Ctx":
@@ -32,14 +31,9 @@ class Ctx:
         return cls(HTTPClient(url, token))
 
     async def envs(self) -> list[Env]:
-        """List envs in the workspace. Caches inside Ctx for the kernel
-        lifetime — call `refresh()` to clear the cache."""
-        async with self._envs_lock:
-            if self._envs_cache is None:
-                self._envs_cache = await self._fetch_envs()
-        return list(self._envs_cache)
-
-    async def _fetch_envs(self) -> list[Env]:
+        """List envs currently connected to the workspace. Hits the gateway
+        on every call — executors connect/disconnect, and a stale list is
+        usually worse than a fresh HTTP round-trip."""
         listing = await self._client.post("/api/sdk/envs/list", {})
         envs: list[Env] = []
         for e in listing.get("envs", []):
@@ -57,11 +51,6 @@ class Ctx:
             if e.name == name:
                 return e
         raise KeyError(f"env not found: {name}")
-
-    async def refresh(self) -> None:
-        """Clear the env cache so the next `envs()` call refetches from the gateway."""
-        async with self._envs_lock:
-            self._envs_cache = None
 
     async def close(self) -> None:
         await self._client.close()
