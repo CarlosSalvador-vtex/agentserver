@@ -301,6 +301,15 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 			JSONRPC: "2.0", ID: &interruptID, Method: "turn/interrupt", Params: ipB,
 		})
 		cancel()
+		// Treat the conn as poisoned: a timeout means either codex is
+		// hung or our readLoop missed the response, and either way
+		// subsequent Turns on this conn would inherit the bad state.
+		// Close it so the Pool dials a fresh one on the next Get(). This
+		// self-heals the "broker gets stuck for the whole workspace
+		// after one timeout" failure mode observed in prod, where each
+		// new Turn would brokerTimeout forever until CXG was kubectl-
+		// restarted by hand.
+		c.Close()
 		return nil, &TimeoutError{ThreadID: threadID, TurnID: startResp.Turn.ID}
 	}
 }
