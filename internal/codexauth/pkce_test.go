@@ -2,10 +2,14 @@ package codexauth
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/go-chi/chi/v5"
@@ -99,4 +103,99 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func TestToken_AuthorizationCode_ReturnsTriplet(t *testing.T) {
+	srv := newAuthTestServer(t, "")
+	ctx := context.Background()
+
+	// Pre-seed an authorize row.
+	uid := mustCreateTestUser(t, srv.Store.db)
+	verifier := strings.Repeat("a", 48)
+	challenge := base64URLNoPad(sha256Sum([]byte(verifier)))
+	srv.Store.InsertPkceRequest(ctx, PkceRequest{
+		Code:          "code-xyz",
+		CodeChallenge: challenge,
+		State:         "irrelevant",
+		UserID:        uid,
+		ExpiresAt:     time.Now().Add(5 * time.Minute),
+	})
+
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", "code-xyz")
+	form.Set("code_verifier", verifier)
+	form.Set("redirect_uri", "http://localhost:1455/auth/callback")
+	form.Set("client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	r := chi.NewRouter()
+	srv.Mount(r)
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		body, _ := io.ReadAll(rr.Body)
+		t.Fatalf("status = %d, body = %s", rr.Code, body)
+	}
+	var resp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
+		TokenType    string `json:"token_type"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp.AccessToken == "" || resp.RefreshToken == "" || resp.IDToken == "" {
+		t.Fatalf("missing fields: %+v", resp)
+	}
+	if resp.TokenType != "Bearer" {
+		t.Errorf("token_type = %q", resp.TokenType)
+	}
+}
+
+func TestToken_AuthorizationCode_BadVerifierRejected(t *testing.T) {
+	srv := newAuthTestServer(t, "")
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, srv.Store.db)
+	srv.Store.InsertPkceRequest(ctx, PkceRequest{
+		Code:          "code-bad",
+		CodeChallenge: "different-challenge",
+		State:         "x",
+		UserID:        uid,
+		ExpiresAt:     time.Now().Add(5 * time.Minute),
+	})
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", "code-bad")
+	form.Set("code_verifier", "wrong-verifier")
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	r := chi.NewRouter()
+	srv.Mount(r)
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestToken_TokenExchange_ReturnsBadRequest(t *testing.T) {
+	srv := newAuthTestServer(t, "")
+	form := url.Values{}
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
+	form.Set("requested_token", "openai-api-key")
+	form.Set("subject_token", "irrelevant")
+	form.Set("subject_token_type", "urn:ietf:params:oauth:token-type:id_token")
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	r := chi.NewRouter()
+	srv.Mount(r)
+	r.ServeHTTP(rr, req)
+	// Codex tolerates failure (server.rs:352-354) — return 400 to opt out.
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
 }
