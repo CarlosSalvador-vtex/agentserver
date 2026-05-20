@@ -7,14 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/agentserver/agentserver/internal/codexexecgateway/handlers"
 	"nhooyr.io/websocket"
 )
+
+const testInboundSecret = "ticket-secret"
 
 func newInboundTestServer(t *testing.T) (*httptest.Server, *Server) {
 	t.Helper()
 	store := newTestStore(t)
-	cfg := Config{CapTokenHMACSecret: []byte("k"), InternalSharedSecret: "s"}
+	cfg := Config{CapTokenHMACSecret: []byte("k"), InternalSharedSecret: "s", AgentserverInternalSecret: testInboundSecret}
 	srv, err := NewServer(cfg, store)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -27,10 +29,9 @@ func newInboundTestServer(t *testing.T) (*httptest.Server, *Server) {
 func TestInbound_RejectsBadToken(t *testing.T) {
 	hs, srv := newInboundTestServer(t)
 	ctx := context.Background()
-	hash, _ := bcrypt.GenerateFromPassword([]byte("right_token"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(ctx, Executor{
 		ExeID: "exe_inb1", UserID: "u", RegisteredAt: time.Now().UTC(),
-	}, string(hash))
+	})
 
 	wsURL := "ws" + hs.URL[len("http"):] + "/codex-exec/exe_inb1?token=wrong"
 	_, resp, err := websocket.Dial(ctx, wsURL, nil)
@@ -45,12 +46,15 @@ func TestInbound_RejectsBadToken(t *testing.T) {
 func TestInbound_AcceptsAndRegisters(t *testing.T) {
 	hs, srv := newInboundTestServer(t)
 	ctx := context.Background()
-	hash, _ := bcrypt.GenerateFromPassword([]byte("good"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(ctx, Executor{
 		ExeID: "exe_inb2", UserID: "u", RegisteredAt: time.Now().UTC(),
-	}, string(hash))
+	})
+	ticket, err := handlers.MintWSTicket("exe_inb2", testInboundSecret)
+	if err != nil {
+		t.Fatalf("mint ticket: %v", err)
+	}
 
-	wsURL := "ws" + hs.URL[len("http"):] + "/codex-exec/exe_inb2?token=good"
+	wsURL := "ws" + hs.URL[len("http"):] + "/codex-exec/exe_inb2?token=" + ticket
 	c, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -73,12 +77,15 @@ func TestInbound_AcceptsAndRegisters(t *testing.T) {
 func TestInbound_EvictsOldConn(t *testing.T) {
 	hs, srv := newInboundTestServer(t)
 	ctx := context.Background()
-	hash, _ := bcrypt.GenerateFromPassword([]byte("tok"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(ctx, Executor{
 		ExeID: "exe_inb3", UserID: "u", RegisteredAt: time.Now().UTC(),
-	}, string(hash))
+	})
+	ticket, err := handlers.MintWSTicket("exe_inb3", testInboundSecret)
+	if err != nil {
+		t.Fatalf("mint ticket: %v", err)
+	}
 
-	wsURL := "ws" + hs.URL[len("http"):] + "/codex-exec/exe_inb3?token=tok"
+	wsURL := "ws" + hs.URL[len("http"):] + "/codex-exec/exe_inb3?token=" + ticket
 
 	// First connection.
 	c1, _, err := websocket.Dial(ctx, wsURL, nil)

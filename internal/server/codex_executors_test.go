@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/agentserver/agentserver/internal/auth"
@@ -44,9 +43,7 @@ func TestHandleRegisterExecutor_HappyPath(t *testing.T) {
 	stub.HandleFunc("/api/codex-exec/register", func(w http.ResponseWriter, r *http.Request) {
 		registerCalls++
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"exe_id": "exe_test", "registration_token": "tok_abc",
-		})
+		_ = json.NewEncoder(w).Encode(map[string]string{"exe_id": "exe_test"})
 	})
 	stub.HandleFunc("/api/codex-exec/workspaces/ws_a/executors", func(w http.ResponseWriter, r *http.Request) {
 		bindCalls++
@@ -56,11 +53,10 @@ func TestHandleRegisterExecutor_HappyPath(t *testing.T) {
 	defer cleanup()
 	seedWorkspaceMember(t, srv.DB, "ws_a", "u1", "owner")
 
-	body := bytes.NewReader([]byte(`{"description":"my mac"}`))
+	body := bytes.NewReader([]byte(`{"name":"laptop"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws_a/executors", body).
 		WithContext(auth.ContextWithUserID(context.Background(), "u1"))
 	req.Header.Set("Content-Type", "application/json")
-	// Plumb the wid URL param via chi context.
 	req = withChiURLParam(req, "wid", "ws_a")
 	rr := httptest.NewRecorder()
 	srv.handleRegisterExecutor(rr, req)
@@ -69,19 +65,8 @@ func TestHandleRegisterExecutor_HappyPath(t *testing.T) {
 	}
 	var resp registerExecutorResp
 	json.Unmarshal(rr.Body.Bytes(), &resp)
-	if resp.ExeID != "exe_test" || resp.RegistrationToken != "tok_abc" {
+	if resp.ExeID != "exe_test" {
 		t.Errorf("resp = %+v", resp)
-	}
-	// Upstream-compat command: bearer in env + register POST. codex
-	// auto-derives the ws URL from the /cloud/executor/.../register response.
-	if !strings.Contains(resp.ConnectCommand, "CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN='tok_abc'") {
-		t.Errorf("connect_command missing bearer token: %q", resp.ConnectCommand)
-	}
-	if !strings.Contains(resp.ConnectCommand, "--remote 'https://codex-exec.example.com'") {
-		t.Errorf("connect_command missing --remote: %q", resp.ConnectCommand)
-	}
-	if !strings.Contains(resp.ConnectCommand, "--executor-id 'exe_test'") {
-		t.Errorf("connect_command missing --executor-id: %q", resp.ConnectCommand)
 	}
 	if registerCalls != 1 || bindCalls != 1 {
 		t.Errorf("register=%d bind=%d", registerCalls, bindCalls)

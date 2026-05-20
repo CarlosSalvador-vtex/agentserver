@@ -84,14 +84,17 @@ func (s *Store) migrate() error {
 	return nil
 }
 
-// CreateExecutor inserts a new executor row. Caller supplies the bcrypt hash.
-func (s *Store) CreateExecutor(ctx context.Context, e Executor, registrationTokenHash string) error {
+// CreateExecutor inserts a new executor row. The legacy registration_token_hash
+// column is written as empty string (NOT NULL constraint) and is no longer
+// consumed by any auth path — kept to avoid a schema migration on a column
+// that will be dropped in a follow-up.
+func (s *Store) CreateExecutor(ctx context.Context, e Executor) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO executors (exe_id, user_id, display_name, description, default_cwd,
 		                       registration_token_hash, registered_at)
-		VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), NULLIF($5,''), $6, $7)`,
+		VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), NULLIF($5,''), '', $6)`,
 		e.ExeID, e.UserID, e.DisplayName, e.Description, e.DefaultCwd,
-		registrationTokenHash, e.RegisteredAt)
+		e.RegisteredAt)
 	if err != nil {
 		return fmt.Errorf("insert executor: %w", err)
 	}
@@ -137,20 +140,6 @@ func (s *Store) GetExecutor(ctx context.Context, exeID string) (*Executor, error
 		e.DisconnectedAt = &t
 	}
 	return &e, nil
-}
-
-// GetRegistrationTokenHash returns the bcrypt hash used to authenticate
-// /codex-exec/{exe_id} ws connections.
-func (s *Store) GetRegistrationTokenHash(ctx context.Context, exeID string) (string, error) {
-	var hash string
-	err := s.db.QueryRowContext(ctx, `SELECT registration_token_hash FROM executors WHERE exe_id=$1`, exeID).Scan(&hash)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("get registration token hash: %w", err)
-	}
-	return hash, nil
 }
 
 // UpdateLastSeen sets the last_seen_at timestamp to NOW().

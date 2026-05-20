@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 func TestHandleRegister_HappyPath(t *testing.T) {
@@ -28,22 +26,13 @@ func TestHandleRegister_HappyPath(t *testing.T) {
 		t.Fatalf("want 201, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	var resp struct {
-		ExeID             string `json:"exe_id"`
-		RegistrationToken string `json:"registration_token"`
+		ExeID string `json:"exe_id"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.HasPrefix(resp.ExeID, "exe_") || resp.RegistrationToken == "" {
+	if !strings.HasPrefix(resp.ExeID, "exe_") {
 		t.Fatalf("bad response: %+v", resp)
-	}
-	// Token round-trip: bcrypt hash from DB must verify against returned token.
-	hash, err := store.GetRegistrationTokenHash(req.Context(), resp.ExeID)
-	if err != nil || hash == "" {
-		t.Fatalf("hash: %v %q", err, hash)
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(resp.RegistrationToken)); err != nil {
-		t.Fatalf("bcrypt verify: %v", err)
 	}
 }
 

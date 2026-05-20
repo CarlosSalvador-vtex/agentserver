@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/codexexecgateway/handlers"
 	"github.com/agentserver/agentserver/internal/relaypb"
-	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/protobuf/proto"
 	"nhooyr.io/websocket"
 )
@@ -88,14 +88,17 @@ func readRelayFrame(t *testing.T, ctx context.Context, c *websocket.Conn) *relay
 // responses tagged with the right stream_id).
 func connectInboundRaw(t *testing.T, srv *Server, baseURL, exeID string) *websocket.Conn {
 	t.Helper()
-	hash, _ := bcrypt.GenerateFromPassword([]byte("rt"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(context.Background(), Executor{
 		ExeID: exeID, UserID: "u", RegisteredAt: time.Now().UTC(),
-	}, string(hash))
+	})
 	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, "test-"+exeID, "", false); err != nil {
 		t.Fatalf("BindWorkspaceExecutor: %v", err)
 	}
-	url := "ws" + strings.TrimPrefix(baseURL, "http") + "/codex-exec/" + exeID + "?token=rt"
+	ticket, err := handlers.MintWSTicket(exeID, srv.config.AgentserverInternalSecret)
+	if err != nil {
+		t.Fatalf("MintWSTicket: %v", err)
+	}
+	url := "ws" + strings.TrimPrefix(baseURL, "http") + "/codex-exec/" + exeID + "?token=" + ticket
 	c, _, err := websocket.Dial(context.Background(), url, nil)
 	if err != nil {
 		t.Fatalf("inbound dial: %v", err)

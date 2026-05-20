@@ -20,7 +20,7 @@ func TestWorkspaceBinding_PostListDelete(t *testing.T) {
 	// Pre-seed an executor.
 	store.CreateExecutor(context.Background(), Executor{
 		ExeID: "exe_w1", UserID: "u", Description: "alpha", RegisteredAt: time.Now().UTC(),
-	}, "h")
+	})
 
 	// POST
 	body := bytes.NewReader([]byte(`{"exe_id":"exe_w1","is_default":true}`))
