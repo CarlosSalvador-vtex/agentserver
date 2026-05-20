@@ -258,19 +258,22 @@ type ConnectTabKey = keyof ConnectCommands
 const CONNECT_TABS: { key: ConnectTabKey; label: string; hint: string }[] = [
   {
     key: 'agent_identity',
-    label: 'Agent Identity (headless)',
-    hint: 'Best for unattended machines. One paste, done.',
-  },
-  {
-    key: 'chatgpt_browser',
-    label: 'codex login (browser)',
-    hint: 'For desktops. SSO with your agentserver session.',
+    label: 'Agent Identity (recommended)',
+    hint: 'Paste-and-go. No login. Best for unattended machines.',
   },
   {
     key: 'chatgpt_device_auth',
     label: 'codex login --device-auth',
-    hint: 'Headless + ChatGPT-account semantics. Enter a code in a browser.',
+    hint:
+      'For ChatGPT-account semantics. Opens a URL + short code; enter the ' +
+      'code in any browser (phone or laptop), click Approve. Works on both ' +
+      'headless and desktop machines.',
   },
+  // chatgpt_browser tab intentionally omitted: codex 0.132's pure browser
+  // login path (`codex login --experimental_issuer ...` without
+  // --device-auth) ignores the issuer override and always hits
+  // auth.openai.com (upstream bug in cli/src/main.rs:1194). Device-auth
+  // is the working substitute for browser users until that's fixed.
 ]
 
 function ConnectCommandsPanel({ cmds }: { cmds: ConnectCommands }) {
