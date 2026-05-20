@@ -2,8 +2,10 @@ package codexauth
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/agentserver/agentserver/internal/db"
 )
@@ -84,4 +86,177 @@ func TestStore_ListAllJwksKeys(t *testing.T) {
 	if len(keys) != 2 {
 		t.Errorf("keys count = %d, want 2", len(keys))
 	}
+}
+
+func TestStore_PkceRequest_RoundTrip(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	err := s.InsertPkceRequest(ctx, PkceRequest{
+		Code:          "code-abc",
+		CodeChallenge: "chall-123",
+		State:         "state-xyz",
+		UserID:        uid,
+		ExpiresAt:     time.Now().Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("InsertPkceRequest: %v", err)
+	}
+	got, err := s.ConsumePkceRequest(ctx, "code-abc")
+	if err != nil || got == nil {
+		t.Fatalf("ConsumePkceRequest: %v %+v", err, got)
+	}
+	if got.CodeChallenge != "chall-123" {
+		t.Errorf("CodeChallenge = %q", got.CodeChallenge)
+	}
+	// ConsumePkceRequest deletes — second call returns nil.
+	got2, _ := s.ConsumePkceRequest(ctx, "code-abc")
+	if got2 != nil {
+		t.Error("second consume should return nil")
+	}
+}
+
+func TestStore_AccessToken_HashLookup(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	hash := HashToken("raw-access-token")
+	exp := time.Now().Add(1 * time.Hour).UTC()
+	if err := s.InsertAccessToken(ctx, hash, uid, exp); err != nil {
+		t.Fatalf("InsertAccessToken: %v", err)
+	}
+	gotUID, err := s.LookupAccessToken(ctx, "raw-access-token")
+	if err != nil {
+		t.Fatalf("LookupAccessToken: %v", err)
+	}
+	if gotUID != uid {
+		t.Errorf("uid = %q, want %q", gotUID, uid)
+	}
+}
+
+func TestStore_AccessToken_ExpiredReturnsEmpty(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	hash := HashToken("raw-expired-token")
+	if err := s.InsertAccessToken(ctx, hash, uid, time.Now().Add(-1*time.Hour)); err != nil {
+		t.Fatalf("InsertAccessToken: %v", err)
+	}
+	gotUID, _ := s.LookupAccessToken(ctx, "raw-expired-token")
+	if gotUID != "" {
+		t.Errorf("uid = %q, expected empty for expired token", gotUID)
+	}
+}
+
+func TestStore_RefreshToken_RotateInvalidatesOld(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	family := mustNewUUID(t, s.db)
+	oldHash := HashToken("refresh-old")
+	if err := s.InsertRefreshToken(ctx, oldHash, family, uid, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("InsertRefreshToken: %v", err)
+	}
+
+	// Look up + revoke old, insert new, all in one call.
+	newHash := HashToken("refresh-new")
+	gotUID, err := s.RotateRefreshToken(ctx, "refresh-old", newHash, time.Now().Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("RotateRefreshToken: %v", err)
+	}
+	if gotUID != uid {
+		t.Errorf("uid = %q, want %q", gotUID, uid)
+	}
+	// Old is now revoked.
+	if _, err := s.RotateRefreshToken(ctx, "refresh-old", newHash, time.Now().Add(24*time.Hour)); err == nil {
+		t.Error("rotating revoked token should error")
+	}
+}
+
+func TestStore_RefreshToken_FamilyIDPreserved(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	family := mustNewUUID(t, s.db)
+	s.InsertRefreshToken(ctx, HashToken("rt-1"), family, uid, time.Now().Add(24*time.Hour))
+	s.RotateRefreshToken(ctx, "rt-1", HashToken("rt-2"), time.Now().Add(24*time.Hour))
+
+	var got string
+	if err := s.db.QueryRow(
+		`SELECT family_id::text FROM codex_refresh_tokens WHERE token_hash = $1`,
+		HashToken("rt-2"),
+	).Scan(&got); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if got != family {
+		t.Errorf("family_id = %q, want %q", got, family)
+	}
+}
+
+func TestStore_RefreshToken_ReuseRevokesFamily(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	family := mustNewUUID(t, s.db)
+	// Insert two siblings in the same family.
+	s.InsertRefreshToken(ctx, HashToken("rt-a"), family, uid, time.Now().Add(24*time.Hour))
+	s.InsertRefreshToken(ctx, HashToken("rt-b"), family, uid, time.Now().Add(24*time.Hour))
+
+	// Rotate rt-a → rt-c (legitimate use, succeeds).
+	if _, err := s.RotateRefreshToken(ctx, "rt-a", HashToken("rt-c"), time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("first rotate: %v", err)
+	}
+
+	// Attempted reuse of revoked rt-a — must error with ErrRefreshTokenReuse
+	// AND revoke the entire family (so rt-b and rt-c are now unusable).
+	_, err := s.RotateRefreshToken(ctx, "rt-a", HashToken("rt-d"), time.Now().Add(24*time.Hour))
+	if !errors.Is(err, ErrRefreshTokenReuse) {
+		t.Errorf("err = %v, want ErrRefreshTokenReuse", err)
+	}
+
+	// rt-b should now be revoked too (family burned).
+	_, err = s.RotateRefreshToken(ctx, "rt-b", HashToken("rt-e"), time.Now().Add(24*time.Hour))
+	if !errors.Is(err, ErrRefreshTokenReuse) {
+		t.Errorf("rt-b rotate after family burn: err = %v, want ErrRefreshTokenReuse", err)
+	}
+	// rt-c (the legitimate post-rotation token) should also be burned.
+	_, err = s.RotateRefreshToken(ctx, "rt-c", HashToken("rt-f"), time.Now().Add(24*time.Hour))
+	if !errors.Is(err, ErrRefreshTokenReuse) {
+		t.Errorf("rt-c rotate after family burn: err = %v, want ErrRefreshTokenReuse", err)
+	}
+}
+
+// --- helpers ---
+
+func mustCreateTestUser(t *testing.T, d *db.DB) string {
+	t.Helper()
+	id := mustNewUUID(t, d)
+	_, err := d.Exec(`INSERT INTO users (id, username, email, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (id) DO NOTHING`, id, "test-"+id[:8], id+"@test.local")
+	if err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+	return id
+}
+
+func mustNewUUID(t *testing.T, d *db.DB) string {
+	t.Helper()
+	var s string
+	if err := d.QueryRow("SELECT gen_random_uuid()::text").Scan(&s); err != nil {
+		t.Fatalf("gen_random_uuid: %v", err)
+	}
+	return s
 }

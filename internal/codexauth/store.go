@@ -2,11 +2,20 @@ package codexauth
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/agentserver/agentserver/internal/db"
 )
+
+// ErrRefreshTokenReuse is returned by RotateRefreshToken when the
+// presented token is unknown OR has already been revoked. Callers
+// (the /oauth/token refresh handler) should map this to a 401 with
+// OAuth error `refresh_token_expired` or `refresh_token_reused`.
+var ErrRefreshTokenReuse = errors.New("refresh token unknown or revoked")
 
 // Store is a thin DB facade over all codex_* tables. Each method takes
 // a context and returns a typed value or error; no business logic lives
@@ -72,4 +81,152 @@ func (s *Store) ListAllJwksKeys(ctx context.Context) ([]JwksKey, error) {
 		out = append(out, k)
 	}
 	return out, nil
+}
+
+// ----- PKCE -----
+
+type PkceRequest struct {
+	Code          string
+	CodeChallenge string
+	State         string
+	UserID        string
+	ExpiresAt     time.Time
+}
+
+func (s *Store) InsertPkceRequest(ctx context.Context, r PkceRequest) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO codex_pkce_requests (code, code_challenge, state, user_id, expires_at)
+		VALUES ($1, $2, $3, $4, $5)`,
+		r.Code, r.CodeChallenge, r.State, r.UserID, r.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("insert pkce request: %w", err)
+	}
+	return nil
+}
+
+// ConsumePkceRequest atomically deletes and returns the row.
+// Returns nil if the code is missing or expired.
+func (s *Store) ConsumePkceRequest(ctx context.Context, code string) (*PkceRequest, error) {
+	var r PkceRequest
+	err := s.db.QueryRowContext(ctx, `
+		DELETE FROM codex_pkce_requests
+		WHERE code = $1 AND expires_at > NOW()
+		RETURNING code, code_challenge, state, user_id, expires_at`,
+		code).Scan(&r.Code, &r.CodeChallenge, &r.State, &r.UserID, &r.ExpiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("consume pkce request: %w", err)
+	}
+	return &r, nil
+}
+
+// ----- Tokens -----
+
+// HashToken returns sha256(raw) suitable for DB primary key.
+// Tokens are never stored plaintext.
+func HashToken(raw string) []byte {
+	h := sha256.Sum256([]byte(raw))
+	return h[:]
+}
+
+func (s *Store) InsertAccessToken(ctx context.Context, tokenHash []byte, userID string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO codex_access_tokens (token_hash, user_id, expires_at)
+		VALUES ($1, $2, $3)`,
+		tokenHash, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("insert access token: %w", err)
+	}
+	return nil
+}
+
+// LookupAccessToken returns the user_id if the token is valid (exists,
+// not expired, not revoked); empty string otherwise.
+func (s *Store) LookupAccessToken(ctx context.Context, rawToken string) (string, error) {
+	var userID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT user_id FROM codex_access_tokens
+		WHERE token_hash = $1
+		  AND expires_at > NOW()
+		  AND revoked_at IS NULL`,
+		HashToken(rawToken)).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("lookup access token: %w", err)
+	}
+	return userID, nil
+}
+
+func (s *Store) InsertRefreshToken(ctx context.Context, tokenHash []byte, familyID, userID string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO codex_refresh_tokens (token_hash, family_id, user_id, expires_at)
+		VALUES ($1, $2, $3, $4)`,
+		tokenHash, familyID, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("insert refresh token: %w", err)
+	}
+	return nil
+}
+
+// RotateRefreshToken revokes the old refresh token and inserts a new
+// one in the same family. Returns the user_id; errors if the old token
+// is missing or already revoked.
+func (s *Store) RotateRefreshToken(ctx context.Context, oldRaw string, newHash []byte, newExpiry time.Time) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	oldHash := HashToken(oldRaw)
+	var userID, familyID string
+	err = tx.QueryRowContext(ctx, `
+		UPDATE codex_refresh_tokens
+		SET revoked_at = NOW()
+		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		RETURNING user_id, family_id::text`,
+		oldHash).Scan(&userID, &familyID)
+	if err == sql.ErrNoRows {
+		// Reuse detection (OAuth 2.1 §6.1): the token is either unknown
+		// or already revoked. If it EXISTS but is revoked, assume the
+		// family is compromised and burn every sibling token.
+		var existingFamily string
+		lookupErr := tx.QueryRowContext(ctx, `
+			SELECT family_id::text FROM codex_refresh_tokens
+			WHERE token_hash = $1`, oldHash).Scan(&existingFamily)
+		if lookupErr == nil {
+			if _, revokeErr := tx.ExecContext(ctx, `
+				UPDATE codex_refresh_tokens
+				SET revoked_at = NOW()
+				WHERE family_id = $1::uuid AND revoked_at IS NULL`,
+				existingFamily); revokeErr != nil {
+				return "", fmt.Errorf("revoke family: %w", revokeErr)
+			}
+			if commitErr := tx.Commit(); commitErr != nil {
+				return "", fmt.Errorf("commit family revoke: %w", commitErr)
+			}
+		} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+			return "", fmt.Errorf("lookup revoked refresh: %w", lookupErr)
+		}
+		return "", fmt.Errorf("refresh token expired or revoked: %w", ErrRefreshTokenReuse)
+	}
+	if err != nil {
+		return "", fmt.Errorf("revoke old refresh: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO codex_refresh_tokens (token_hash, family_id, user_id, expires_at)
+		VALUES ($1, $2, $3, $4)`,
+		newHash, familyID, userID, newExpiry); err != nil {
+		return "", fmt.Errorf("insert new refresh: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit: %w", err)
+	}
+	return userID, nil
 }
