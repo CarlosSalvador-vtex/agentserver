@@ -74,3 +74,48 @@ func TestConnTurnFailsOnWSClose(t *testing.T) {
 	}
 	t.Logf("ws-close err = %v", err)
 }
+
+// TestConnTurnTimeoutClosesConn pins the self-heal behaviour: a Turn
+// timeout marks the conn as closed (via Close), so the Pool will
+// dial a fresh one on the next Get() rather than handing back the
+// same broken conn. Without this, prod observed "first user message
+// in workspace works → conn becomes stuck → every subsequent message
+// in that workspace brokerTimeouts forever until CXG is restarted."
+func TestConnTurnTimeoutClosesConn(t *testing.T) {
+	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
+		replayHandshake(t, ctx, c)
+		ts := readFrame(t, ctx, c)
+		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-z"}}})
+		// Never send turn/completed → caller will brokerTimeout.
+		for {
+			if _, _, err := c.Read(ctx); err != nil {
+				return
+			}
+		}
+	})
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := Dial(ctx, url)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+
+	_, err = conn.Turn(ctx, "thr-z", json.RawMessage(`{"input":[]}`), 200*time.Millisecond)
+	var te *TimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("err = %v want *TimeoutError", err)
+	}
+
+	// Give Close() a beat to propagate through readLoop's failAllPending.
+	time.Sleep(50 * time.Millisecond)
+
+	// closeErr should now be set; closeErrOr returns the underlying read
+	// error (or our "connection closed" fallback). Use it as a proxy for
+	// "conn is dead".
+	got := conn.closeErrOr(nil)
+	if got == nil {
+		t.Error("conn.closeErr unset after Turn timeout — Pool would hand back this conn")
+	}
+}

@@ -104,3 +104,62 @@ func TestConnAutoApprovesPermissionsWithEmptyProfile(t *testing.T) {
 		t.Fatalf("Turn: %v", err)
 	}
 }
+
+// TestConnRepliesMethodNotFoundForUnknownServerRequest pins the
+// defensive behaviour that unblocks the prod "broker stuck for whole
+// workspace" wedge: any id-bearing server request whose method we
+// don't recognise gets a JSON-RPC method-not-found reply, so codex
+// doesn't sit waiting for a response that would never arrive.
+func TestConnRepliesMethodNotFoundForUnknownServerRequest(t *testing.T) {
+	gotReply := make(chan map[string]any, 1)
+	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
+		replayHandshake(t, ctx, c)
+		ts := readFrame(t, ctx, c)
+		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-u"}}})
+		// Send a made-up server request mid-turn.
+		writeJSON(t, ctx, c, map[string]any{
+			"jsonrpc": "2.0", "id": 4242,
+			"method": "experimental/futureThing",
+			"params": map[string]any{"foo": "bar"},
+		})
+		// Expect the broker to reply with -32601, then complete the turn.
+		reply := readFrame(t, ctx, c)
+		gotReply <- reply
+		writeJSON(t, ctx, c, map[string]any{
+			"jsonrpc": "2.0",
+			"method":  "turn/completed",
+			"params":  map[string]any{"threadId": "thr-u", "turn": map[string]any{"id": "trn-u", "status": "completed", "items": []any{}, "itemsView": "full", "error": nil}},
+		})
+	})
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := Dial(ctx, url)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Turn(ctx, "thr-u", json.RawMessage(`{"input":[]}`), 5*time.Second); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+
+	select {
+	case reply := <-gotReply:
+		if reply["id"] != float64(4242) {
+			t.Errorf("reply id=%v want 4242", reply["id"])
+		}
+		e, ok := reply["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected error in reply, got %v", reply)
+		}
+		if e["code"] != float64(-32601) {
+			t.Errorf("error.code=%v want -32601", e["code"])
+		}
+		if msg, _ := e["message"].(string); msg == "" {
+			t.Errorf("expected non-empty error message, got %q", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not observe method-not-found reply")
+	}
+}
