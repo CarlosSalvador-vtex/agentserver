@@ -1046,10 +1046,24 @@ export interface RegisterExecutorRequest {
   description?: string
 }
 
+export interface ConnectCommands {
+  agent_identity?: string
+  chatgpt_browser?: string
+  chatgpt_device_auth?: string
+}
+
 export interface RegisterExecutorResponse {
   exe_id: string
   registration_token: string
+  // Legacy single-string command, still populated for backwards compat
+  // (Agent Identity command when codexAuth is enabled, bearer-token
+  // command otherwise).
   connect_command?: string
+  // Optional JWT minted for the executor's Agent Identity bundle.
+  agent_identity_jwt?: string
+  // New: 3-flavor command bundle (agent_identity / chatgpt_browser /
+  // chatgpt_device_auth). Present only when codexAuth is enabled.
+  connect_commands?: ConnectCommands
 }
 
 export async function listRemoteExecutors(workspaceId: string): Promise<RemoteExecutor[]> {
