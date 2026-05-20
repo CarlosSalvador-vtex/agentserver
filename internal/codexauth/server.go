@@ -39,12 +39,5 @@ func (s *Server) Mount(r chi.Router) {
 	r.Post("/codex/device", s.handleDeviceVerifySubmit)
 }
 
-// All handlers are stubs initially; subsequent tasks fill them in.
-// Returning a clear "not implemented" so tests can detect missing wiring.
-// handleAuthorize and handleToken are implemented in pkce.go.
-func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "jwks: not implemented", http.StatusNotImplemented)
-}
-func (s *Server) handleTaskRegister(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "task register: not implemented", http.StatusNotImplemented)
-}
+// All route handlers are implemented in dedicated files:
+// pkce.go, device.go, agent_identity.go, jwks.go.
