@@ -321,6 +321,18 @@ func (s *Server) Router() http.Handler {
 		r.Route("/codex-auth", func(r chi.Router) {
 			s.CodexAuth.Mount(r)
 		})
+		// Internal cross-scheme validator called by codex-exec-gateway.
+		// Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
+		r.Post("/internal/codex-auth/validate", func(w http.ResponseWriter, r *http.Request) {
+			secret := os.Getenv("INTERNAL_API_SECRET")
+			if secret != "" {
+				if r.Header.Get("X-Internal-Secret") != secret {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+			s.CodexAuth.HandleValidate(w, r)
+		})
 	}
 
 	// Hydra login/consent provider endpoints (no auth required — Hydra redirects here).
