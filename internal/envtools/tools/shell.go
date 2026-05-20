@@ -88,13 +88,22 @@ func (t *ShellTool) Call(ctx context.Context, raw json.RawMessage) (MCPCallToolR
 	}
 
 	pid := fmt.Sprintf("shell-%d", t.pidSeq.Add(1))
-	// Pass cwd + env through verbatim. Empty env means exec-server inherits
-	// its own environment, which is correct cross-platform behavior — the
-	// prior hardcoded POSIX PATH broke Windows executors.
+	// Default cwd to "." (current dir of the exec-server process) when the
+	// caller doesn't supply one. exec-server's ProcessStartParams treats
+	// cwd as a required string — sending "" fails on Windows with
+	// ERROR_DIRECTORY 267; omitting it fails with `missing field "cwd"`.
+	// "." is the one value that's valid on both POSIX and Windows.
+	cwd := a.Cwd
+	if cwd == "" {
+		cwd = "."
+	}
+	// Env stays nil — exec-server inherits its own environment, which is
+	// correct cross-platform behavior. The prior hardcoded POSIX PATH
+	// broke Windows executors.
 	startParams, _ := json.Marshal(bridge.ProcessStartParams{
 		ProcessID: pid,
 		Argv:      a.Command,
-		Cwd:       a.Cwd,
+		Cwd:       cwd,
 		Env:       nil,
 		TTY:       false,
 		PipeStdin: false,
