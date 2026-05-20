@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/agentserver/agentserver/internal/codexexecgateway/handlers"
 	"nhooyr.io/websocket"
 )
 
@@ -34,20 +34,22 @@ func mintBridgeToken(secret []byte, p CapPayload) string {
 	return si + "." + enc.EncodeToString(mac.Sum(nil))
 }
 
-// connectInbound registers an executor (db row + bcrypt hash + workspace
-// binding to "ws_1" so bridge ownership checks pass), dials the inbound
-// endpoint, and waits until the registry shows a live conn for exeID.
+// connectInbound registers an executor (db row + workspace binding to "ws_1"
+// so bridge ownership checks pass), dials the inbound endpoint with an HMAC
+// ticket, and waits until the registry shows a live conn for exeID.
 func connectInbound(t *testing.T, srv *Server, baseURL, exeID string) *websocket.Conn {
 	t.Helper()
-	hash, _ := bcrypt.GenerateFromPassword([]byte("rt"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(context.Background(), Executor{
 		ExeID: exeID, UserID: "u", RegisteredAt: time.Now().UTC(),
-	}, string(hash))
-	// Bind to ws_1 — all bridge tests mint tokens with WorkspaceID="ws_1".
+	})
 	if err := srv.store.BindWorkspaceExecutor(context.Background(), "ws_1", exeID, "test-"+exeID, "", false); err != nil {
 		t.Fatalf("BindWorkspaceExecutor: %v", err)
 	}
-	url := "ws" + baseURL[len("http"):] + "/codex-exec/" + exeID + "?token=rt"
+	ticket, err := handlers.MintWSTicket(exeID, srv.config.AgentserverInternalSecret)
+	if err != nil {
+		t.Fatalf("MintWSTicket: %v", err)
+	}
+	url := "ws" + baseURL[len("http"):] + "/codex-exec/" + exeID + "?token=" + ticket
 	c, _, err := websocket.Dial(context.Background(), url, nil)
 	if err != nil {
 		t.Fatalf("inbound dial: %v", err)
@@ -93,10 +95,9 @@ func TestBridge_Rejects403WhenExeIDNotInWorkspace(t *testing.T) {
 	// DB-backed: token's workspace_id has no binding to the URL's exe_id
 	// → /bridge returns 403 via the workspace_executors ownership check.
 	hs, srv := newInboundTestServer(t)
-	hash, _ := bcrypt.GenerateFromPassword([]byte("rt"), bcrypt.DefaultCost)
 	srv.store.CreateExecutor(context.Background(), Executor{
 		ExeID: "exe_target", UserID: "u", RegisteredAt: time.Now().UTC(),
-	}, string(hash))
+	})
 	// Intentionally no BindWorkspaceExecutor — ws_1 does not own exe_target.
 	now := time.Now().Unix()
 	tok := mintBridgeToken(srv.config.CapTokenHMACSecret, CapPayload{

@@ -30,33 +30,28 @@ type registerExecutorReq struct {
 }
 
 type registerExecutorResp struct {
-	ExeID             string `json:"exe_id"`
-	RegistrationToken string `json:"registration_token"`
+	ExeID string `json:"exe_id"`
 	// ConnectCommand is the one-liner the user pastes on the machine
 	// they want to expose as an executor. Empty when the gateway public
 	// host isn't configured — the UI falls back to a generic template.
-	// Kept for backward compatibility with UI clients predating the
-	// 3-variant bundle (set to the Agent Identity command when codexAuth
-	// is enabled so old clients still get a working command).
 	ConnectCommand string `json:"connect_command,omitempty"`
-	// AgentIdentityJWT is the codex Agent Identity JWT minted alongside
-	// the bcrypt registration token. Present only when codexAuth is
-	// enabled (CODEX_AUTH_ISSUER_URL set).
+	// AgentIdentityJWT is the codex Agent Identity JWT minted for this
+	// executor. Present only when codexAuth is enabled
+	// (CODEX_AUTH_ISSUER_URL set).
 	AgentIdentityJWT string `json:"agent_identity_jwt,omitempty"`
-	// ConnectCommands is the 3-variant bundle surfaced by the Add
+	// ConnectCommands is the single-variant bundle surfaced by the Add
 	// Connector UI. Empty when codexAuth is disabled.
 	ConnectCommands ConnectCommands `json:"connect_commands,omitempty"`
 }
 
-// ConnectCommands is the 3-variant connect-command bundle returned by
-// the Add Connector API. Agent Identity is the recommended path for
-// unattended machines; ChatGPT browser is the recommended path for
-// developer laptops; ChatGPT device-auth covers the headless +
-// ChatGPT-account case.
+// ConnectCommands is the Agent-Identity-only connect-command bundle
+// returned by the Add Connector API. The pre-0.132 bcrypt path and the
+// ChatGPT device-auth variant are gone — auth at /cloud/.../register
+// now goes through the Agent Identity JWT (validated by agentserver),
+// and the inbound ws verifies a short-lived HMAC ticket minted at
+// register time.
 type ConnectCommands struct {
-	AgentIdentity     string `json:"agent_identity"`
-	ChatgptBrowser    string `json:"chatgpt_browser"`
-	ChatgptDeviceAuth string `json:"chatgpt_device_auth"`
+	AgentIdentity string `json:"agent_identity"`
 }
 
 // handleRegisterExecutor mints a new executor owned by the calling user
@@ -144,53 +139,28 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	resp := registerExecutorResp{
-		ExeID:             reg.ExeID,
-		RegistrationToken: reg.RegistrationToken,
-	}
+	resp := registerExecutorResp{ExeID: reg.ExeID}
 	if aiResult != nil {
 		resp.AgentIdentityJWT = aiResult.JWT
 	}
-	if s.CodexExecGatewayPublicHost != "" {
+	if s.CodexExecGatewayPublicHost != "" && s.CodexAuthIssuerURL != "" && aiResult != nil {
 		// Upstream codex `exec-server --remote` contract:
-		//   1. POST <base_url>/cloud/executor/{id}/register with Bearer <token>
-		//   2. Server returns {executor_id, url}, codex then ws-dials url.
-		// Surface the user's `name` as codex's --name (visible in their
-		// shell + tracing) so it lines up with what the LLM sees.
+		//   1. POST <base_url>/cloud/executor/{id}/register with the
+		//      Agent Identity JWT (Authorization: AgentAssertion ...).
+		//   2. Server validates the JWT, returns {executor_id, url}
+		//      with a short-lived HMAC ticket in ?token=.
+		//   3. codex ws-dials url; inbound verifies the HMAC ticket.
+		// Note `-c chatgpt_base_url=` not `chatgpt.base_url=` —
+		// the codex config field is the snake_case top-level key, the
+		// dotted form silently no-ops.
 		gatewayURL := "https://" + s.CodexExecGatewayPublicHost
 		issuer := s.CodexAuthIssuerURL
-		if issuer == "" {
-			// codexAuth disabled — legacy bearer-only command (no Agent
-			// Identity, no ChatGPT login). Preserves pre-D3 behaviour.
-			resp.ConnectCommand = fmt.Sprintf(
-				"export CODEX_EXEC_SERVER_REMOTE_BEARER_TOKEN='%s'\ncodex exec-server --remote '%s' --executor-id '%s' --name '%s'",
-				reg.RegistrationToken, gatewayURL, reg.ExeID, req.Name)
-		} else {
-			// codexAuth enabled — two practical paths:
-			//   1. Agent Identity — paste-and-go, no login.
-			//   2. ChatGPT device-auth — `codex login --device-auth
-			//      --experimental_issuer ...` shows a URL + short code;
-			//      user opens the URL in any browser (phone or laptop),
-			//      enters the code, clicks Approve.
-			//
-			// Note: the "pure browser" path `codex login
-			// --experimental_issuer ...` (without --device-auth) is
-			// BROKEN in codex 0.132 — `cli/src/main.rs:1194` calls
-			// run_login_with_chatgpt without forwarding
-			// login_cli.issuer_base_url, so the browser pops open
-			// auth.openai.com regardless of the flag. Device-auth path
-			// at `:1170` does plumb the override through. Until codex
-			// upstream fixes the browser path we don't expose it here.
-			resp.ConnectCommands = ConnectCommands{
-				AgentIdentity: fmt.Sprintf(
-					"export CODEX_ACCESS_TOKEN='%s'\nexport CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL='%s'\ncodex -c chatgpt.base_url='%s' exec-server --remote '%s' --executor-id '%s' --name '%s' --use-agent-identity-auth",
-					aiResult.JWT, issuer, issuer, gatewayURL, reg.ExeID, req.Name),
-				ChatgptDeviceAuth: fmt.Sprintf(
-					"codex login --device-auth --experimental_issuer %s\nexport CODEX_REFRESH_TOKEN_URL_OVERRIDE='%s/oauth/token'\ncodex exec-server --remote '%s' --executor-id '%s' --name '%s'",
-					issuer, issuer, gatewayURL, reg.ExeID, req.Name),
-			}
-			resp.ConnectCommand = resp.ConnectCommands.AgentIdentity
+		resp.ConnectCommands = ConnectCommands{
+			AgentIdentity: fmt.Sprintf(
+				"export CODEX_ACCESS_TOKEN='%s'\nexport CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL='%s'\ncodex -c chatgpt_base_url='%s' exec-server --remote '%s' --executor-id '%s' --name '%s' --use-agent-identity-auth",
+				aiResult.JWT, issuer, issuer, gatewayURL, reg.ExeID, req.Name),
 		}
+		resp.ConnectCommand = resp.ConnectCommands.AgentIdentity
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -40,12 +40,11 @@ type RegisterExecutorRequest struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-// RegisterExecutorResponse matches codex-exec-gateway's response (raw
-// token is returned ONCE — agentserver forwards it to the web UI for
-// one-time display, never stores it).
+// RegisterExecutorResponse matches codex-exec-gateway's response. The
+// pre-0.132 bcrypt registration_token is gone — auth on
+// /cloud/.../register now uses the Agent Identity JWT.
 type RegisterExecutorResponse struct {
-	ExeID             string `json:"exe_id"`
-	RegistrationToken string `json:"registration_token"`
+	ExeID string `json:"exe_id"`
 }
 
 // ListedExecutor matches codex-exec-gateway's

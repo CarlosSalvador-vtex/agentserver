@@ -5,22 +5,18 @@ package handlers
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/agentserver/agentserver/internal/codexexecgateway/execmodel"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Store is the subset of storage required by the register handler.
 type Store interface {
-	CreateExecutor(ctx context.Context, e execmodel.Executor, registrationTokenHash string) error
+	CreateExecutor(ctx context.Context, e execmodel.Executor) error
 	DeleteExecutor(ctx context.Context, exeID string) error
 }
 
@@ -33,13 +29,15 @@ type registerRequest struct {
 }
 
 type registerResponse struct {
-	ExeID             string `json:"exe_id"`
-	RegistrationToken string `json:"registration_token"`
+	ExeID string `json:"exe_id"`
 }
 
-// Register returns an http.HandlerFunc that creates a new executor row and
-// returns the freshly-minted (raw) registration token. The DB only stores
-// the bcrypt hash — the raw token is never persisted or logged.
+// Register returns an http.HandlerFunc that creates a new executor row
+// and returns its id. The codex 0.132 bcrypt registration_token path
+// is gone — auth on /cloud/.../register now goes through Agent Identity
+// JWT or ChatGPT access_token validated by agentserver, and the inbound
+// ws verifies a short-lived HMAC ticket minted at register time. So
+// this endpoint no longer mints any per-executor bearer.
 func Register(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := r.Header.Get("X-User-Id")
@@ -52,30 +50,17 @@ func Register(store Store) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 			return
 		}
-		raw, err := generateToken()
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-			return
-		}
-		hash, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-			return
-		}
 		exe := execmodel.Executor{
 			ExeID:        "exe_" + uuid.NewString(),
 			UserID:       userID,
 			DisplayName:  req.DisplayName,
 			RegisteredAt: time.Now().UTC(),
 		}
-		if err := store.CreateExecutor(r.Context(), exe, string(hash)); err != nil {
+		if err := store.CreateExecutor(r.Context(), exe); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create executor"})
 			return
 		}
-		writeJSON(w, http.StatusCreated, registerResponse{
-			ExeID:             exe.ExeID,
-			RegistrationToken: raw,
-		})
+		writeJSON(w, http.StatusCreated, registerResponse{ExeID: exe.ExeID})
 	}
 }
 
@@ -95,14 +80,6 @@ func DeleteExecutor(store Store) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-func generateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("rand: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

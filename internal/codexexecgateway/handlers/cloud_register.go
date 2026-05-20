@@ -11,14 +11,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // CloudRegisterStore is the subset of *codexexecgateway.Store the
 // upstream-compat /cloud/executor/{id}/register handler needs.
-type CloudRegisterStore interface {
-	GetRegistrationTokenHash(ctx context.Context, exeID string) (string, error)
-}
+// Ownership lookup is asserted via the ownerStore type-assertion in
+// assertExeOwnedByUser; pure CloudRegister callers only need the empty
+// interface here, which we keep as a sentinel for future shared methods.
+type CloudRegisterStore interface{}
 
 // cloudRegisterResponse mirrors the upstream codex exec-server registry
 // response shape. Codex v0.130 expects {id, executor_id, url}; main has
@@ -72,19 +72,20 @@ func (v *AgentserverValidator) Validate(ctx context.Context, req map[string]stri
 
 // CloudRegister handles POST /cloud/executor/{exe_id}/register.
 //
-// Auth: prefers codex 0.132+ schemes (Bearer access_token or
-// AgentAssertion) validated via agentserver. Falls back to legacy
-// bcrypt bearer token (codex < 0.132) for backward compat.
+// Auth: codex 0.132+ schemes only — Bearer (ChatGPT access_token) or
+// AgentAssertion (Agent Identity), validated via agentserver. The
+// pre-0.132 bcrypt registration_token bearer is gone (PR removing it).
 //
-// Our existing inbound handler at `/codex-exec/{exe_id}?token=...` is
-// the actual ws endpoint; this handler verifies the bearer once and
-// returns that URL with the token plumbed through.
+// On success, mints a short-lived HMAC ws ticket and returns
+// `wss://.../codex-exec/{exe_id}?token=<ticket>`. The inbound ws
+// handler verifies the ticket signature locally — no DB hop, no JWT
+// verify, no validator round-trip.
 //
 // publicWSBaseURL is the externally-visible wss:// origin (e.g.
 // "wss://codex-exec.agent.cs.ac.cn:443"). When empty, the response URL
 // is synthesised from r.Host with wss scheme — best-effort fallback for
 // dev / direct in-cluster use.
-func CloudRegister(store CloudRegisterStore, publicWSBaseURL string, validator AgentserverValidator) http.HandlerFunc {
+func CloudRegister(store CloudRegisterStore, publicWSBaseURL string, validator AgentserverValidator, wsTicketSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		exeID := chi.URLParam(r, "exe_id")
 		if exeID == "" {
@@ -92,36 +93,23 @@ func CloudRegister(store CloudRegisterStore, publicWSBaseURL string, validator A
 			return
 		}
 
-		// 1. New codex 0.132+ path: try Bearer (ChatGPT) or
-		//    AgentAssertion (Agent Identity) via agentserver.
 		authHeader := r.Header.Get("Authorization")
-		if userID, ok := classifyAndValidate(r.Context(), validator,
-			authHeader, r.Header.Get("ChatGPT-Account-ID")); ok {
-			if err := assertExeOwnedByUser(r.Context(), store, exeID, userID); err != nil {
-				writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
-				return
-			}
-			respondWithWSURL(w, r, exeID, authHeader, publicWSBaseURL)
-			return
-		}
-
-		// 2. Legacy bcrypt bearer path for codex < 0.132 — kept until
-		//    we drop support, then this block goes away.
-		bearer, ok := extractBearer(r)
-		if !ok || bearer == "" {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing bearer"})
-			return
-		}
-		hash, err := store.GetRegistrationTokenHash(r.Context(), exeID)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-			return
-		}
-		if hash == "" || bcrypt.CompareHashAndPassword([]byte(hash), []byte(bearer)) != nil {
+		userID, ok := classifyAndValidate(r.Context(), validator,
+			authHeader, r.Header.Get("ChatGPT-Account-ID"))
+		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		respondWithWSURL(w, r, exeID, "Bearer "+bearer, publicWSBaseURL)
+		if err := assertExeOwnedByUser(r.Context(), store, exeID, userID); err != nil {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+			return
+		}
+		ticket, err := MintWSTicket(exeID, wsTicketSecret)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mint ws ticket: " + err.Error()})
+			return
+		}
+		respondWithWSURL(w, r, exeID, ticket, publicWSBaseURL)
 	}
 }
 
@@ -179,29 +167,15 @@ func assertExeOwnedByUser(ctx context.Context, store CloudRegisterStore, exeID, 
 	return nil
 }
 
-func respondWithWSURL(w http.ResponseWriter, r *http.Request, exeID, authHeader, publicWSBaseURL string) {
+func respondWithWSURL(w http.ResponseWriter, r *http.Request, exeID, ticket, publicWSBaseURL string) {
 	base := publicWSBaseURL
 	if base == "" {
 		base = synthBaseURL(r)
 	}
-	// The WS URL has its own bearer cap-token in the query string; the
-	// auth header above only authorized the register call itself.
-	tokenForWS := strings.TrimPrefix(strings.TrimPrefix(authHeader, "Bearer "), "AgentAssertion ")
-	wsURL := base + "/codex-exec/" + url.PathEscape(exeID) + "?token=" +
-		url.QueryEscape(tokenForWS)
+	wsURL := base + "/codex-exec/" + url.PathEscape(exeID) + "?token=" + url.QueryEscape(ticket)
 	writeJSON(w, http.StatusOK, cloudRegisterResponse{
 		ID: exeID, ExecutorID: exeID, URL: wsURL,
 	})
-}
-
-// extractBearer returns the Authorization: Bearer <token> value.
-func extractBearer(r *http.Request) (string, bool) {
-	h := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if !strings.HasPrefix(h, prefix) {
-		return "", false
-	}
-	return strings.TrimPrefix(h, prefix), true
 }
 
 // synthBaseURL composes a wss:// base from the incoming request's Host.

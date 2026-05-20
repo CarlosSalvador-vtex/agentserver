@@ -172,7 +172,8 @@ func (s *Server) Routes() http.Handler {
 			handlers.AgentserverValidator{
 				BaseURL:        s.config.AgentserverInternalURL,
 				InternalSecret: s.config.AgentserverInternalSecret,
-			}))
+			},
+			s.config.AgentserverInternalSecret))
 
 	// *Store satisfies handlers.Store, handlers.BindingStore, and
 	// handlers.InternalConnectedStore directly — no adapter needed because

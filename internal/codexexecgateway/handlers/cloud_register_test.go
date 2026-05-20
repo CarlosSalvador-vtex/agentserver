@@ -6,30 +6,19 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
-func bcryptHash(plain string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.MinCost)
-	return string(h), err
-}
-
-// mockCloudRegisterStore implements CloudRegisterStore and also exposes
+// mockCloudRegisterStore implements CloudRegisterStore and exposes
 // UserIDForExecutor (matched by assertExeOwnedByUser's ad-hoc interface
 // assertion). Lets us exercise CloudRegister without a real DB.
 type mockCloudRegisterStore struct {
-	hash       string
-	hashErr    error
 	owner      string
 	ownerErr   error
 	registered bool // false → UserIDForExecutor returns "" (unknown executor)
-}
-
-func (m *mockCloudRegisterStore) GetRegistrationTokenHash(ctx context.Context, exeID string) (string, error) {
-	return m.hash, m.hashErr
 }
 
 func (m *mockCloudRegisterStore) UserIDForExecutor(ctx context.Context, exeID string) (string, error) {
@@ -39,16 +28,14 @@ func (m *mockCloudRegisterStore) UserIDForExecutor(ctx context.Context, exeID st
 	return m.owner, m.ownerErr
 }
 
-// newStoreWithExecutor returns a mock store that "knows" an executor
-// row exists for exeID owned by userID.
 func newStoreWithExecutor(t *testing.T, exeID, userID string) *mockCloudRegisterStore {
 	t.Helper()
 	return &mockCloudRegisterStore{owner: userID, registered: true}
 }
 
+const testTicketSecret = "ticket-secret"
+
 func TestCloudRegister_BearerScheme_DelegatesToAgentserver(t *testing.T) {
-	// Stub agentserver: any call to /internal/codex-auth/validate with
-	// scheme=bearer + matching token returns user-id "u-1".
 	agentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/internal/codex-auth/validate" {
 			http.Error(w, "wrong path", 404)
@@ -73,7 +60,7 @@ func TestCloudRegister_BearerScheme_DelegatesToAgentserver(t *testing.T) {
 	h := CloudRegister(store, "wss://test", AgentserverValidator{
 		BaseURL:        agentSrv.URL,
 		InternalSecret: "shh",
-	})
+	}, testTicketSecret)
 	req := httptest.NewRequest(http.MethodPost, "/cloud/executor/exe_x/register", nil)
 	req.Header.Set("Authorization", "Bearer valid-bearer")
 	rctx := chi.NewRouteContext()
@@ -92,8 +79,15 @@ func TestCloudRegister_BearerScheme_DelegatesToAgentserver(t *testing.T) {
 	if resp.ExecutorID != "exe_x" {
 		t.Fatalf("executor_id = %q", resp.ExecutorID)
 	}
-	if resp.URL == "" || resp.URL[:5] != "wss:/" {
+	if !strings.HasPrefix(resp.URL, "wss://test/codex-exec/exe_x?token=") {
 		t.Fatalf("url = %q", resp.URL)
+	}
+
+	// Verify the ticket in the URL passes VerifyWSTicket with the same secret.
+	const prefix = "wss://test/codex-exec/exe_x?token="
+	ticket := strings.TrimPrefix(resp.URL, prefix)
+	if err := VerifyWSTicket(ticket, "exe_x", testTicketSecret); err != nil {
+		t.Fatalf("ticket should verify: %v", err)
 	}
 }
 
@@ -109,7 +103,7 @@ func TestCloudRegister_BearerScheme_WrongOwner(t *testing.T) {
 	h := CloudRegister(store, "wss://test", AgentserverValidator{
 		BaseURL:        agentSrv.URL,
 		InternalSecret: "shh",
-	})
+	}, testTicketSecret)
 	req := httptest.NewRequest(http.MethodPost, "/cloud/executor/exe_x/register", nil)
 	req.Header.Set("Authorization", "Bearer some-token")
 	rctx := chi.NewRouteContext()
@@ -122,27 +116,20 @@ func TestCloudRegister_BearerScheme_WrongOwner(t *testing.T) {
 	}
 }
 
-// When the validator is unconfigured (BaseURL=""), the legacy bcrypt
-// fallback path must still authenticate codex < 0.132 clients.
-func TestCloudRegister_LegacyBcryptFallback(t *testing.T) {
-	// bcrypt of "legacy-token" (cost 4 to keep test snappy).
-	// Generated via: bcrypt.GenerateFromPassword([]byte("legacy-token"), 4).
-	// We compute it at test time to avoid a hardcoded constant.
-	hash, err := bcryptHash("legacy-token")
-	if err != nil {
-		t.Fatalf("bcryptHash: %v", err)
-	}
-	store := &mockCloudRegisterStore{hash: hash}
-	h := CloudRegister(store, "wss://test", AgentserverValidator{})
+// Without validator configured (BaseURL empty), every register attempt
+// must be rejected — no legacy bcrypt fallback anymore.
+func TestCloudRegister_RejectsWithoutValidator(t *testing.T) {
+	store := newStoreWithExecutor(t, "exe_x", "u-1")
+	h := CloudRegister(store, "wss://test", AgentserverValidator{}, testTicketSecret)
 
 	req := httptest.NewRequest(http.MethodPost, "/cloud/executor/exe_x/register", nil)
-	req.Header.Set("Authorization", "Bearer legacy-token")
+	req.Header.Set("Authorization", "Bearer any-token")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("exe_id", "exe_x")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
 	h(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d body=%s", rr.Code, rr.Body.String())
 	}
 }

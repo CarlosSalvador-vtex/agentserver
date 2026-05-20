@@ -35,7 +35,7 @@ func TestStore_CreateAndGetExecutor(t *testing.T) {
 		DefaultCwd:   "/home/daisy",
 		RegisteredAt: time.Now().UTC(),
 	}
-	if err := store.CreateExecutor(ctx, exe, "hashed_token"); err != nil {
+	if err := store.CreateExecutor(ctx, exe); err != nil {
 		t.Fatalf("CreateExecutor: %v", err)
 	}
 	got, err := store.GetExecutor(ctx, "exe_test1")
@@ -51,7 +51,7 @@ func TestStore_BindAndListWorkspaceExecutors(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	exe := Executor{ExeID: "exe_a", UserID: "u1", Description: "alpha", RegisteredAt: time.Now().UTC()}
-	if err := store.CreateExecutor(ctx, exe, "h"); err != nil {
+	if err := store.CreateExecutor(ctx, exe); err != nil {
 		t.Fatalf("CreateExecutor: %v", err)
 	}
 	if err := store.BindWorkspaceExecutor(ctx, "ws_1", "exe_a", "alpha", "", true); err != nil {
@@ -70,7 +70,7 @@ func TestStore_UnbindWorkspaceExecutor(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	exe := Executor{ExeID: "exe_b", UserID: "u1", RegisteredAt: time.Now().UTC()}
-	store.CreateExecutor(ctx, exe, "h")
+	store.CreateExecutor(ctx, exe)
 	store.BindWorkspaceExecutor(ctx, "ws_1", "exe_b", "beta", "", false)
 	if err := store.UnbindWorkspaceExecutor(ctx, "ws_1", "exe_b"); err != nil {
 		t.Fatalf("UnbindWorkspaceExecutor: %v", err)
@@ -89,7 +89,7 @@ func TestStore_ConnectedExecutorsForWorkspace(t *testing.T) {
 		{ExeID: "exe_x", UserID: "u1", Description: "x desc", DefaultCwd: "/x", RegisteredAt: now},
 		{ExeID: "exe_y", UserID: "u1", Description: "y desc", DefaultCwd: "/y", RegisteredAt: now},
 	} {
-		store.CreateExecutor(ctx, e, "h")
+		store.CreateExecutor(ctx, e)
 	}
 	store.BindWorkspaceExecutor(ctx, "ws_1", "exe_x", "x", "", true)
 	store.BindWorkspaceExecutor(ctx, "ws_1", "exe_y", "y", "", false)

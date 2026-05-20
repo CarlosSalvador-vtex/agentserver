@@ -1082,21 +1082,17 @@ export interface RegisterExecutorRequest {
 
 export interface ConnectCommands {
   agent_identity?: string
-  chatgpt_browser?: string
-  chatgpt_device_auth?: string
 }
 
 export interface RegisterExecutorResponse {
   exe_id: string
-  registration_token: string
-  // Legacy single-string command, still populated for backwards compat
-  // (Agent Identity command when codexAuth is enabled, bearer-token
-  // command otherwise).
+  // Same string as connect_commands.agent_identity, kept for older
+  // clients that read the single-string field.
   connect_command?: string
-  // Optional JWT minted for the executor's Agent Identity bundle.
+  // The Agent Identity JWT minted for this executor.
   agent_identity_jwt?: string
-  // New: 3-flavor command bundle (agent_identity / chatgpt_browser /
-  // chatgpt_device_auth). Present only when codexAuth is enabled.
+  // Single-variant Agent-Identity command bundle. Present only when
+  // codexAuth is enabled.
   connect_commands?: ConnectCommands
 }
 

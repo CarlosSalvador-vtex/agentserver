@@ -26,7 +26,7 @@ func TestExecutorsClient_Register(t *testing.T) {
 			t.Errorf("body = %s", body)
 		}
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(RegisterExecutorResponse{ExeID: "exe_xxx", RegistrationToken: "tok"})
+		_ = json.NewEncoder(w).Encode(RegisterExecutorResponse{ExeID: "exe_xxx"})
 	}))
 	defer srv.Close()
 
@@ -35,7 +35,7 @@ func TestExecutorsClient_Register(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if resp.ExeID != "exe_xxx" || resp.RegistrationToken != "tok" {
+	if resp.ExeID != "exe_xxx" {
 		t.Errorf("resp = %+v", resp)
 	}
 }

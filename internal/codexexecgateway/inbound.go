@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/agentserver/agentserver/internal/clientmeta"
+	"github.com/agentserver/agentserver/internal/codexexecgateway/handlers"
 	"github.com/agentserver/agentserver/internal/relaypb"
 	"github.com/agentserver/agentserver/internal/wsbridge"
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/protobuf/proto"
 	"nhooyr.io/websocket"
 )
@@ -28,19 +28,8 @@ func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := s.store.GetRegistrationTokenHash(r.Context(), exeID)
-	if err != nil {
-		s.logger.Error("inbound: get token hash", "exe_id", exeID, "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if hash == "" {
-		slog.Warn("inbound: unauthorized", "exe_id", exeID, "reason", "unknown_exe_id", "remote", r.RemoteAddr)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(token)); err != nil {
-		slog.Warn("inbound: unauthorized", "exe_id", exeID, "reason", "bad_token", "remote", r.RemoteAddr)
+	if err := handlers.VerifyWSTicket(token, exeID, s.config.AgentserverInternalSecret); err != nil {
+		slog.Warn("inbound: unauthorized", "exe_id", exeID, "reason", "bad_ticket", "remote", r.RemoteAddr, "error", err.Error())
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Copy, Check, X, Server } from 'lucide-react'
 import {
-  type RemoteExecutor, type RegisterExecutorResponse, type ConnectCommands,
+  type RemoteExecutor, type RegisterExecutorResponse,
   listRemoteExecutors, registerRemoteExecutor, unbindRemoteExecutor,
 } from '../lib/api'
 import { ConfirmModal } from './Modals'
@@ -184,11 +184,11 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
               </button>
             </div>
             <p className="mb-3 text-sm text-[var(--muted-foreground)]">
-              Run this on the machine you want to expose. The token won't be shown again — copy it now.
+              Run this on the machine you want to expose. The Agent Identity JWT won't be shown again — copy it now.
             </p>
-            {generated.connect_commands ? (
+            {generated.connect_commands?.agent_identity ? (
               <div className="mb-4">
-                <ConnectCommandsPanel cmds={generated.connect_commands} />
+                <SingleCommandBlock cmd={generated.connect_commands.agent_identity} />
               </div>
             ) : generated.connect_command ? (
               <div className="mb-4">
@@ -197,9 +197,8 @@ export default function RemoteExecutorsPanel({ workspaceId }: Props) {
             ) : (
               <div className="mb-4 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs text-[var(--foreground)]">
                 <div>exe_id: {generated.exe_id}</div>
-                <div>registration_token: {generated.registration_token}</div>
                 <div className="mt-2 text-[var(--muted-foreground)]">
-                  Gateway public host not configured — compose the connect URL manually with your operator.
+                  Gateway public host or codex-auth not configured — compose the connect command manually with your operator.
                 </div>
               </div>
             )}
@@ -253,87 +252,3 @@ function SingleCommandBlock({ cmd }: { cmd: string }) {
   )
 }
 
-type ConnectTabKey = keyof ConnectCommands
-
-const CONNECT_TABS: { key: ConnectTabKey; label: string; hint: string }[] = [
-  {
-    key: 'agent_identity',
-    label: 'Agent Identity (recommended)',
-    hint: 'Paste-and-go. No login. Best for unattended machines.',
-  },
-  {
-    key: 'chatgpt_device_auth',
-    label: 'codex login --device-auth',
-    hint:
-      'For ChatGPT-account semantics. Opens a URL + short code; enter the ' +
-      'code in any browser (phone or laptop), click Approve. Works on both ' +
-      'headless and desktop machines.',
-  },
-  // chatgpt_browser tab intentionally omitted: codex 0.132's pure browser
-  // login path (`codex login --experimental_issuer ...` without
-  // --device-auth) ignores the issuer override and always hits
-  // auth.openai.com (upstream bug in cli/src/main.rs:1194). Device-auth
-  // is the working substitute for browser users until that's fixed.
-]
-
-function ConnectCommandsPanel({ cmds }: { cmds: ConnectCommands }) {
-  // Default to the first tab whose command is actually populated, falling
-  // back to agent_identity if none are (so the panel still renders something).
-  const firstAvailable = CONNECT_TABS.find((t) => cmds[t.key])?.key ?? 'agent_identity'
-  const [tab, setTab] = useState<ConnectTabKey>(firstAvailable)
-  const [copied, setCopied] = useState(false)
-  const current = cmds[tab] || ''
-
-  const onCopy = async () => {
-    if (!current) return
-    await navigator.clipboard.writeText(current)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  return (
-    <div>
-      <div className="mb-3 flex flex-wrap gap-2">
-        {CONNECT_TABS.map(({ key, label }) => {
-          const active = tab === key
-          const disabled = !cmds[key]
-          return (
-            <button
-              key={key}
-              type="button"
-              disabled={disabled}
-              onClick={() => setTab(key)}
-              className={[
-                'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
-                active
-                  ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]'
-                  : 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--secondary)]',
-                disabled ? 'cursor-not-allowed opacity-40' : '',
-              ].join(' ')}
-              title={disabled ? 'Not available for this connector' : undefined}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-      <p className="mb-2 text-[11px] text-[var(--muted-foreground)]">
-        {CONNECT_TABS.find((t) => t.key === tab)!.hint}
-      </p>
-      <div className="flex items-center gap-2">
-        <pre className="flex-1 overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--background)] p-3 font-mono text-xs text-[var(--foreground)] whitespace-pre-wrap break-all">
-          {current || <span className="italic opacity-60">(not available)</span>}
-        </pre>
-        <button
-          onClick={onCopy}
-          disabled={!current}
-          className="rounded-md border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label="Copy command"
-          title="Copy"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
-      </div>
-    </div>
-  )
-}
