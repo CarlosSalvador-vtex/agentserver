@@ -48,12 +48,6 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTaskRegister(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "task register: not implemented", http.StatusNotImplemented)
 }
-func (s *Server) handleDeviceUserCode(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "device usercode: not implemented", http.StatusNotImplemented)
-}
-func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "device token: not implemented", http.StatusNotImplemented)
-}
 func (s *Server) handleDeviceVerifyPage(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "device verify page: not implemented", http.StatusNotImplemented)
 }
