@@ -230,3 +230,79 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldRaw string, newHash [
 	}
 	return userID, nil
 }
+
+// ----- Agent Identity -----
+
+type AgentIdentity struct {
+	AgentRuntimeID string
+	UserID         string
+	PublicKey      []byte
+	JWTSignedWith  string
+	IssuedAt       time.Time
+	ExpiresAt      time.Time
+}
+
+func (s *Store) InsertAgentIdentity(ctx context.Context, a AgentIdentity) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO codex_agent_identities
+			(agent_runtime_id, user_id, public_key, jwt_signed_with, issued_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		a.AgentRuntimeID, a.UserID, a.PublicKey, a.JWTSignedWith, a.IssuedAt, a.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("insert agent identity: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetAgentIdentity(ctx context.Context, rid string) (*AgentIdentity, error) {
+	var a AgentIdentity
+	err := s.db.QueryRowContext(ctx, `
+		SELECT agent_runtime_id, user_id, public_key, jwt_signed_with, issued_at, expires_at
+		FROM codex_agent_identities
+		WHERE agent_runtime_id = $1 AND revoked_at IS NULL AND expires_at > NOW()`,
+		rid).Scan(&a.AgentRuntimeID, &a.UserID, &a.PublicKey, &a.JWTSignedWith, &a.IssuedAt, &a.ExpiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent identity: %w", err)
+	}
+	return &a, nil
+}
+
+// ----- Agent Tasks -----
+
+type AgentTask struct {
+	TaskID         string
+	AgentRuntimeID string
+	UserID         string
+	IssuedAt       time.Time
+	ExpiresAt      time.Time
+}
+
+func (s *Store) InsertAgentTask(ctx context.Context, taskID, rid, userID string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO codex_agent_tasks (task_id, agent_runtime_id, user_id, issued_at, expires_at)
+		VALUES ($1, $2, $3, NOW(), $4)`,
+		taskID, rid, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("insert agent task: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetAgentTask(ctx context.Context, taskID string) (*AgentTask, error) {
+	var t AgentTask
+	err := s.db.QueryRowContext(ctx, `
+		SELECT task_id, agent_runtime_id, user_id, issued_at, expires_at
+		FROM codex_agent_tasks
+		WHERE task_id = $1 AND expires_at > NOW()`,
+		taskID).Scan(&t.TaskID, &t.AgentRuntimeID, &t.UserID, &t.IssuedAt, &t.ExpiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent task: %w", err)
+	}
+	return &t, nil
+}

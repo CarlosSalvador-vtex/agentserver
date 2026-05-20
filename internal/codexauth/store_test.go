@@ -260,3 +260,64 @@ func mustNewUUID(t *testing.T, d *db.DB) string {
 	}
 	return s
 }
+
+func TestStore_AgentIdentity_RoundTrip(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	kid, kp, _ := GenerateRSAKey()
+	s.InsertJwksKey(ctx, kid, kp, true)
+
+	_, pub, _ := GenerateEd25519Key()
+	rid := "exe_test_" + mustNewUUID(t, s.db)
+	if err := s.InsertAgentIdentity(ctx, AgentIdentity{
+		AgentRuntimeID: rid,
+		UserID:         uid,
+		PublicKey:      pub,
+		JWTSignedWith:  kid,
+		IssuedAt:       time.Now(),
+		ExpiresAt:      time.Now().Add(30 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertAgentIdentity: %v", err)
+	}
+
+	got, err := s.GetAgentIdentity(ctx, rid)
+	if err != nil || got == nil {
+		t.Fatalf("GetAgentIdentity: %v %+v", err, got)
+	}
+	if got.UserID != uid || string(got.PublicKey) != string(pub) {
+		t.Errorf("got = %+v", got)
+	}
+}
+
+func TestStore_AgentTask_RoundTrip(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := mustCreateTestUser(t, s.db)
+
+	kid, kp, _ := GenerateRSAKey()
+	s.InsertJwksKey(ctx, kid, kp, true)
+	_, pub, _ := GenerateEd25519Key()
+	rid := "exe_task_" + mustNewUUID(t, s.db)
+	s.InsertAgentIdentity(ctx, AgentIdentity{
+		AgentRuntimeID: rid, UserID: uid, PublicKey: pub,
+		JWTSignedWith: kid, IssuedAt: time.Now(),
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	tid := "task_" + mustNewUUID(t, s.db)
+	if err := s.InsertAgentTask(ctx, tid, rid, uid, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("InsertAgentTask: %v", err)
+	}
+
+	got, err := s.GetAgentTask(ctx, tid)
+	if err != nil || got == nil {
+		t.Fatalf("GetAgentTask: %v %+v", err, got)
+	}
+	if got.AgentRuntimeID != rid || got.UserID != uid {
+		t.Errorf("got = %+v", got)
+	}
+}
