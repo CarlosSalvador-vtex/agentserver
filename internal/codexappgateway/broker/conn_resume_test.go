@@ -9,6 +9,142 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// TestConnTurn_SkipsResumeOnSubsequentTurnSameThread locks in the
+// per-conn attached-set optimization: after the first Turn() on a
+// thread has thread/resume'd it (or StartThread auto-registered it),
+// subsequent Turn() calls on the same thread on the same Conn MUST
+// NOT re-issue thread/resume. The listener is already wired for the
+// connection lifetime; re-issuing is redundant and would 500 the
+// first message of fresh threads against codex (rollout not flushed
+// yet, see thread_processor.rs:3589).
+func TestConnTurn_SkipsResumeOnSubsequentTurnSameThread(t *testing.T) {
+	resumeCount := 0
+	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
+		replayHandshake(t, ctx, c)
+		for {
+			f, err := readNoFatal(ctx, c)
+			if err != nil {
+				return
+			}
+			switch f["method"] {
+			case "thread/resume":
+				resumeCount++
+				writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{}})
+			case "turn/start":
+				writeJSON(t, ctx, c, map[string]any{
+					"jsonrpc": "2.0", "id": f["id"],
+					"result": map[string]any{"turn": map[string]any{"id": "trn-skip"}},
+				})
+				writeJSON(t, ctx, c, map[string]any{
+					"jsonrpc": "2.0", "method": "turn/completed",
+					"params": map[string]any{"threadId": "thr-skip", "turn": map[string]any{
+						"id": "trn-skip", "status": "completed",
+						"items": []any{}, "itemsView": "full", "error": nil,
+					}},
+				})
+			}
+		}
+	})
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := Dial(ctx, url)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	for i := 0; i < 3; i++ {
+		if _, err := conn.Turn(ctx, "thr-skip",
+			json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`),
+			30*time.Second); err != nil {
+			t.Fatalf("Turn iter %d: %v", i, err)
+		}
+	}
+	// First Turn attaches; iter 1 and 2 must not re-attach.
+	if resumeCount != 1 {
+		t.Errorf("thread/resume sent %d times, want exactly 1 across 3 turns", resumeCount)
+	}
+}
+
+// TestStartThread_RegistersListenerAttachment locks in that the
+// thread id returned by StartThread is treated as already-attached by
+// subsequent Turn() calls. codex's thread_created broadcast wired the
+// listener for this connection at thread/start time, so an explicit
+// thread/resume is both unnecessary AND broken (fires "no rollout
+// found" before the rollout has flushed).
+func TestStartThread_RegistersListenerAttachment(t *testing.T) {
+	sawResume := false
+	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
+		replayHandshake(t, ctx, c)
+		// thread/start reply.
+		ts := readFrame(t, ctx, c)
+		if ts["method"] != "thread/start" {
+			t.Fatalf("first frame = %v, want thread/start", ts["method"])
+		}
+		writeJSON(t, ctx, c, map[string]any{
+			"jsonrpc": "2.0", "id": ts["id"],
+			"result": map[string]any{
+				"thread":         map[string]any{"id": "thr-fresh", "sessionId": "s", "createdAt": 0, "updatedAt": 0},
+				"model":          "gpt-x",
+				"modelProvider":  "openai",
+				"serviceTier":    nil,
+				"cwd":            "/tmp/codex",
+				"approvalPolicy": "onRequest",
+			},
+		})
+		// Subsequent turn — must be turn/start directly, not thread/resume.
+		for {
+			f, err := readNoFatal(ctx, c)
+			if err != nil {
+				return
+			}
+			if f["method"] == "thread/resume" {
+				sawResume = true
+				writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{}})
+				continue
+			}
+			if f["method"] == "turn/start" {
+				writeJSON(t, ctx, c, map[string]any{
+					"jsonrpc": "2.0", "id": f["id"],
+					"result": map[string]any{"turn": map[string]any{"id": "trn-fresh"}},
+				})
+				writeJSON(t, ctx, c, map[string]any{
+					"jsonrpc": "2.0", "method": "turn/completed",
+					"params": map[string]any{"threadId": "thr-fresh", "turn": map[string]any{
+						"id": "trn-fresh", "status": "completed",
+						"items": []any{}, "itemsView": "full", "error": nil,
+					}},
+				})
+				return
+			}
+		}
+	})
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := Dial(ctx, url)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	tid, err := conn.StartThread(ctx)
+	if err != nil {
+		t.Fatalf("StartThread: %v", err)
+	}
+	if _, err := conn.Turn(ctx, tid,
+		json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`),
+		30*time.Second); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if sawResume {
+		t.Error("Turn issued thread/resume after StartThread — broadcast-attached listener was not recorded")
+	}
+}
+
 // TestConnTurn_AbortsIfThreadResumeErrors locks in that an error reply to
 // the thread/resume preamble surfaces from Turn without ever firing
 // turn/start. Avoids leaking RPC IDs and turn state when the listener
