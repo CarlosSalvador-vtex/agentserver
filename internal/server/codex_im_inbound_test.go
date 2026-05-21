@@ -485,9 +485,18 @@ func TestBuildCodexInput_ImageOnlySkipsText(t *testing.T) {
 	}
 }
 
-// TestBuildCodexInput_QuotedImageBeforeCurrent locks in chronological
-// order — quoted (older) image first, then current image, then text.
-func TestBuildCodexInput_QuotedImageBeforeCurrent(t *testing.T) {
+// TestBuildCodexInput_FullQuoteWithImageAndText pins the full
+// item layout when both quoted (text+image) and current (text+image)
+// are present:
+//
+//   [0] quoted image
+//   [1] quoted text  (with "[引用 alice] earlier msg" marker)
+//   [2] current image
+//   [3] current text
+//
+// Two epochs, each following TUI's images-then-text ordering. Quoted
+// epoch precedes current epoch chronologically.
+func TestBuildCodexInput_FullQuoteWithImageAndText(t *testing.T) {
 	raw := buildCodexInput(codexInboundRequest{
 		Text:            "follow-up",
 		QuotedText:      "earlier msg",
@@ -503,14 +512,101 @@ func TestBuildCodexInput_QuotedImageBeforeCurrent(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	if len(got.Input) != 4 {
+		t.Fatalf("input items = %d, want 4 (quoted-image + quoted-text + current-image + current-text)", len(got.Input))
+	}
+	if got.Input[0]["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image (quoted)", got.Input[0]["type"])
+	}
+	if got.Input[1]["type"] != "text" || !strings.Contains(got.Input[1]["text"].(string), "引用 alice") {
+		t.Errorf("input[1] = %v, want quoted-text with marker", got.Input[1])
+	}
+	if !strings.Contains(got.Input[1]["text"].(string), "earlier msg") {
+		t.Errorf("input[1].text should include quoted body, got %q", got.Input[1]["text"])
+	}
+	if got.Input[2]["type"] != "image" {
+		t.Errorf("input[2].type = %v, want image (current)", got.Input[2]["type"])
+	}
+	if got.Input[3]["type"] != "text" || got.Input[3]["text"] != "follow-up" {
+		t.Errorf("input[3] = %v, want current-text follow-up", got.Input[3])
+	}
+}
+
+// TestBuildCodexInput_QuotedImageOnly — user replied to an
+// image-only message with a text reply. The quoted image gets its
+// own image item AND a marker Text item so the LLM doesn't confuse
+// it with a current attachment.
+func TestBuildCodexInput_QuotedImageOnly(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:            "what is this?",
+		QuotedSender:    "alice",
+		QuotedMediaType: "image",
+		QuotedMediaData: tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if len(got.Input) != 3 {
-		t.Fatalf("input items = %d, want 3 (quoted-image + current-image + text)", len(got.Input))
+		t.Fatalf("input items = %d, want 3 (quoted-image + marker + current-text)", len(got.Input))
 	}
-	if got.Input[0]["type"] != "image" || got.Input[1]["type"] != "image" {
-		t.Errorf("input[0] and input[1] should both be image (quoted then current), got %v %v", got.Input[0]["type"], got.Input[1]["type"])
+	if got.Input[0]["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image", got.Input[0]["type"])
 	}
-	if got.Input[2]["type"] != "text" {
-		t.Errorf("input[2].type = %v, want text (last per TUI ordering)", got.Input[2]["type"])
+	marker, _ := got.Input[1]["text"].(string)
+	if !strings.Contains(marker, "引用") || !strings.Contains(marker, "图片") {
+		t.Errorf("input[1] marker should reference '引用' and '图片', got %q", marker)
+	}
+	if got.Input[2]["type"] != "text" || got.Input[2]["text"] != "what is this?" {
+		t.Errorf("input[2] = %v, want current-text", got.Input[2])
+	}
+}
+
+// TestBuildCodexInput_QuotedTextOnly — user replied to a text message
+// with a text reply. Quoted text item then current text item.
+func TestBuildCodexInput_QuotedTextOnly(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:         "agree",
+		QuotedText:   "ship it",
+		QuotedSender: "bob",
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 2 {
+		t.Fatalf("input items = %d, want 2 (quoted-text + current-text)", len(got.Input))
+	}
+	q, _ := got.Input[0]["text"].(string)
+	if !strings.Contains(q, "引用 bob") || !strings.Contains(q, "ship it") {
+		t.Errorf("input[0] quoted marker = %q, want '引用 bob' + 'ship it'", q)
+	}
+	if got.Input[1]["text"] != "agree" {
+		t.Errorf("input[1] = %v, want current-text 'agree'", got.Input[1])
+	}
+}
+
+// TestBuildCodexInput_QuoteSenderFallback — empty QuotedSender uses
+// the "之前的消息" fallback so the marker still makes sense.
+func TestBuildCodexInput_QuoteSenderFallback(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:       "hmm",
+		QuotedText: "yesterday's note",
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	_ = json.Unmarshal(raw, &got)
+	if len(got.Input) < 1 {
+		t.Fatal("expected at least one input item")
+	}
+	q, _ := got.Input[0]["text"].(string)
+	if !strings.Contains(q, "之前的消息") {
+		t.Errorf("expected '之前的消息' fallback in marker, got %q", q)
 	}
 }
 

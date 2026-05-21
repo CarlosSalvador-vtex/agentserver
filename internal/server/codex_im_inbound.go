@@ -288,22 +288,37 @@ func transportToUserMessage(t *CodexTransportError) string {
 	}
 }
 
-// buildCodexInput constructs the codex turn/start params.input from the
-// inbound WeChat message.
+// buildCodexInput constructs the codex turn/start params.input from
+// the inbound WeChat message.
 //
 // Codex v2 UserInput supports Text / Image / LocalImage / Skill /
-// Mention. We use Image only (LocalImage requires path access that the
-// cloud app-server can't satisfy). Images are encoded as
-// `data:<mime>;base64,...` URLs — codex test suite covers this shape
-// at v2/tests.rs:3254. Image inputs do NOT count toward
-// MAX_USER_INPUT_TEXT_CHARS (text_char_count returns 0 for non-Text
-// variants), so multi-MB photos pass.
+// Mention. We use Text + Image. LocalImage isn't viable in cloud (the
+// app-server runs in a separate pod from where the bytes live, so
+// path-based references break); Skill / Mention are codex-internal.
 //
-// Ordering matches codex's native TUI client: images first, text last
-// (chatwidget.rs builds items as remote/local images then Text). Quoted
-// (older) image is placed before the current image. Empty text is
-// dropped — TUI also skips the Text item when the user sends only
-// images.
+// Images are encoded as `data:<mime>;base64,...` URLs — codex test
+// suite covers this shape at v2/tests.rs:3254. Image inputs do NOT
+// count toward MAX_USER_INPUT_TEXT_CHARS (text_char_count returns 0
+// for non-Text variants), so multi-MB photos pass.
+//
+// Item ordering mirrors codex's native TUI:
+//   chatwidget.rs emits all image items, then the Text item, and
+//   skips the Text item entirely when text is empty.
+//
+// WeChat adds an "is a reply to" concept TUI doesn't have. We treat
+// it as a SECOND epoch placed BEFORE the current one in items:
+//
+//   [quoted image]   (if any)
+//   [quoted text]    "[引用 <sender>] <text>" or "[引用 <sender> 发送的图片]"
+//   [current image]  (if any)
+//   [current text]   (if any)
+//
+// Within each epoch we follow TUI's images-then-text rule, and across
+// epochs we order quoted (older) before current. The quoted Text item
+// is always present when there's ANY quoted content (text or image)
+// so the LLM can distinguish the prior image/text from the current
+// one — without a marker, two image items in a row look like two
+// attachments to the same current message.
 //
 // File attachments (MediaType="file"): no content forwarded today.
 // imbridge already injected "[User sent a file: name]" into req.Text
@@ -313,28 +328,51 @@ func transportToUserMessage(t *CodexTransportError) string {
 // files has ergonomics we want to think through first.
 func buildCodexInput(req codexInboundRequest) json.RawMessage {
 	var input []map[string]any
+
+	// Quoted epoch (chronologically older). Even quote-image-only
+	// gets a marker Text item so the LLM doesn't conflate it with
+	// the current image.
 	if item, ok := imageInputItem(req.QuotedMediaType, req.QuotedMediaData); ok {
 		input = append(input, item)
 	}
+	if marker := formatQuoteMarker(req.QuotedSender, req.QuotedText, req.QuotedMediaType); marker != "" {
+		input = append(input, map[string]any{"type": "text", "text": marker})
+	}
+
+	// Current epoch.
 	if item, ok := imageInputItem(req.MediaType, req.MediaData); ok {
 		input = append(input, item)
 	}
-	text := req.Text
-	if req.QuotedText != "" {
-		quoter := req.QuotedSender
-		if quoter == "" {
-			quoter = "之前的消息"
-		}
-		text = fmt.Sprintf("[引用 %s] %s\n%s", quoter, req.QuotedText, req.Text)
+	if req.Text != "" {
+		input = append(input, map[string]any{"type": "text", "text": req.Text})
 	}
-	if text != "" {
-		input = append(input, map[string]any{"type": "text", "text": text})
-	}
+
 	wrapped := map[string]any{
 		"input": input,
 	}
 	b, _ := json.Marshal(wrapped)
 	return b
+}
+
+// formatQuoteMarker returns the text content for the quoted Text item,
+// or "" if there's no quoted content. Always non-empty when the user's
+// WeChat message is a reply to another, even if the original was only
+// an image (in which case the marker stands alone as a label for the
+// preceding quoted image item).
+func formatQuoteMarker(sender, text, mediaType string) string {
+	quoter := sender
+	if quoter == "" {
+		quoter = "之前的消息"
+	}
+	switch {
+	case text != "":
+		return fmt.Sprintf("[引用 %s] %s", quoter, text)
+	case mediaType == "image":
+		return fmt.Sprintf("[引用 %s 发送的图片]", quoter)
+	default:
+		// No quoted content at all (no text and no image).
+		return ""
+	}
 }
 
 // imageInputItem returns a codex v2 UserInput::Image item for the given
