@@ -23,11 +23,12 @@ type Conn struct {
 	writeMu sync.Mutex
 	nextID  atomic.Int64
 
-	mu             sync.Mutex
-	pendingResp    map[int64]chan rpcResponse   // request id → 1-buffered chan
-	pendingTurns   map[string]chan turnPayload  // turn id → 1-buffered chan
-	itemsByTurn    map[string][]json.RawMessage // turn id → accumulated item/completed payloads
-	completedTurns map[string]turnPayload       // turn/completed arrived before Turn() finished registering — see deliverTurn for the race
+	mu              sync.Mutex
+	pendingResp     map[int64]chan rpcResponse   // request id → 1-buffered chan
+	pendingTurns    map[string]chan turnPayload  // turn id → 1-buffered chan
+	itemsByTurn     map[string][]json.RawMessage // turn id → accumulated item/completed payloads
+	completedTurns  map[string]turnPayload       // turn/completed arrived before Turn() finished registering — see deliverTurn for the race
+	attachedThreads map[string]struct{}          // thread ids whose listener is wired to THIS connection — see Turn / StartThread for the lifecycle
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -49,12 +50,13 @@ func Dial(ctx context.Context, wsURL string) (*Conn, error) {
 	ws.SetReadLimit(64 << 20)
 
 	c := &Conn{
-		ws:             ws,
-		pendingResp:    make(map[int64]chan rpcResponse),
-		pendingTurns:   make(map[string]chan turnPayload),
-		itemsByTurn:    make(map[string][]json.RawMessage),
-		completedTurns: make(map[string]turnPayload),
-		closed:         make(chan struct{}),
+		ws:              ws,
+		pendingResp:     make(map[int64]chan rpcResponse),
+		pendingTurns:    make(map[string]chan turnPayload),
+		itemsByTurn:     make(map[string][]json.RawMessage),
+		completedTurns:  make(map[string]turnPayload),
+		attachedThreads: make(map[string]struct{}),
+		closed:          make(chan struct{}),
 	}
 
 	// Send initialize synchronously (no reader yet, so we read inline).
@@ -254,6 +256,9 @@ func (c *Conn) failAllPending(err error) {
 	for tid := range c.completedTurns {
 		delete(c.completedTurns, tid)
 	}
+	for tid := range c.attachedThreads {
+		delete(c.attachedThreads, tid)
+	}
 	c.mu.Unlock()
 	c.closeErr.CompareAndSwap(nil, &errHolder{err})
 }
@@ -271,14 +276,29 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 	// codex turn_processor.rs turn_start_inner — only thread/start,
 	// thread/resume, thread/fork, and thread/realtime/start trigger
 	// ensure_conversation_listener). After a broker reconnect (new
-	// connection_id) or after the listener task exits on next_event=Err,
-	// turn/start would ack but events have no consumer — the broker
-	// observes 5-minute brokerTimeout with items=0. thread/resume is
-	// idempotent (thread_lifecycle.rs:242 listener_matches short-circuit)
-	// so paying one extra loopback RPC per turn is the simplest fix that
-	// also covers same-conn listener-died failures.
-	if err := c.ensureListener(ctx, threadID); err != nil {
-		return nil, fmt.Errorf("ensure listener: %w", err)
+	// connection_id) the listener tied to the old connection_id is gone,
+	// so the first turn we issue for a known thread on a fresh conn must
+	// thread/resume to (re-)attach. Codex's TUI follows the same pattern
+	// (see codex tui app_server_session.rs:resume_thread — explicit
+	// thread/resume on bootstrap, never on subsequent turns).
+	//
+	// Skip when codex's thread_created broadcast already attached the
+	// listener for us: that fires on thread/start AND thread/resume (see
+	// codex core/agent/control.rs notify_thread_created at :311 and :609,
+	// dispatched by lib.rs:1022 main loop to every initialized connection).
+	// Tracked via attachedThreads, populated by StartThread and by every
+	// successful ensureListener below. Resets implicitly when the Conn is
+	// discarded — Pool will dial fresh on the next Get.
+	c.mu.Lock()
+	_, alreadyAttached := c.attachedThreads[threadID]
+	c.mu.Unlock()
+	if !alreadyAttached {
+		if err := c.ensureListener(ctx, threadID); err != nil {
+			return nil, fmt.Errorf("ensure listener: %w", err)
+		}
+		c.mu.Lock()
+		c.attachedThreads[threadID] = struct{}{}
+		c.mu.Unlock()
 	}
 
 	id := c.nextID.Add(1)
@@ -475,6 +495,16 @@ func (c *Conn) StartThread(ctx context.Context) (string, error) {
 	if tsResp.Thread.ID == "" {
 		return "", errors.New("thread/start result missing thread.id")
 	}
+	// Codex's thread_created broadcast (control.rs:311 → lib.rs:1022 main
+	// loop) attached the per-thread listener for THIS connection
+	// already, so the immediate next Turn() on this thread does not need
+	// thread/resume. Record so it's skipped — calling thread/resume
+	// before the rollout is flushed to disk would 500 with "no rollout
+	// found for thread id ..." (thread_processor.rs:3589), wedging
+	// every first-message-per-thread.
+	c.mu.Lock()
+	c.attachedThreads[tsResp.Thread.ID] = struct{}{}
+	c.mu.Unlock()
 	return tsResp.Thread.ID, nil
 }
 
