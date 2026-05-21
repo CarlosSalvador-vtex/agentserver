@@ -246,6 +246,96 @@ paths:
       summary: Rename a sandbox
       tags:
         - Sandboxes
+  "/api/sandboxes/{id}/im/bind":
+    delete:
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMSandboxUnbindResponse"
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Unbind a sandbox from its IM channel
+      tags:
+        - IM Channels
+    post:
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IMSandboxBindRequest"
+        description: Channel id
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMSandboxBindResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox or channel not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Bind a sandbox to an IM channel
+      tags:
+        - IM Channels
   "/api/sandboxes/{id}/pause":
     post:
       description: Initiates pause transition; returns {"status":"pausing"}. Final
@@ -565,6 +655,306 @@ paths:
       summary: Rename a workspace
       tags:
         - Workspaces
+  "/api/workspaces/{id}/im/channels":
+    get:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMChannelListResponse"
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List IM channels in a workspace
+      tags:
+        - IM Channels
+  "/api/workspaces/{id}/im/channels/{channelId}":
+    delete:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Channel id
+          in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: not a member
+          content:
+            "*/*":
+              schema:
+                type: string
+        "404":
+          description: channel not found
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Delete an IM channel
+      tags:
+        - IM Channels
+    patch:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Channel id
+          in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IMChannelPatchRequest"
+        description: Settings patch
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMChannelPatchResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: channel not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Update IM channel settings
+      tags:
+        - IM Channels
+  "/api/workspaces/{id}/im/matrix/configure":
+    post:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IMMatrixConfigureRequest"
+        description: Matrix credentials
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMMatrixConfigureResponse"
+        "400":
+          description: invalid credentials
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Bind a Matrix account to a workspace
+      tags:
+        - IM Channels
+  "/api/workspaces/{id}/im/telegram/configure":
+    post:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IMTelegramConfigureRequest"
+        description: Bot token
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMTelegramConfigureResponse"
+        "400":
+          description: invalid bot token
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Bind a Telegram bot to a workspace
+      tags:
+        - IM Channels
+  "/api/workspaces/{id}/im/weixin/qr-start":
+    post:
+      description: Returns a QR code URL the user scans in WeChat. Client should then
+        long-poll qr-wait until the channel is bound.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMWeixinQRStartResponse"
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "502":
+          description: upstream error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Start WeChat QR-code bind for a workspace
+      tags:
+        - IM Channels
+  "/api/workspaces/{id}/im/weixin/qr-wait":
+    post:
+      description: Polls for QR scan progress. Returns status "wait", "scaned",
+        "confirmed", "expired", or other terminal states. On "confirmed", bot_id
+        is set. On "expired", qrcode_url contains a refreshed code.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IMWeixinQRWaitResponse"
+        "400":
+          description: no active session
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "502":
+          description: upstream error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Long-poll WeChat QR-code scan for a workspace
+      tags:
+        - IM Channels
   "/api/workspaces/{id}/llm-config":
     delete:
       parameters:
@@ -1110,6 +1500,158 @@ components:
         - bot_id
         - bound_at
         - provider
+      type: object
+    IMChannel:
+      properties:
+        bot_id:
+          type: string
+        bound_at:
+          type: string
+        id:
+          type: string
+        provider:
+          example: weixin
+          type: string
+        require_mention:
+          type: boolean
+        routing_mode:
+          example: codex
+          type: string
+        user_id:
+          type: string
+        workspace_id:
+          type: string
+      required:
+        - bot_id
+        - bound_at
+        - id
+        - provider
+        - routing_mode
+        - workspace_id
+      type: object
+    IMChannelListResponse:
+      properties:
+        channels:
+          items:
+            $ref: "#/components/schemas/IMChannel"
+          type: array
+      required:
+        - channels
+      type: object
+    IMChannelPatchRequest:
+      properties:
+        require_mention:
+          type: boolean
+          nullable: true
+        routing_mode:
+          example: codex
+          type: string
+          nullable: true
+      type: object
+    IMChannelPatchResponse:
+      properties:
+        status:
+          example: updated
+          type: string
+      required:
+        - status
+      type: object
+    IMMatrixConfigureRequest:
+      properties:
+        access_token:
+          type: string
+        homeserver_url:
+          example: https://matrix.example.com
+          type: string
+        recovery_key:
+          description: optional, for E2EE
+          type: string
+      required:
+        - access_token
+        - homeserver_url
+      type: object
+    IMMatrixConfigureResponse:
+      properties:
+        bot_id:
+          type: string
+        connected:
+          type: boolean
+      required:
+        - bot_id
+        - connected
+      type: object
+    IMSandboxBindRequest:
+      properties:
+        channel_id:
+          type: string
+      required:
+        - channel_id
+      type: object
+    IMSandboxBindResponse:
+      properties:
+        status:
+          example: bound
+          type: string
+      required:
+        - status
+      type: object
+    IMSandboxUnbindResponse:
+      properties:
+        status:
+          example: unbound
+          type: string
+      required:
+        - status
+      type: object
+    IMTelegramConfigureRequest:
+      properties:
+        bot_token:
+          example: 123456:ABC-DEF...
+          type: string
+      required:
+        - bot_token
+      type: object
+    IMTelegramConfigureResponse:
+      properties:
+        bot_id:
+          type: string
+        connected:
+          type: boolean
+      required:
+        - bot_id
+        - connected
+      type: object
+    IMWeixinQRStartResponse:
+      properties:
+        message:
+          type: string
+        qrcode_url:
+          type: string
+      required:
+        - message
+        - qrcode_url
+      type: object
+    IMWeixinQRWaitResponse:
+      properties:
+        bot_id:
+          type: string
+          nullable: true
+        connected:
+          type: boolean
+        message:
+          type: string
+          nullable: true
+        qrcode_url:
+          type: string
+          nullable: true
+        status:
+          example: wait
+          type: string
+        user_id:
+          type: string
+          nullable: true
+      required:
+        - status
       type: object
     LLMConfigResponse:
       properties:

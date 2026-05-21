@@ -403,6 +403,157 @@
         }
       }
     },
+    "/api/sandboxes/{id}/im/bind": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Bind a sandbox to an IM channel",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IMSandboxBindRequest"
+              }
+            }
+          },
+          "description": "Channel id",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMSandboxBindResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Unbind a sandbox from its IM channel",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMSandboxUnbindResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandboxes/{id}/pause": {
       "post": {
         "security": [
@@ -958,6 +1109,502 @@
           },
           "500": {
             "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/channels": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "List IM channels in a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMChannelListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/channels/{channelId}": {
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Delete an IM channel",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Channel id",
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "channel not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Update IM channel settings",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Channel id",
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IMChannelPatchRequest"
+              }
+            }
+          },
+          "description": "Settings patch",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMChannelPatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/matrix/configure": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Bind a Matrix account to a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IMMatrixConfigureRequest"
+              }
+            }
+          },
+          "description": "Matrix credentials",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMMatrixConfigureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/telegram/configure": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Bind a Telegram bot to a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IMTelegramConfigureRequest"
+              }
+            }
+          },
+          "description": "Bot token",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMTelegramConfigureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid bot token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/weixin/qr-start": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Returns a QR code URL the user scans in WeChat. Client should then long-poll qr-wait until the channel is bound.",
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Start WeChat QR-code bind for a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMWeixinQRStartResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "upstream error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/weixin/qr-wait": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Polls for QR scan progress. Returns status \"wait\", \"scaned\", \"confirmed\", \"expired\", or other terminal states. On \"confirmed\", bot_id is set. On \"expired\", qrcode_url contains a refreshed code.",
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Long-poll WeChat QR-code scan for a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IMWeixinQRWaitResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "no active session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "upstream error",
             "content": {
               "application/json": {
                 "schema": {
@@ -1805,6 +2452,228 @@
           },
           "user_id": {
             "type": "string"
+          }
+        }
+      },
+      "IMChannel": {
+        "type": "object",
+        "required": [
+          "bot_id",
+          "bound_at",
+          "id",
+          "provider",
+          "routing_mode",
+          "workspace_id"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string"
+          },
+          "bound_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "example": "weixin"
+          },
+          "require_mention": {
+            "type": "boolean"
+          },
+          "routing_mode": {
+            "type": "string",
+            "example": "codex"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "IMChannelListResponse": {
+        "type": "object",
+        "required": [
+          "channels"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IMChannel"
+            }
+          }
+        }
+      },
+      "IMChannelPatchRequest": {
+        "type": "object",
+        "properties": {
+          "require_mention": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "routing_mode": {
+            "type": "string",
+            "example": "codex",
+            "nullable": true
+          }
+        }
+      },
+      "IMChannelPatchResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "updated"
+          }
+        }
+      },
+      "IMMatrixConfigureRequest": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "homeserver_url"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "homeserver_url": {
+            "type": "string",
+            "example": "https://matrix.example.com"
+          },
+          "recovery_key": {
+            "description": "optional, for E2EE",
+            "type": "string"
+          }
+        }
+      },
+      "IMMatrixConfigureResponse": {
+        "type": "object",
+        "required": [
+          "bot_id",
+          "connected"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "IMSandboxBindRequest": {
+        "type": "object",
+        "required": [
+          "channel_id"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          }
+        }
+      },
+      "IMSandboxBindResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "bound"
+          }
+        }
+      },
+      "IMSandboxUnbindResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "unbound"
+          }
+        }
+      },
+      "IMTelegramConfigureRequest": {
+        "type": "object",
+        "required": [
+          "bot_token"
+        ],
+        "properties": {
+          "bot_token": {
+            "type": "string",
+            "example": "123456:ABC-DEF..."
+          }
+        }
+      },
+      "IMTelegramConfigureResponse": {
+        "type": "object",
+        "required": [
+          "bot_id",
+          "connected"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "IMWeixinQRStartResponse": {
+        "type": "object",
+        "required": [
+          "message",
+          "qrcode_url"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "qrcode_url": {
+            "type": "string"
+          }
+        }
+      },
+      "IMWeixinQRWaitResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "qrcode_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "example": "wait"
+          },
+          "user_id": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
