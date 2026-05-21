@@ -227,10 +227,21 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 // for the human-readable text. Examples seen in the wild:
 //
 //	codex rpc error -32600: thread not found: 019e4130-...
+//	codex rpc error -32600: no rollout found for thread id 019e4972-...
 //	thread "thr-abc" unknown
 //	missing thread
+//
+// "no rollout found for thread id" / "no rollout found for conversation id"
+// is what codex's app-server emits from thread_processor.rs:3589/3668 (and
+// is the canonical signal — codex-core/thread_manager.rs:877 detects the
+// same exact string to drive its own recovery). Confirmed against the
+// codex source rather than guessed.
 func isThreadNotFoundErr(msg string) bool {
 	lo := strings.ToLower(msg)
+	if strings.Contains(lo, "no rollout found for thread id") ||
+		strings.Contains(lo, "no rollout found for conversation id") {
+		return true
+	}
 	if !strings.Contains(lo, "thread") {
 		return false
 	}

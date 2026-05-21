@@ -384,10 +384,19 @@ func TestIsThreadNotFoundErr(t *testing.T) {
 		"codex rpc error -32600: thread not found: abc": true,
 		`thread "thr-abc" unknown`:                      true,
 		"missing thread":                                true,
-		"some other error":                              false,
-		"thread is in progress":                         false,
-		"":                                              false,
-		"connection closed":                             false,
+		// "no rollout found for thread id" / "...conversation id" is the
+		// stable error string from codex thread_processor.rs:3589/3668,
+		// surfaced when the broker calls thread/resume on a thread codex
+		// no longer has on disk (e.g. subprocess restarted between turns).
+		// Without these matches the retry-on-fresh-thread path doesn't
+		// fire and the user sees "⚠️ Codex 处理失败".
+		"ensure listener: codex rpc error -32600: no rollout found for thread id 019e4972-6cf4": true,
+		"no rollout found for thread id abc":                  true,
+		"no rollout found for conversation id def":            true,
+		"some other error":                                    false,
+		"thread is in progress":                               false,
+		"":                                                    false,
+		"connection closed":                                   false,
 	}
 	for in, want := range cases {
 		if got := isThreadNotFoundErr(in); got != want {
