@@ -305,3 +305,26 @@ type CodexTokenListItem struct {
 	Revoked     bool       `json:"revoked"`
 	RevokedAt   *time.Time `json:"revoked_at,omitempty" extensions:"x-nullable=true"`
 } // @name CodexTokenListItem
+
+// --- Codex Browser Sessions ---
+
+// CodexBrowserItem is one entry returned by GET /api/workspaces/{wid}/browsers.
+// It mirrors RemoteExecutor so DeviceListPanel can render both without per-type
+// branches. is_online is true when at least one open browser session exists for
+// the underlying codex token. All session fields come from the latest session
+// row (open if any, otherwise the most recent historical row).
+type CodexBrowserItem struct {
+	ID             string     `json:"id" validate:"required"`
+	Name           string     `json:"name" validate:"required"`
+	WorkspaceID    string     `json:"workspace_id" validate:"required"`
+	CreatedAt      time.Time  `json:"created_at" validate:"required"`
+	ExpiresAt      time.Time  `json:"expires_at" validate:"required"`
+	IsOnline       bool       `json:"is_online"`
+	LastUsedAt     *time.Time `json:"last_used_at,omitempty" extensions:"x-nullable=true"`
+	ClientIP       string     `json:"client_ip,omitempty"`
+	ClientUA       string     `json:"client_ua,omitempty"`
+	CodexVersion   string     `json:"codex_version,omitempty"`
+	OS             string     `json:"os,omitempty"`
+	ConnectedAt    *time.Time `json:"connected_at,omitempty" extensions:"x-nullable=true"`
+	DisconnectedAt *time.Time `json:"disconnected_at,omitempty" extensions:"x-nullable=true"`
+} // @name CodexBrowserItem
