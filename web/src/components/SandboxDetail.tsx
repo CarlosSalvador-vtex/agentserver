@@ -374,8 +374,8 @@ function AgentInfoSection({ info }: { info: AgentInfo }) {
     { icon: <Laptop size={14} />, label: 'OS', value: `${info.platform} ${info.platform_version}` },
     { icon: <Cpu size={14} />, label: 'Arch', value: info.kernel_arch },
     { icon: <Cpu size={14} />, label: 'CPU', value: info.cpu_model_name ? `${info.cpu_model_name} (${info.cpu_count_logical} cores)` : `${info.cpu_count_logical} cores` },
-    { icon: <MemoryStick size={14} />, label: 'Memory', value: formatBytes(info.memory_total) },
-    { icon: <HardDrive size={14} />, label: 'Disk', value: `${formatBytes(info.disk_free)} free / ${formatBytes(info.disk_total)}` },
+    { icon: <MemoryStick size={14} />, label: 'Memory', value: formatBytes(info.memory_total ?? 0) },
+    { icon: <HardDrive size={14} />, label: 'Disk', value: `${formatBytes(info.disk_free ?? 0)} free / ${formatBytes(info.disk_total ?? 0)}` },
   ]
   const versionItems = [
     { label: 'Agent', value: info.agent_version || 'Unknown' },
@@ -389,7 +389,7 @@ function AgentInfoSection({ info }: { info: AgentInfo }) {
           <span className="text-sm font-medium text-[var(--foreground)]">Agent Info</span>
         </div>
         <span className="text-[10px] text-[var(--muted-foreground)]">
-          Updated {new Date(info.updated_at).toLocaleString()}
+          Updated {info.updated_at ? new Date(info.updated_at).toLocaleString() : '-'}
         </span>
       </div>
       <div className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-3">
