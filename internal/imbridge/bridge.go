@@ -472,7 +472,7 @@ func (b *Bridge) forwardToAgentserver(ctx context.Context, binding BridgeBinding
 // Mirrors forwardToAgentserver's shape (HTTP-based, fire-and-forget
 // for the reply — that comes back via /api/internal/imbridge/send).
 func (b *Bridge) forwardToCodex(ctx context.Context, binding BridgeBinding, msg InboundMessage) (bool, error) {
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"channel_id":         binding.ChannelID,
 		"workspace_id":       binding.WorkspaceID,
 		"wechat_user_id":     msg.FromUserID,
@@ -480,7 +480,23 @@ func (b *Bridge) forwardToCodex(ctx context.Context, binding BridgeBinding, msg 
 		"text":               msg.Text,
 		"quoted_text":        msg.QuotedText,
 		"quoted_sender":      msg.QuotedSender,
-	})
+	}
+	// Forward image bytes so codex turn input can carry them as a
+	// `data:<mime>;base64,...` URL (UserInput::Image). Mirrors
+	// forwardToNanoClaw's media payload shape, minus the filename —
+	// codex has no File variant and the image case doesn't need the
+	// filename. File attachments still come through imbridge's text
+	// fallback ("[User sent a file: X]" via describeWeixinMedia); a
+	// proper file-content path is deferred until designed.
+	if len(msg.MediaData) > 0 {
+		payload["media_data"] = base64.StdEncoding.EncodeToString(msg.MediaData)
+		payload["media_type"] = msg.MediaType
+	}
+	if len(msg.QuotedMediaData) > 0 {
+		payload["quoted_media_data"] = base64.StdEncoding.EncodeToString(msg.QuotedMediaData)
+		payload["quoted_media_type"] = msg.QuotedMediaType
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return false, fmt.Errorf("marshal codex inbound: %w", err)
 	}

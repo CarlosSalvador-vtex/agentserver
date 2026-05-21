@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -402,5 +403,286 @@ func TestIsThreadNotFoundErr(t *testing.T) {
 		if got := isThreadNotFoundErr(in); got != want {
 			t.Errorf("isThreadNotFoundErr(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// 1×1 transparent PNG — smallest valid PNG, just enough for
+// http.DetectContentType to return "image/png".
+const tinyPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+
+// TestBuildCodexInput_TextOnly pins the baseline: no media → exactly
+// one text item, no extra noise.
+func TestBuildCodexInput_TextOnly(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{Text: "hello"})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 1 {
+		t.Fatalf("input items = %d, want 1", len(got.Input))
+	}
+	if got.Input[0]["type"] != "text" || got.Input[0]["text"] != "hello" {
+		t.Errorf("input[0] = %v, want text/hello", got.Input[0])
+	}
+}
+
+// TestBuildCodexInput_WithImage covers the main fix: image bytes from
+// imbridge become a UserInput::Image data URL in the codex turn input.
+// Order matches codex TUI's native pattern: image FIRST, text last
+// (chatwidget.rs pushes images before the Text item).
+func TestBuildCodexInput_WithImage(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:      "look at this",
+		MediaType: "image",
+		MediaData: tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 2 {
+		t.Fatalf("input items = %d, want 2 (image + text)", len(got.Input))
+	}
+	img := got.Input[0]
+	if img["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image (TUI ordering: images first)", img["type"])
+	}
+	url, _ := img["url"].(string)
+	if !strings.HasPrefix(url, "data:image/png;base64,") {
+		t.Errorf("input[0].url = %q, want data:image/png;base64,... prefix", url)
+	}
+	if !strings.HasSuffix(url, tinyPNGBase64) {
+		t.Errorf("input[0].url should round-trip the original base64 (no re-encode), got %q", url)
+	}
+	if got.Input[1]["type"] != "text" || got.Input[1]["text"] != "look at this" {
+		t.Errorf("input[1] = %v, want text/look at this", got.Input[1])
+	}
+}
+
+// TestBuildCodexInput_ImageOnlySkipsText — TUI skips the Text item
+// when the user submits only images (chatwidget.rs:
+// `if !text.is_empty() { items.push(Text) }`). We match.
+func TestBuildCodexInput_ImageOnlySkipsText(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		MediaType: "image",
+		MediaData: tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 1 {
+		t.Fatalf("input items = %d, want 1 (image alone, no empty text)", len(got.Input))
+	}
+	if got.Input[0]["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image", got.Input[0]["type"])
+	}
+}
+
+// TestBuildCodexInput_FullQuoteWithImageAndText pins the full
+// item layout when both quoted (text+image) and current (text+image)
+// are present:
+//
+//   [0] quoted image
+//   [1] quoted text  (with "[引用 alice] earlier msg" marker)
+//   [2] current image
+//   [3] current text
+//
+// Two epochs, each following TUI's images-then-text ordering. Quoted
+// epoch precedes current epoch chronologically.
+func TestBuildCodexInput_FullQuoteWithImageAndText(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:            "follow-up",
+		QuotedText:      "earlier msg",
+		QuotedSender:    "alice",
+		QuotedMediaType: "image",
+		QuotedMediaData: tinyPNGBase64,
+		MediaType:       "image",
+		MediaData:       tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 4 {
+		t.Fatalf("input items = %d, want 4 (quoted-image + quoted-text + current-image + current-text)", len(got.Input))
+	}
+	if got.Input[0]["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image (quoted)", got.Input[0]["type"])
+	}
+	if got.Input[1]["type"] != "text" || !strings.Contains(got.Input[1]["text"].(string), "引用 alice") {
+		t.Errorf("input[1] = %v, want quoted-text with marker", got.Input[1])
+	}
+	if !strings.Contains(got.Input[1]["text"].(string), "earlier msg") {
+		t.Errorf("input[1].text should include quoted body, got %q", got.Input[1]["text"])
+	}
+	if got.Input[2]["type"] != "image" {
+		t.Errorf("input[2].type = %v, want image (current)", got.Input[2]["type"])
+	}
+	if got.Input[3]["type"] != "text" || got.Input[3]["text"] != "follow-up" {
+		t.Errorf("input[3] = %v, want current-text follow-up", got.Input[3])
+	}
+}
+
+// TestBuildCodexInput_QuotedImageOnly — user replied to an
+// image-only message with a text reply. The quoted image gets its
+// own image item AND a marker Text item so the LLM doesn't confuse
+// it with a current attachment.
+func TestBuildCodexInput_QuotedImageOnly(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:            "what is this?",
+		QuotedSender:    "alice",
+		QuotedMediaType: "image",
+		QuotedMediaData: tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 3 {
+		t.Fatalf("input items = %d, want 3 (quoted-image + marker + current-text)", len(got.Input))
+	}
+	if got.Input[0]["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image", got.Input[0]["type"])
+	}
+	marker, _ := got.Input[1]["text"].(string)
+	if !strings.Contains(marker, "引用") || !strings.Contains(marker, "图片") {
+		t.Errorf("input[1] marker should reference '引用' and '图片', got %q", marker)
+	}
+	if got.Input[2]["type"] != "text" || got.Input[2]["text"] != "what is this?" {
+		t.Errorf("input[2] = %v, want current-text", got.Input[2])
+	}
+}
+
+// TestBuildCodexInput_QuotedTextOnly — user replied to a text message
+// with a text reply. Quoted text item then current text item.
+func TestBuildCodexInput_QuotedTextOnly(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:         "agree",
+		QuotedText:   "ship it",
+		QuotedSender: "bob",
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 2 {
+		t.Fatalf("input items = %d, want 2 (quoted-text + current-text)", len(got.Input))
+	}
+	q, _ := got.Input[0]["text"].(string)
+	if !strings.Contains(q, "引用 bob") || !strings.Contains(q, "ship it") {
+		t.Errorf("input[0] quoted marker = %q, want '引用 bob' + 'ship it'", q)
+	}
+	if got.Input[1]["text"] != "agree" {
+		t.Errorf("input[1] = %v, want current-text 'agree'", got.Input[1])
+	}
+}
+
+// TestBuildCodexInput_QuoteSenderFallback — empty QuotedSender uses
+// the "之前的消息" fallback so the marker still makes sense.
+func TestBuildCodexInput_QuoteSenderFallback(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:       "hmm",
+		QuotedText: "yesterday's note",
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	_ = json.Unmarshal(raw, &got)
+	if len(got.Input) < 1 {
+		t.Fatal("expected at least one input item")
+	}
+	q, _ := got.Input[0]["text"].(string)
+	if !strings.Contains(q, "之前的消息") {
+		t.Errorf("expected '之前的消息' fallback in marker, got %q", q)
+	}
+}
+
+// TestImageInputItem_RejectsNonImageMediaType — imbridge sends "file"
+// for non-image attachments (PDF, etc.); we must NOT misclassify those
+// as images. codex has no File variant, so handling falls back to the
+// "user sent a file: X" text injected by imbridge's describeWeixinMedia.
+func TestImageInputItem_RejectsNonImageMediaType(t *testing.T) {
+	_, ok := imageInputItem("file", tinyPNGBase64)
+	if ok {
+		t.Error("expected file mediaType to be rejected")
+	}
+}
+
+// TestImageInputItem_RejectsBadBase64 — a typo / truncation upstream
+// shouldn't crash or generate a malformed data URL; just skip.
+func TestImageInputItem_RejectsBadBase64(t *testing.T) {
+	_, ok := imageInputItem("image", "not!!!valid$$$base64===")
+	if ok {
+		t.Error("expected garbage base64 to be rejected")
+	}
+}
+
+// TestImageInputItem_RejectsNonImageBytes — defense against an upstream
+// that misdeclares mediaType=image but ships text/binary. We don't want
+// to ship a malformed data URL to codex.
+func TestImageInputItem_RejectsNonImageBytes(t *testing.T) {
+	// "hello world" base64 — http.DetectContentType returns "text/plain".
+	_, ok := imageInputItem("image", "aGVsbG8gd29ybGQ=")
+	if ok {
+		t.Error("expected non-image bytes to be rejected even when mediaType=image")
+	}
+}
+
+// TestImageInputItem_DetectsJPEG covers another MIME the iLink CDN
+// actually returns. http.DetectContentType reads the first 512 bytes,
+// JPEG magic is the first 3 (FF D8 FF).
+func TestImageInputItem_DetectsJPEG(t *testing.T) {
+	// Minimal JPEG header: SOI (FF D8 FF) + APP0 marker (E0) + length (00 10)
+	// + JFIF magic + version + density. Enough for DetectContentType.
+	jpegBytes := []byte{
+		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00,
+		0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+	}
+	jpegB64 := base64.StdEncoding.EncodeToString(jpegBytes)
+	item, ok := imageInputItem("image", jpegB64)
+	if !ok {
+		t.Fatal("expected JPEG to be accepted")
+	}
+	url := item["url"].(string)
+	if !strings.HasPrefix(url, "data:image/jpeg;base64,") {
+		t.Errorf("expected image/jpeg mime in data URL, got %q", url)
+	}
+}
+
+// TestBuildCodexInput_FileMediaTypeNoImageItem — file attachments
+// must NOT produce an image item (codex has no File variant, and the
+// inline-content path isn't designed yet). imbridge already injected
+// "[User sent a file: X]" into req.Text via describeWeixinMedia, so
+// the LLM sees the filename through that fallback alone.
+func TestBuildCodexInput_FileMediaTypeNoImageItem(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:      "[User sent a file: report.pdf]",
+		MediaType: "file",
+		MediaData: base64.StdEncoding.EncodeToString([]byte{'%', 'P', 'D', 'F', '-', '1'}),
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 1 {
+		t.Fatalf("expected 1 input item (text only), got %d", len(got.Input))
+	}
+	if got.Input[0]["type"] != "text" {
+		t.Errorf("input[0].type = %v, want text", got.Input[0]["type"])
 	}
 }

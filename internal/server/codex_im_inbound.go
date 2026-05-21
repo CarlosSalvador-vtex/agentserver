@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,6 +67,18 @@ type codexInboundRequest struct {
 	Text         string `json:"text"`
 	QuotedText   string `json:"quoted_text,omitempty"`
 	QuotedSender string `json:"quoted_sender,omitempty"`
+	// Media fields mirror imbridge bridge.go's payload shape. MediaType
+	// is "image" / "file" (the bare token imbridge uses, not a MIME).
+	// MediaData is base64-encoded raw bytes; buildCodexInput sniffs the
+	// real MIME and forwards images to codex as data: URLs. Only
+	// MediaType="image" is consumed today — file attachments fall back
+	// to imbridge's existing "[User sent a file: X]" text marker
+	// because codex's UserInput has no File variant and a sensible
+	// inline-content scheme isn't designed yet.
+	MediaType       string `json:"media_type,omitempty"`
+	MediaData       string `json:"media_data,omitempty"` // base64
+	QuotedMediaType string `json:"quoted_media_type,omitempty"`
+	QuotedMediaData string `json:"quoted_media_data,omitempty"` // base64
 }
 
 func (h *codexInboundHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -275,25 +288,120 @@ func transportToUserMessage(t *CodexTransportError) string {
 	}
 }
 
-// buildCodexInput constructs the codex turn/start params.input from the
-// inbound WeChat message. MVP: text only. Quoted text is concatenated
-// into the same text item with a "引用:" prefix; image/media ignored.
+// buildCodexInput constructs the codex turn/start params.input from
+// the inbound WeChat message.
+//
+// Codex v2 UserInput supports Text / Image / LocalImage / Skill /
+// Mention. We use Text + Image. LocalImage isn't viable in cloud (the
+// app-server runs in a separate pod from where the bytes live, so
+// path-based references break); Skill / Mention are codex-internal.
+//
+// Images are encoded as `data:<mime>;base64,...` URLs — codex test
+// suite covers this shape at v2/tests.rs:3254. Image inputs do NOT
+// count toward MAX_USER_INPUT_TEXT_CHARS (text_char_count returns 0
+// for non-Text variants), so multi-MB photos pass.
+//
+// Item ordering mirrors codex's native TUI:
+//   chatwidget.rs emits all image items, then the Text item, and
+//   skips the Text item entirely when text is empty.
+//
+// WeChat adds an "is a reply to" concept TUI doesn't have. We treat
+// it as a SECOND epoch placed BEFORE the current one in items:
+//
+//   [quoted image]   (if any)
+//   [quoted text]    "[引用 <sender>] <text>" or "[引用 <sender> 发送的图片]"
+//   [current image]  (if any)
+//   [current text]   (if any)
+//
+// Within each epoch we follow TUI's images-then-text rule, and across
+// epochs we order quoted (older) before current. The quoted Text item
+// is always present when there's ANY quoted content (text or image)
+// so the LLM can distinguish the prior image/text from the current
+// one — without a marker, two image items in a row look like two
+// attachments to the same current message.
+//
+// File attachments (MediaType="file"): no content forwarded today.
+// imbridge already injected "[User sent a file: name]" into req.Text
+// via describeWeixinMedia when the user sent a file without a caption,
+// so the LLM at least sees the filename. A proper file-content path
+// isn't designed yet — codex has no File variant and inlining text
+// files has ergonomics we want to think through first.
 func buildCodexInput(req codexInboundRequest) json.RawMessage {
-	text := req.Text
-	if req.QuotedText != "" {
-		quoter := req.QuotedSender
-		if quoter == "" {
-			quoter = "之前的消息"
-		}
-		text = fmt.Sprintf("[引用 %s] %s\n%s", quoter, req.QuotedText, req.Text)
+	var input []map[string]any
+
+	// Quoted epoch (chronologically older). Even quote-image-only
+	// gets a marker Text item so the LLM doesn't conflate it with
+	// the current image.
+	if item, ok := imageInputItem(req.QuotedMediaType, req.QuotedMediaData); ok {
+		input = append(input, item)
 	}
+	if marker := formatQuoteMarker(req.QuotedSender, req.QuotedText, req.QuotedMediaType); marker != "" {
+		input = append(input, map[string]any{"type": "text", "text": marker})
+	}
+
+	// Current epoch.
+	if item, ok := imageInputItem(req.MediaType, req.MediaData); ok {
+		input = append(input, item)
+	}
+	if req.Text != "" {
+		input = append(input, map[string]any{"type": "text", "text": req.Text})
+	}
+
 	wrapped := map[string]any{
-		"input": []map[string]any{
-			{"type": "text", "text": text},
-		},
+		"input": input,
 	}
 	b, _ := json.Marshal(wrapped)
 	return b
+}
+
+// formatQuoteMarker returns the text content for the quoted Text item,
+// or "" if there's no quoted content. Always non-empty when the user's
+// WeChat message is a reply to another, even if the original was only
+// an image (in which case the marker stands alone as a label for the
+// preceding quoted image item).
+func formatQuoteMarker(sender, text, mediaType string) string {
+	quoter := sender
+	if quoter == "" {
+		quoter = "之前的消息"
+	}
+	switch {
+	case text != "":
+		return fmt.Sprintf("[引用 %s] %s", quoter, text)
+	case mediaType == "image":
+		return fmt.Sprintf("[引用 %s 发送的图片]", quoter)
+	default:
+		// No quoted content at all (no text and no image).
+		return ""
+	}
+}
+
+// imageInputItem returns a codex v2 UserInput::Image item for the given
+// (mediaType, base64-encoded bytes) pair, or (nil, false) if there are
+// no bytes or the bytes don't sniff as an image (e.g., MediaType=="file"
+// or upstream sent garbage). MediaType comes through as imbridge's
+// bare token ("image" / "file") rather than a MIME, so the real MIME
+// is detected from the first 512 bytes — covers JPEG/PNG/GIF/WebP,
+// which are the formats iLink delivers in practice.
+func imageInputItem(mediaType, base64Data string) (map[string]any, bool) {
+	if mediaType != "image" || base64Data == "" {
+		return nil, false
+	}
+	raw, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil || len(raw) == 0 {
+		return nil, false
+	}
+	sniffed := http.DetectContentType(raw)
+	if !strings.HasPrefix(sniffed, "image/") {
+		// Upstream said "image" but bytes don't sniff that way — skip
+		// rather than feed codex a misdeclared data URL.
+		return nil, false
+	}
+	return map[string]any{
+		"type": "image",
+		// Reuse the already-base64-encoded payload verbatim to avoid a
+		// re-encode round-trip on multi-MB images.
+		"url": "data:" + sniffed + ";base64," + base64Data,
+	}, true
 }
 
 // sendText / sendError both POST /api/internal/imbridge/send. The
