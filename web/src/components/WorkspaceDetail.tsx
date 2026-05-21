@@ -860,106 +860,146 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
 
   useEffect(() => { loadChannels() }, [loadChannels])
 
-  return (
-    <div className="max-w-2xl">
-      <h3 className="text-base font-semibold text-[var(--foreground)] mb-4">IM Channels</h3>
+  // Provider-token → display metadata. Unknown providers fall through
+  // to a neutral grey so a future provider added server-side without
+  // a UI bump still renders something sensible.
+  const providerMeta: Record<string, { label: string; badge: string }> = {
+    weixin: { label: 'WeChat', badge: 'bg-green-500/10 text-green-400' },
+    telegram: { label: 'Telegram', badge: 'bg-blue-500/10 text-blue-400' },
+    matrix: { label: 'Matrix', badge: 'bg-purple-500/10 text-purple-400' },
+  }
 
+  return (
+    <>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
           <div className="flex items-center gap-2">
             <MessageSquare size={14} className="text-green-400" />
             <span className="text-sm font-medium text-[var(--foreground)]">IM Channels</span>
+            {imChannels.length > 0 && (
+              <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
+                {imChannels.length}
+              </span>
+            )}
           </div>
-        </div>
-        <div className="px-5 py-4">
-          {imChannels.length > 0 ? (
-            <div className="flex flex-col gap-2 mb-4">
-              {imChannels.map((ch) => (
-                <div key={ch.id} className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2">
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      ch.provider === 'telegram'
-                        ? 'bg-blue-500/10 text-blue-400'
-                        : ch.provider === 'matrix'
-                          ? 'bg-purple-500/10 text-purple-400'
-                          : 'bg-green-500/10 text-green-400'
-                    }`}>
-                      {ch.provider === 'telegram' ? 'Telegram' : ch.provider === 'matrix' ? 'Matrix' : 'WeChat'}
-                    </span>
-                    <span className="text-xs font-mono text-[var(--foreground)]">{ch.bot_id}</span>
-                    <span className="text-[11px] text-[var(--muted-foreground)]">
-                      {new Date(ch.bound_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={ch.routing_mode || 'nanoclaw'}
-                      onChange={async (e) => {
-                        try {
-                          await updateWorkspaceIMChannel(workspaceId, ch.id, {
-                            routing_mode: e.target.value as 'nanoclaw' | 'stateless_cc' | 'codex',
-                          })
-                          loadChannels()
-                        } catch {}
-                      }}
-                      className="rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[11px] text-[var(--foreground)]"
-                      title="Routing mode: nanoclaw = legacy NanoClaw sandbox; stateless_cc = new stateless Claude Code broker (Beta); codex = Codex via codex-app-gateway"
-                    >
-                      <option value="nanoclaw">nanoclaw</option>
-                      <option value="stateless_cc">stateless_cc (Beta)</option>
-                      <option value="codex">Codex (via codex-app-gateway)</option>
-                    </select>
-                    <label className="flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)] cursor-pointer" title="Only reply when @mentioned in group chats">
-                      <input
-                        type="checkbox"
-                        checked={ch.require_mention}
-                        onChange={async (e) => {
-                          try {
-                            await updateWorkspaceIMChannel(workspaceId, ch.id, { require_mention: e.target.checked })
-                            loadChannels()
-                          } catch {}
-                        }}
-                        className="rounded"
-                      />
-                      @mention
-                    </label>
-                    <button
-                      onClick={() => setConfirmDeleteChannel(ch)}
-                      className="rounded p-1 text-[var(--muted-foreground)] hover:bg-red-500/10 hover:text-red-400 transition-colors"
-                      title="Delete channel"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-[var(--muted-foreground)] mb-4">No IM channels configured.</p>
-          )}
-          <div className="flex gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setShowWeixinLogin(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs font-medium text-green-400 hover:bg-green-500/20 transition-colors"
+              className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-2.5 py-1 text-[11px] font-medium text-green-400 hover:bg-green-500/20 transition-colors"
             >
-              <MessageSquare size={13} />
+              <MessageSquare size={11} />
               WeChat
             </button>
             <button
               onClick={() => setShowTelegramConfig(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 hover:bg-blue-500/20 transition-colors"
+              className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-blue-400 hover:bg-blue-500/20 transition-colors"
             >
-              <Bot size={13} />
+              <Bot size={11} />
               Telegram
             </button>
             <button
               onClick={() => setShowMatrixConfig(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-400 hover:bg-purple-500/20 transition-colors"
+              className="inline-flex items-center gap-1 rounded-md border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-[11px] font-medium text-purple-400 hover:bg-purple-500/20 transition-colors"
             >
-              <Hash size={13} />
+              <Hash size={11} />
               Matrix
             </button>
           </div>
+        </div>
+
+        <div className="px-5 py-4">
+          {imChannels.length === 0 ? (
+            <div className="rounded-md border border-dashed border-[var(--border)] py-8 text-center text-xs italic text-[var(--muted-foreground)]">
+              No IM channels configured — bind a WeChat / Telegram / Matrix account above.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-[var(--border)]">
+              <table className="w-full table-fixed border-collapse text-sm">
+                <thead className="bg-[var(--secondary)] text-[var(--muted-foreground)]">
+                  <tr>
+                    <th className="w-24 px-3 py-2 text-left font-medium">Provider</th>
+                    <th className="px-3 py-2 text-left font-medium">Bot</th>
+                    <th className="w-44 px-3 py-2 text-left font-medium">Routing</th>
+                    <th className="w-24 px-3 py-2 text-left font-medium">@mention</th>
+                    <th className="w-44 px-3 py-2 text-left font-medium">Bound at</th>
+                    <th className="w-16 px-3 py-2 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {imChannels.map((ch, i) => {
+                    const meta = providerMeta[ch.provider] ?? { label: ch.provider, badge: 'bg-gray-500/10 text-gray-400' }
+                    return (
+                      <tr
+                        key={ch.id}
+                        className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--background)]/40' : ''}`}
+                      >
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${meta.badge}`}>
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 truncate">
+                          <div className="truncate font-mono text-xs text-[var(--foreground)]" title={ch.bot_id}>
+                            {ch.bot_id}
+                          </div>
+                          {ch.user_id && (
+                            <div className="truncate text-[11px] text-[var(--muted-foreground)]" title={ch.user_id}>
+                              {ch.user_id}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={ch.routing_mode || 'nanoclaw'}
+                            onChange={async (e) => {
+                              try {
+                                await updateWorkspaceIMChannel(workspaceId, ch.id, {
+                                  routing_mode: e.target.value as 'nanoclaw' | 'codex',
+                                })
+                                loadChannels()
+                              } catch {}
+                            }}
+                            className="w-full rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[11px] text-[var(--foreground)]"
+                            title="Routing mode: nanoclaw = legacy NanoClaw sandbox; codex = Codex via codex-app-gateway"
+                          >
+                            <option value="nanoclaw">nanoclaw</option>
+                            <option value="codex">codex</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={ch.require_mention}
+                            onChange={async (e) => {
+                              try {
+                                await updateWorkspaceIMChannel(workspaceId, ch.id, { require_mention: e.target.checked })
+                                loadChannels()
+                              } catch {}
+                            }}
+                            className="rounded"
+                            title="Only reply when @mentioned in group chats"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-[var(--muted-foreground)]">
+                          {new Date(ch.bound_at).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            onClick={() => setConfirmDeleteChannel(ch)}
+                            className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--destructive)] transition-colors"
+                            aria-label="Delete channel"
+                            title="Delete channel"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1001,7 +1041,7 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
           onConnected={() => { loadChannels() }}
         />
       )}
-    </div>
+    </>
   )
 }
 

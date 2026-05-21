@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -49,7 +48,7 @@ type BridgeBinding struct {
 	ChannelID   string // workspace_im_channels.id
 	Cursor      string
 	WorkspaceID string // workspace that owns this channel
-	RoutingMode string // "nanoclaw" (default) or "stateless_cc"
+	RoutingMode string // "nanoclaw" (default) or "codex"
 }
 
 // pollerEntry tracks an active poller so the bridge can both cancel it and
@@ -406,8 +405,12 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 }
 
 // forwardMessage routes an inbound message based on the binding's RoutingMode.
-// "stateless_cc" forwards to the agentserver HTTP API; all other values
-// (including empty, for backward compatibility) forward to NanoClaw.
+// "codex" forwards to agentserver's codex-app-gateway path; all other
+// values (including empty, for backward compatibility) forward to
+// NanoClaw. "stateless_cc" used to route to a since-removed agentserver
+// /api/workspaces/{id}/im/inbound handler (purged in #135); that route
+// is no longer accepted by the API and any DB row still carrying it
+// falls through to NanoClaw here.
 func (b *Bridge) forwardMessage(ctx context.Context, binding BridgeBinding, msg InboundMessage) (bool, error) {
 	// In-memory routing mode (set via SetChannelRoutingMode) wins over
 	// the routing_mode captured at StartPoller time. Empty map value
@@ -417,53 +420,11 @@ func (b *Bridge) forwardMessage(ctx context.Context, binding BridgeBinding, msg 
 		mode = binding.RoutingMode
 	}
 	switch mode {
-	case "stateless_cc":
-		return b.forwardToAgentserver(ctx, binding, msg)
 	case "codex":
 		return b.forwardToCodex(ctx, binding, msg)
-	default: // "nanoclaw" or empty (backward compatible)
+	default: // "nanoclaw", "stateless_cc" (legacy), or empty
 		return b.forwardToNanoClaw(ctx, binding, msg)
 	}
-}
-
-// forwardToAgentserver sends a message to the agentserver IM inbound endpoint.
-func (b *Bridge) forwardToAgentserver(ctx context.Context, binding BridgeBinding, msg InboundMessage) (bool, error) {
-	payload := map[string]interface{}{
-		"chat_jid":    msg.FromUserID,
-		"sender_name": msg.SenderName,
-		"content":     msg.Text,
-		"provider":    binding.Provider.Name(),
-		"channel_id":  binding.ChannelID,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return false, fmt.Errorf("marshal message: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/api/workspaces/%s/im/inbound", b.agentserverURL, binding.WorkspaceID)
-	ctx, cancel := context.WithTimeout(ctx, forwardTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if secret := os.Getenv("INTERNAL_API_SECRET"); secret != "" {
-		req.Header.Set("X-Internal-Secret", secret)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("forward to agentserver: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		respBody, _ := io.ReadAll(resp.Body)
-		return false, fmt.Errorf("agentserver returned %d: %s", resp.StatusCode, respBody)
-	}
-	return true, nil
 }
 
 // forwardToCodex POSTs the inbound message to agentserver's
