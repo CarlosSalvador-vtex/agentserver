@@ -253,6 +253,20 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 		return nil, fmt.Errorf("merge params: %w", err)
 	}
 
+	// turn/start does NOT auto-attach the per-thread event listener (see
+	// codex turn_processor.rs turn_start_inner — only thread/start,
+	// thread/resume, thread/fork, and thread/realtime/start trigger
+	// ensure_conversation_listener). After a broker reconnect (new
+	// connection_id) or after the listener task exits on next_event=Err,
+	// turn/start would ack but events have no consumer — the broker
+	// observes 5-minute brokerTimeout with items=0. thread/resume is
+	// idempotent (thread_lifecycle.rs:242 listener_matches short-circuit)
+	// so paying one extra loopback RPC per turn is the simplest fix that
+	// also covers same-conn listener-died failures.
+	if err := c.ensureListener(ctx, threadID); err != nil {
+		return nil, fmt.Errorf("ensure listener: %w", err)
+	}
+
 	id := c.nextID.Add(1)
 	respCh := make(chan rpcResponse, 1)
 	c.mu.Lock()
@@ -360,6 +374,45 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 		c.Close()
 		return nil, &TimeoutError{ThreadID: threadID, TurnID: startResp.Turn.ID}
 	}
+}
+
+// ensureListener sends thread/resume so codex (re-)attaches the
+// per-thread event listener to this ws connection. Idempotent on the
+// codex side — listener_matches short-circuits when the listener is
+// already wired to the same conversation. Result body is discarded.
+func (c *Conn) ensureListener(ctx context.Context, threadID string) error {
+	id := c.nextID.Add(1)
+	respCh := make(chan rpcResponse, 1)
+	c.mu.Lock()
+	c.pendingResp[id] = respCh
+	c.mu.Unlock()
+
+	// ThreadResumeParams has #[serde(rename_all = "camelCase")] in
+	// codex-rs/app-server-protocol/src/protocol/v2/thread.rs — wire
+	// field is threadId, NOT thread_id. Wrong casing would surface as
+	// "missing field threadId" on every turn (verified by reading the
+	// struct serde attrs, not by trust).
+	params, _ := json.Marshal(map[string]string{"threadId": threadID})
+	if err := c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", ID: &id, Method: "thread/resume", Params: params}); err != nil {
+		c.mu.Lock()
+		delete(c.pendingResp, id)
+		c.mu.Unlock()
+		return fmt.Errorf("write thread/resume: %w", err)
+	}
+	resp, ok := waitResp(ctx, respCh)
+	if !ok {
+		c.mu.Lock()
+		delete(c.pendingResp, id)
+		c.mu.Unlock()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return c.closeErrOr(errors.New("connection closed before thread/resume response"))
+	}
+	if resp.Error != nil {
+		return &TurnRPCError{Code: resp.Error.Code, Message: resp.Error.Message, Data: resp.Error.Data}
+	}
+	return nil
 }
 
 // StartThread issues thread/start with empty params and returns the new

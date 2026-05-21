@@ -44,6 +44,20 @@ func fakeCodexServer(t *testing.T, frame func(t *testing.T, ctx context.Context,
 	return url, srv.Close
 }
 
+// replayThreadResume reads the thread/resume frame Conn.Turn now sends
+// before turn/start (to (re-)attach the per-thread event listener) and
+// replies with an empty result. Place after replayHandshake and before
+// any frame your test cares about — the thread/resume preamble is
+// implementation detail to most tests.
+func replayThreadResume(t *testing.T, ctx context.Context, c *websocket.Conn) {
+	t.Helper()
+	f := readFrame(t, ctx, c)
+	if f["method"] != "thread/resume" {
+		t.Fatalf("expected thread/resume preamble, got %v", f["method"])
+	}
+	writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{}})
+}
+
 func readFrame(t *testing.T, ctx context.Context, c *websocket.Conn) map[string]any {
 	t.Helper()
 	_, data, err := c.Read(ctx)

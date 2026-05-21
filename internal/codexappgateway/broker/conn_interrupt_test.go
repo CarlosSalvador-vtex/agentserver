@@ -14,6 +14,7 @@ func TestConnTurnInterruptOnTimeout(t *testing.T) {
 	gotInterrupt := make(chan map[string]any, 1)
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-late"}}})
 		// Never send turn/completed; wait for interrupt.
@@ -55,6 +56,7 @@ func TestConnTurnInterruptOnTimeout(t *testing.T) {
 func TestConnTurnFailsOnWSClose(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-x"}}})
 		// Close ws mid-turn instead of sending turn/completed.
@@ -84,6 +86,7 @@ func TestConnTurnFailsOnWSClose(t *testing.T) {
 func TestConnTurnTimeoutClosesConn(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-z"}}})
 		// Never send turn/completed → caller will brokerTimeout.
