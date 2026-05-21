@@ -540,3 +540,93 @@ func TestImageInputItem_DetectsJPEG(t *testing.T) {
 		t.Errorf("expected image/jpeg mime in data URL, got %q", url)
 	}
 }
+
+// TestFileTextSnippet_TextFileInlined covers the main file fix: text
+// files (code, configs, plain) get inlined into the text input.
+func TestFileTextSnippet_TextFileInlined(t *testing.T) {
+	content := "package main\nfunc main() { println(\"hi\") }\n"
+	b64 := base64.StdEncoding.EncodeToString([]byte(content))
+	snip := fileTextSnippet("file", b64, "main.go")
+	if !strings.Contains(snip, "main.go") {
+		t.Errorf("snippet should name the file, got %q", snip)
+	}
+	if !strings.Contains(snip, content) {
+		t.Errorf("snippet should embed file content verbatim, got %q", snip)
+	}
+	if !strings.Contains(snip, "```") {
+		t.Errorf("snippet should wrap content in a fenced code block, got %q", snip)
+	}
+}
+
+// TestFileTextSnippet_BinaryFileSkipped — PDFs, zips, etc. must NOT
+// have raw bytes inlined into text (would be unintelligible noise +
+// likely break UTF-8). Caller relies on imbridge's existing
+// "[User sent a file: X]" marker in that case.
+func TestFileTextSnippet_BinaryFileSkipped(t *testing.T) {
+	// PDF magic: "%PDF-"
+	pdf := []byte{'%', 'P', 'D', 'F', '-', '1', '.', '4', '\n', 0x00, 0x00, 0x00}
+	snip := fileTextSnippet("file", base64.StdEncoding.EncodeToString(pdf), "report.pdf")
+	if snip != "" {
+		t.Errorf("expected empty snippet for binary PDF, got %q", snip)
+	}
+}
+
+// TestFileTextSnippet_LargeTextTruncated guards the codex
+// MAX_USER_INPUT_TEXT_CHARS budget. A user dropping a 2 MB log
+// shouldn't blow the input limit.
+func TestFileTextSnippet_LargeTextTruncated(t *testing.T) {
+	large := strings.Repeat("ABCD\n", 60_000) // 300 KB of text
+	snip := fileTextSnippet("file", base64.StdEncoding.EncodeToString([]byte(large)), "big.log")
+	if !strings.Contains(snip, "truncated") {
+		t.Errorf("expected truncation marker, got %q", snip[:200])
+	}
+	// Snippet shouldn't carry the full original content.
+	if strings.Count(snip, "ABCD") >= 60_000 {
+		t.Errorf("snippet not truncated — got %d ABCD occurrences", strings.Count(snip, "ABCD"))
+	}
+}
+
+// TestFileTextSnippet_ImageMediaTypeSkipped — `image` mediaType is
+// handled by imageInputItem, not here. Avoid double-handling.
+func TestFileTextSnippet_ImageMediaTypeSkipped(t *testing.T) {
+	if snip := fileTextSnippet("image", tinyPNGBase64, "p.png"); snip != "" {
+		t.Errorf("image mediaType should be no-op for file snippet, got %q", snip)
+	}
+}
+
+// TestFileTextSnippet_NoFilenameUsesFallback — filename is optional in
+// some upstreams; ensure we emit a sensible default label.
+func TestFileTextSnippet_NoFilenameUsesFallback(t *testing.T) {
+	snip := fileTextSnippet("file", base64.StdEncoding.EncodeToString([]byte("hello")), "")
+	if !strings.Contains(snip, "file") {
+		t.Errorf("expected 'file' as default label, got %q", snip)
+	}
+}
+
+// TestBuildCodexInput_TextFileInlinedIntoText pins the user-visible
+// behavior: the file content appears inside the text input item, NOT
+// as a separate image item.
+func TestBuildCodexInput_TextFileInlinedIntoText(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:          "review this",
+		MediaType:     "file",
+		MediaData:     base64.StdEncoding.EncodeToString([]byte("hello world\n")),
+		MediaFilename: "notes.txt",
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 1 {
+		t.Fatalf("expected 1 input item (text only — files don't get their own item), got %d", len(got.Input))
+	}
+	text, _ := got.Input[0]["text"].(string)
+	if !strings.Contains(text, "review this") {
+		t.Errorf("user text missing from combined input, got %q", text)
+	}
+	if !strings.Contains(text, "notes.txt") || !strings.Contains(text, "hello world") {
+		t.Errorf("file content/name missing from text, got %q", text)
+	}
+}

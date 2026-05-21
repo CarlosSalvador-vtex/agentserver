@@ -287,30 +287,50 @@ func transportToUserMessage(t *CodexTransportError) string {
 }
 
 // buildCodexInput constructs the codex turn/start params.input from the
-// inbound WeChat message. Text + image media are forwarded; non-image
-// attachments are described in the text fallback by imbridge already
-// (describeWeixinMedia).
+// inbound WeChat message. Text + image media + text-file content are
+// forwarded.
 //
-// Image bytes are encoded as data: URLs and emitted as UserInput::Image.
-// Codex v2 protocol accepts data:// in the `url` field (see
-// codex-rs/app-server-protocol/src/protocol/v2/tests.rs:3254).
-// Image inputs do NOT count toward MAX_USER_INPUT_TEXT_CHARS
-// (turn.rs:text_char_count returns 0 for non-text variants).
+// Codex v2 UserInput supports only Text / Image / LocalImage / Skill /
+// Mention — there's no `File` variant. So file attachments are routed
+// as follows:
+//
+//   - image bytes → UserInput::Image as a `data:<mime>;base64,...` URL.
+//     Codex test suite covers this shape at v2/tests.rs:3254. Images
+//     do NOT count toward MAX_USER_INPUT_TEXT_CHARS (text_char_count
+//     returns 0 for non-Text variants).
+//   - text-detectable file content (sniffed as text/*) → fenced-code
+//     block appended to the Text input. Truncated to fileMaxChars
+//     so a giant log doesn't blow the codex input limit (1 Mi chars
+//     per protocol/src/user_input.rs).
+//   - binary files → no content forwarded. imbridge already injected
+//     "[User sent a file: name]" via describeWeixinMedia when the
+//     user sent a file without a caption, so the LLM at least knows
+//     a file arrived.
+//
+// Quoted (older) media is placed before current media to preserve
+// chronological order as the user sees it.
 func buildCodexInput(req codexInboundRequest) json.RawMessage {
-	text := req.Text
+	var parts []string
 	if req.QuotedText != "" {
 		quoter := req.QuotedSender
 		if quoter == "" {
 			quoter = "之前的消息"
 		}
-		text = fmt.Sprintf("[引用 %s] %s\n%s", quoter, req.QuotedText, req.Text)
+		parts = append(parts, fmt.Sprintf("[引用 %s] %s", quoter, req.QuotedText))
 	}
+	if snip := fileTextSnippet(req.QuotedMediaType, req.QuotedMediaData, req.QuotedMediaFilename); snip != "" {
+		parts = append(parts, "[引用文件]"+snip)
+	}
+	if req.Text != "" {
+		parts = append(parts, req.Text)
+	}
+	if snip := fileTextSnippet(req.MediaType, req.MediaData, req.MediaFilename); snip != "" {
+		parts = append(parts, snip)
+	}
+	text := strings.Join(parts, "\n\n")
 	input := []map[string]any{
 		{"type": "text", "text": text},
 	}
-	// Inline quoted-message image first (chronologically older), then
-	// the current message's image. Mirrors how the user sees them in
-	// the WeChat thread.
 	if item, ok := imageInputItem(req.QuotedMediaType, req.QuotedMediaData); ok {
 		input = append(input, item)
 	}
@@ -322,6 +342,49 @@ func buildCodexInput(req codexInboundRequest) json.RawMessage {
 	}
 	b, _ := json.Marshal(wrapped)
 	return b
+}
+
+// fileMaxChars bounds the per-file content we inline into the text
+// input. Codex's MAX_USER_INPUT_TEXT_CHARS is 1 Mi (1<<20). Capping
+// each attached file at ~200K leaves room for the user's typed text,
+// quoted history, and a second attached file in the same turn before
+// the limit kicks in.
+const fileMaxChars = 200_000
+
+// fileTextSnippet returns a fenced-code block to append to the text
+// input for an attached file, IF the bytes sniff as text/* via
+// http.DetectContentType. Returns "" for binary files (caller leaves
+// imbridge's "[User sent a file: name]" marker in place) or invalid
+// input.
+//
+// Truncates content longer than fileMaxChars and appends a marker so
+// the LLM doesn't silently see a partial file.
+func fileTextSnippet(mediaType, base64Data, filename string) string {
+	if mediaType != "file" || base64Data == "" {
+		return ""
+	}
+	raw, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	if !strings.HasPrefix(http.DetectContentType(raw), "text/") {
+		return ""
+	}
+	content := string(raw)
+	truncatedBytes := 0
+	if len(content) > fileMaxChars {
+		truncatedBytes = len(content) - fileMaxChars
+		content = content[:fileMaxChars]
+	}
+	label := filename
+	if label == "" {
+		label = "file"
+	}
+	snippet := fmt.Sprintf("[Attached file: %s]\n```\n%s\n```", label, content)
+	if truncatedBytes > 0 {
+		snippet += fmt.Sprintf("\n[truncated %d bytes; original was %d bytes total]", truncatedBytes, len(raw))
+	}
+	return snippet
 }
 
 // imageInputItem returns a codex v2 UserInput::Image item for the given
