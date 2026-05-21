@@ -306,6 +306,171 @@ type CodexTokenListItem struct {
 	RevokedAt   *time.Time `json:"revoked_at,omitempty" extensions:"x-nullable=true"`
 } // @name CodexTokenListItem
 
+// --- Agent Discovery ---
+
+// AgentRegisterRequest is the body for POST /api/agent/register.
+// type defaults to "opencode" when omitted; valid values: opencode, claudecode, custom.
+type AgentRegisterRequest struct {
+	Name string `json:"name" example:"Local Agent"`
+	Type string `json:"type" example:"opencode"` // optional; defaults to "opencode"
+} // @name AgentRegisterRequest
+
+// AgentRegisterResponse is returned (201) by POST /api/agent/register.
+// proxy_token is the Bearer token used for subsequent agent-facing API calls.
+// tunnel_token is used by the tunnel transport (if applicable).
+type AgentRegisterResponse struct {
+	SandboxID   string `json:"sandbox_id" validate:"required"`
+	TunnelToken string `json:"tunnel_token" validate:"required"`
+	ProxyToken  string `json:"proxy_token" validate:"required"`
+	WorkspaceID string `json:"workspace_id" validate:"required"`
+	ShortID     string `json:"short_id" validate:"required"`
+} // @name AgentRegisterResponse
+
+// AgentCardRegisterRequest is the body for POST /api/agent/discovery/cards.
+// card is an arbitrary JSON capability descriptor; defaults to {} when omitted.
+type AgentCardRegisterRequest struct {
+	DisplayName string      `json:"display_name" example:"My Agent"`
+	Description string      `json:"description" example:"A helpful coding agent"`
+	AgentType   string      `json:"agent_type" example:"claudecode"` // optional; defaults to "claudecode"
+	Card        interface{} `json:"card"`                            // optional; arbitrary JSON
+} // @name AgentCardRegisterRequest
+
+// AgentCardRegisterResponse is the {"status":"ok"} body returned (200) by
+// POST /api/agent/discovery/cards.
+type AgentCardRegisterResponse struct {
+	Status string `json:"status" validate:"required" example:"ok"`
+} // @name AgentCardRegisterResponse
+
+// AgentCardItem is one entry in the agent card list returned by
+// GET /api/workspaces/{wid}/agents and GET /api/agent/discovery/agents.
+// card is the raw capability descriptor JSON submitted at registration time.
+type AgentCardItem struct {
+	AgentID     string      `json:"agent_id" validate:"required"`
+	DisplayName string      `json:"display_name" validate:"required"`
+	Description string      `json:"description"`
+	AgentType   string      `json:"agent_type" validate:"required" example:"claudecode"`
+	Status      string      `json:"status" validate:"required" example:"available"`
+	Card        interface{} `json:"card" validate:"required"`
+	Version     int         `json:"version" validate:"required"`
+} // @name AgentCardItem
+
+// --- Agent Tasks ---
+
+// AgentTaskCreateRequest is the body for POST /api/workspaces/{wid}/tasks
+// and POST /api/agent/tasks.
+// timeout_seconds defaults to 300 when omitted.
+type AgentTaskCreateRequest struct {
+	TargetID        string   `json:"target_id" validate:"required" example:"sandbox-uuid"`
+	Prompt          string   `json:"prompt" validate:"required" example:"Run the test suite"`
+	Skill           string   `json:"skill,omitempty" example:"testing"`
+	SystemContext   string   `json:"system_context,omitempty"`
+	MaxTurns        int      `json:"max_turns,omitempty" example:"50"`
+	MaxBudgetUSD    float64  `json:"max_budget_usd,omitempty" example:"1.0"`
+	TimeoutSeconds  int      `json:"timeout_seconds,omitempty" example:"300"`
+	DelegationChain []string `json:"delegation_chain,omitempty"`
+	RequesterID     string   `json:"requester_id,omitempty"`
+} // @name AgentTaskCreateRequest
+
+// AgentTaskCreateResponse is returned (201) by the task creation endpoints.
+// session_id is empty in the current implementation (bridge was removed).
+type AgentTaskCreateResponse struct {
+	TaskID    string `json:"task_id" validate:"required"`
+	SessionID string `json:"session_id"`
+	Status    string `json:"status" validate:"required" example:"pending"`
+} // @name AgentTaskCreateResponse
+
+// AgentTaskItem is one entry in the task list returned by
+// GET /api/workspaces/{wid}/tasks.
+// completed_at and total_cost_usd are null when not yet set.
+type AgentTaskItem struct {
+	TaskID      string   `json:"task_id" validate:"required"`
+	TargetID    string   `json:"target_id" validate:"required"`
+	RequesterID string   `json:"requester_id"`
+	Skill       string   `json:"skill,omitempty"`
+	Status      string   `json:"status" validate:"required" example:"pending"`
+	Prompt      string   `json:"prompt" validate:"required"`
+	NumTurns    int      `json:"num_turns"`
+	TotalCost   *float64 `json:"total_cost_usd,omitempty" extensions:"x-nullable=true"`
+	CreatedAt   string   `json:"created_at" validate:"required"`
+	CompletedAt *string  `json:"completed_at,omitempty" extensions:"x-nullable=true"`
+} // @name AgentTaskItem
+
+// AgentTaskDetail is the full task payload returned by GET /api/tasks/{id}
+// and GET /api/agent/tasks/{id}.
+// Optional fields are absent when not applicable.
+type AgentTaskDetail struct {
+	TaskID        string      `json:"task_id" validate:"required"`
+	WorkspaceID   string      `json:"workspace_id" validate:"required"`
+	RequesterID   string      `json:"requester_id"`
+	TargetID      string      `json:"target_id" validate:"required"`
+	Prompt        string      `json:"prompt" validate:"required"`
+	Status        string      `json:"status" validate:"required" example:"pending"`
+	NumTurns      int         `json:"num_turns"`
+	CreatedAt     string      `json:"created_at" validate:"required"`
+	SessionID     *string     `json:"session_id,omitempty" extensions:"x-nullable=true"`
+	Skill         *string     `json:"skill,omitempty" extensions:"x-nullable=true"`
+	TotalCostUSD  *float64    `json:"total_cost_usd,omitempty" extensions:"x-nullable=true"`
+	Result        interface{} `json:"result,omitempty" extensions:"x-nullable=true"`
+	FailureReason *string     `json:"failure_reason,omitempty" extensions:"x-nullable=true"`
+	CompletedAt   *string     `json:"completed_at,omitempty" extensions:"x-nullable=true"`
+} // @name AgentTaskDetail
+
+// AgentTaskStatusRequest is the body for PUT /api/agent/tasks/{id}/status.
+// Valid status values: running, completed, failed, cancelled.
+// failure_reason is required when status is "failed".
+// result and total_cost_usd are used when status is "completed".
+type AgentTaskStatusRequest struct {
+	Status        string      `json:"status" validate:"required" example:"completed"`
+	FailureReason string      `json:"failure_reason,omitempty"`
+	Result        interface{} `json:"result,omitempty"`
+	TotalCostUSD  *float64    `json:"total_cost_usd,omitempty" extensions:"x-nullable=true"`
+	NumTurns      int         `json:"num_turns,omitempty"`
+} // @name AgentTaskStatusRequest
+
+// AgentTaskCancelResponse is the {"status":"cancelled"} body returned (200)
+// by POST /api/tasks/{id}/cancel.
+type AgentTaskCancelResponse struct {
+	Status string `json:"status" validate:"required" example:"cancelled"`
+} // @name AgentTaskCancelResponse
+
+// AgentTaskPollItem is one entry in the list returned by
+// GET /api/agent/tasks/poll. Only the fields needed for immediate execution
+// are included (no cost/status/audit fields).
+type AgentTaskPollItem struct {
+	TaskID        string  `json:"task_id" validate:"required"`
+	Prompt        string  `json:"prompt" validate:"required"`
+	SystemContext string  `json:"system_context,omitempty"`
+	MaxTurns      int     `json:"max_turns,omitempty"`
+	MaxBudgetUSD  float64 `json:"max_budget_usd,omitempty"`
+	SessionID     string  `json:"session_id,omitempty"`
+} // @name AgentTaskPollItem
+
+// --- Agent Mailbox ---
+
+// AgentMailboxSendRequest is the body for POST /api/agent/mailbox/send.
+// msg_type defaults to "text" when omitted.
+type AgentMailboxSendRequest struct {
+	To      string `json:"to" validate:"required" example:"sandbox-uuid-of-target"`
+	Text    string `json:"text" validate:"required" example:"Hello from another agent"`
+	MsgType string `json:"msg_type,omitempty" example:"text"`
+} // @name AgentMailboxSendRequest
+
+// AgentMailboxSendResponse is returned (201) by POST /api/agent/mailbox/send.
+type AgentMailboxSendResponse struct {
+	MessageID string `json:"message_id" validate:"required"`
+	Status    string `json:"status" validate:"required" example:"sent"`
+} // @name AgentMailboxSendResponse
+
+// AgentMailboxMessage is one message in the inbox returned by
+// GET /api/agent/mailbox/inbox.
+type AgentMailboxMessage struct {
+	ID        string `json:"id" validate:"required"`
+	From      string `json:"from" validate:"required"`
+	Text      string `json:"text" validate:"required"`
+	MsgType   string `json:"msg_type" validate:"required" example:"text"`
+	CreatedAt string `json:"created_at" validate:"required"`
+} // @name AgentMailboxMessage
+
 // --- Codex Browser Sessions ---
 
 // CodexBrowserItem is one entry returned by GET /api/workspaces/{wid}/browsers.
