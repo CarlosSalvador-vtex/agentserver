@@ -151,3 +151,24 @@ type SandboxRenameRequest struct {
 type SandboxLifecycleStatusResponse struct {
 	Status string `json:"status" validate:"required" example:"pausing"`
 } // @name SandboxLifecycleStatusResponse
+
+// SandboxUsageSummary is one row in the per-provider/model breakdown returned
+// by GET /api/sandboxes/{id}/usage. It mirrors llmproxy.UsageSummary.
+type SandboxUsageSummary struct {
+	Provider                 string `json:"provider" validate:"required" example:"anthropic"`
+	Model                    string `json:"model" validate:"required" example:"claude-sonnet-4-6"`
+	InputTokens              int64  `json:"input_tokens" validate:"required"`
+	OutputTokens             int64  `json:"output_tokens" validate:"required"`
+	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens" validate:"required"`
+	CacheReadInputTokens     int64  `json:"cache_read_input_tokens" validate:"required"`
+	RequestCount             int64  `json:"request_count" validate:"required"`
+} // @name SandboxUsageSummary
+
+// SandboxUsageResponse mirrors the body the LLM proxy returns from its
+// /internal/usage?sandbox_id={id} endpoint, forwarded verbatim by
+// GET /api/sandboxes/{id}/usage. usage is the per-provider/model breakdown;
+// since is set only when the caller supplied a ?since= query param.
+type SandboxUsageResponse struct {
+	Usage []SandboxUsageSummary `json:"usage" validate:"required"`
+	Since *string               `json:"since,omitempty" extensions:"x-nullable=true" example:"2026-01-01T00:00:00Z"`
+} // @name SandboxUsage

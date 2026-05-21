@@ -1596,6 +1596,15 @@ func (s *Server) handleGetWorkspaceDefaults(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+//	@Summary   List sandboxes in a workspace
+//	@Tags      Sandboxes
+//	@Produce   json
+//	@Param     wid  path  string  true  "Workspace id"
+//	@Success   200  {array}   Sandbox
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/workspaces/{wid}/sandboxes [get]
 func (s *Server) handleListSandboxes(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "wid")
 	if _, ok := s.requireWorkspaceMember(w, r, wsID); !ok {
@@ -1613,6 +1622,19 @@ func (s *Server) handleListSandboxes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//	@Summary     Create a sandbox in a workspace
+//	@Description Validates type / CPU / memory / idle_timeout / quota / budget. Returns 201 immediately with status="provisioning"; container starts asynchronously.
+//	@Tags        Sandboxes
+//	@Accept      json
+//	@Produce     json
+//	@Param       wid   path      string                true  "Workspace id"
+//	@Param       body  body      SandboxCreateRequest  true  "Create payload"
+//	@Success     201   {object}  Sandbox
+//	@Failure     400   {string}  string  "validation error (type/cpu/memory/idle_timeout)"
+//	@Failure     403   {string}  string  "insufficient role / quota / budget"
+//	@Failure     500   {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/workspaces/{wid}/sandboxes [post]
 func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "wid")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer", "developer") {
@@ -1860,6 +1882,16 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toSandboxResponse(r, sbx, authTokenFromRequest(r)))
 }
 
+//	@Summary   Get a sandbox by id
+//	@Tags      Sandboxes
+//	@Produce   json
+//	@Param     id  path  string  true  "Sandbox id"
+//	@Success   200  {object}  Sandbox
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   404  {string}  string  "sandbox not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id} [get]
 func (s *Server) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -1876,6 +1908,19 @@ func (s *Server) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//	@Summary   Rename a sandbox
+//	@Tags      Sandboxes
+//	@Accept    json
+//	@Produce   json
+//	@Param     id    path      string                true  "Sandbox id"
+//	@Param     body  body      SandboxRenameRequest  true  "New name"
+//	@Success   200   {object}  Sandbox
+//	@Failure   400   {string}  string  "name required"
+//	@Failure   403   {string}  string  "not a member"
+//	@Failure   404   {string}  string  "sandbox not found"
+//	@Failure   500   {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id} [patch]
 func (s *Server) handleRenameSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -1901,6 +1946,15 @@ func (s *Server) handleRenameSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toSandboxResponse(r, sbx, authTokenFromRequest(r)))
 }
 
+//	@Summary   Delete a sandbox
+//	@Tags      Sandboxes
+//	@Param     id  path  string  true  "Sandbox id"
+//	@Success   204
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   404  {string}  string  "sandbox not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id} [delete]
 func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -1955,6 +2009,19 @@ func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+//	@Summary     Pause a sandbox (cloud sandboxes only)
+//	@Description Initiates pause transition; returns {"status":"pausing"}. Final state lands asynchronously.
+//	@Tags        Sandboxes
+//	@Produce     json
+//	@Param       id  path  string  true  "Sandbox id"
+//	@Success     200  {object}  SandboxLifecycleStatusResponse
+//	@Failure     400  {string}  string  "local sandbox cannot be paused"
+//	@Failure     403  {string}  string  "not a member"
+//	@Failure     404  {string}  string  "sandbox not found"
+//	@Failure     409  {string}  string  "invalid state for pause"
+//	@Failure     500  {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/sandboxes/{id}/pause [post]
 func (s *Server) handlePauseSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -2004,6 +2071,19 @@ func (s *Server) handlePauseSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(SandboxLifecycleStatusResponse{Status: "pausing"})
 }
 
+//	@Summary     Resume a paused sandbox (cloud sandboxes only)
+//	@Description Initiates resume transition; returns {"status":"resuming"}. Final state lands asynchronously.
+//	@Tags        Sandboxes
+//	@Produce     json
+//	@Param       id  path  string  true  "Sandbox id"
+//	@Success     200  {object}  SandboxLifecycleStatusResponse
+//	@Failure     400  {string}  string  "local sandbox cannot be resumed"
+//	@Failure     403  {string}  string  "not a member"
+//	@Failure     404  {string}  string  "sandbox not found"
+//	@Failure     409  {string}  string  "invalid state for resume"
+//	@Failure     500  {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/sandboxes/{id}/resume [post]
 func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -2074,6 +2154,16 @@ func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(SandboxLifecycleStatusResponse{Status: "resuming"})
 }
 
+//	@Summary   Get sandbox usage stats
+//	@Tags      Sandboxes
+//	@Produce   json
+//	@Param     id  path  string  true  "Sandbox id"
+//	@Success   200  {object}  SandboxUsage
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   404  {string}  string  "sandbox not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id}/usage [get]
 func (s *Server) handleSandboxUsage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
