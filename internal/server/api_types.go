@@ -126,3 +126,28 @@ type LLMConfigUpsertRequest struct {
 type LLMConfigUpsertResponse struct {
 	OK bool `json:"ok" validate:"required"`
 } // @name LLMConfigUpsertResponse
+
+// --- Sandboxes ---
+
+// SandboxCreateRequest is the body for POST /api/workspaces/{wid}/sandboxes.
+// All fields except name are optional and fall back to workspace/server defaults.
+type SandboxCreateRequest struct {
+	Name        string                 `json:"name" validate:"required" example:"my-sandbox"`
+	Type        string                 `json:"type" example:"opencode"`    // optional; default "opencode"
+	CPU         *int                   `json:"cpu"`                        // optional; millicores, e.g. 500 or 2000
+	Memory      *int64                 `json:"memory"`                     // optional; bytes, e.g. 536870912 (512Mi)
+	IdleTimeout *int                   `json:"idle_timeout"`               // optional; seconds
+	Metadata    map[string]interface{} `json:"metadata"`                   // optional; arbitrary key-value metadata
+} // @name SandboxCreateRequest
+
+// SandboxRenameRequest is the body for PATCH /api/sandboxes/{id}.
+type SandboxRenameRequest struct {
+	Name string `json:"name" validate:"required" example:"renamed-sandbox"`
+} // @name SandboxRenameRequest
+
+// SandboxLifecycleStatusResponse is the {"status": "pausing"} envelope returned
+// by POST /api/sandboxes/{id}/pause and /resume. The status reflects the
+// transition initiated, not the final state (those are async).
+type SandboxLifecycleStatusResponse struct {
+	Status string `json:"status" validate:"required" example:"pausing"`
+} // @name SandboxLifecycleStatusResponse
