@@ -2738,6 +2738,7 @@
           "created_at",
           "expires_at",
           "id",
+          "is_online",
           "name",
           "workspace_id"
         ],
@@ -2752,15 +2753,13 @@
             "type": "string"
           },
           "connected_at": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "created_at": {
             "type": "string"
           },
           "disconnected_at": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "expires_at": {
             "type": "string"
@@ -2772,8 +2771,7 @@
             "type": "boolean"
           },
           "last_used_at": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "name": {
             "type": "string"

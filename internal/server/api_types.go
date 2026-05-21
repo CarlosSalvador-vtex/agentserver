@@ -319,12 +319,12 @@ type CodexBrowserItem struct {
 	WorkspaceID    string     `json:"workspace_id" validate:"required"`
 	CreatedAt      time.Time  `json:"created_at" validate:"required"`
 	ExpiresAt      time.Time  `json:"expires_at" validate:"required"`
-	IsOnline       bool       `json:"is_online"`
-	LastUsedAt     *time.Time `json:"last_used_at,omitempty" extensions:"x-nullable=true"`
+	IsOnline       bool       `json:"is_online" validate:"required"`
+	LastUsedAt     *time.Time `json:"last_used_at,omitempty"`
 	ClientIP       string     `json:"client_ip,omitempty"`
 	ClientUA       string     `json:"client_ua,omitempty"`
 	CodexVersion   string     `json:"codex_version,omitempty"`
 	OS             string     `json:"os,omitempty"`
-	ConnectedAt    *time.Time `json:"connected_at,omitempty" extensions:"x-nullable=true"`
-	DisconnectedAt *time.Time `json:"disconnected_at,omitempty" extensions:"x-nullable=true"`
+	ConnectedAt    *time.Time `json:"connected_at,omitempty"`
+	DisconnectedAt *time.Time `json:"disconnected_at,omitempty"`
 } // @name CodexBrowserItem

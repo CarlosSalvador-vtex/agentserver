@@ -30,6 +30,9 @@ export type CodexToken = components['schemas']['CodexTokenListItem']
 export type MintCodexTokenRequest = components['schemas']['CodexTokenMintRequest']
 export type MintCodexTokenResponse = components['schemas']['CodexTokenMintResponse']
 
+// Codex Browser Sessions — generated types from OpenAPI spec
+export type CodexBrowser = components['schemas']['CodexBrowserItem']
+
 export interface TelegramConfigureResult {
   connected: boolean
   bot_id: string
@@ -965,28 +968,11 @@ export interface RemoteExecutor {
   disconnected_at?: string
 }
 
-// CodexBrowser parallels RemoteExecutor: same shape so the unified
-// DeviceListPanel can render both without per-type branches.
-export interface CodexBrowser {
-  id: string
-  name: string
-  workspace_id: string
-  created_at: string
-  expires_at: string
-  last_used_at?: string
-  is_online: boolean
-  client_ip?: string
-  client_ua?: string
-  codex_version?: string
-  os?: string
-  connected_at?: string
-  disconnected_at?: string
-}
-
 export async function listCodexBrowsers(workspaceId: string): Promise<CodexBrowser[]> {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/browsers`)
-  if (!res.ok) throw new Error('Failed to list codex browsers')
-  return res.json()
+  return apiFetch<CodexBrowser[]>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/browsers`,
+  })
 }
 
 export interface RegisterExecutorRequest {
