@@ -387,6 +387,19 @@ func (s *Server) handleCodexAppWS(w http.ResponseWriter, r *http.Request) {
 					s.logger.Warn("session-meta update", "err", uerr, "session", sessionID)
 				}
 			})
+			// Block codex's `!` user-shell mode. It would otherwise spawn
+			// commands inside the shared codex-app-gateway pod (see the
+			// rationale comment on userShellRPCMethod). Reply directly to
+			// the user with a JSON-RPC error and drop the frame.
+			if resp, blocked := tryBlockUserShellCommand(frame); blocked {
+				if resp != nil {
+					if werr := userWS.Write(ctx, websocket.MessageText, resp); werr != nil {
+						s.logger.Warn("user-shell-block: write reply", "err", werr, "key", key)
+					}
+				}
+				s.logger.Info("user-shell-block: dropped thread/shellCommand", "key", key, "session", sessionID)
+				return wsbridge.DropFrame
+			}
 			return nil
 		},
 		OnServerFrame: func(frame []byte) []byte {
