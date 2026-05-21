@@ -12,6 +12,7 @@ import (
 func TestConnAutoApprovesRequestUserInput(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 
 		// turn/start → reply
 		ts := readFrame(t, ctx, c)
@@ -65,6 +66,7 @@ func TestConnAutoApprovesRequestUserInput(t *testing.T) {
 func TestConnAutoApprovesPermissionsWithEmptyProfile(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-2"}}})
 
@@ -114,6 +116,7 @@ func TestConnRepliesMethodNotFoundForUnknownServerRequest(t *testing.T) {
 	gotReply := make(chan map[string]any, 1)
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-u"}}})
 		// Send a made-up server request mid-turn.

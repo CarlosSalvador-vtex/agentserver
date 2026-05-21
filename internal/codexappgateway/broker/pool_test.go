@@ -34,7 +34,14 @@ func countingCodexServer(t *testing.T) (urlFn func(workspaceID string) string, d
 			if err != nil {
 				return
 			}
-			if f["method"] == "turn/start" {
+			switch f["method"] {
+			case "thread/resume":
+				// Conn.Turn now fires thread/resume before turn/start to
+				// (re-)attach the per-thread listener. Reply with empty
+				// result — codex's real handler short-circuits when the
+				// listener already matches.
+				writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{}})
+			case "turn/start":
 				writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-pool"}}})
 				writeJSON(t, ctx, c, map[string]any{
 					"jsonrpc": "2.0",

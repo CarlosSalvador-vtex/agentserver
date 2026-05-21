@@ -25,6 +25,7 @@ func replayHandshake(t *testing.T, ctx context.Context, c *websocket.Conn) {
 func TestConnTurnSuccessful(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 
 		// Expect turn/start call.
 		ts := readFrame(t, ctx, c)
@@ -99,6 +100,7 @@ func TestConnTurnSuccessful(t *testing.T) {
 func TestReadLoopDoesNotLeakWatcherGoroutines(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		// Reply to turn/start so Turn() can proceed.
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{"jsonrpc": "2.0", "id": ts["id"], "result": map[string]any{"turn": map[string]any{"id": "trn-x"}}})
@@ -140,7 +142,10 @@ func TestReadLoopDoesNotLeakWatcherGoroutines(t *testing.T) {
 func TestTurnCallerCtxCancelCleansPendingResp(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
-		// Read turn/start but never reply, so caller hits ctx cancellation.
+		// Read thread/resume (Turn's listener-attach preamble) but never
+		// reply, so caller hits ctx cancellation inside ensureListener.
+		// Cleanup logic is identical to turn/start's, so this still pins
+		// the pendingResp leak guard.
 		_ = readFrame(t, ctx, c)
 		// Hold the ws open until the test ends.
 		<-ctx.Done()
@@ -182,6 +187,7 @@ func TestTurnCallerCtxCancelCleansPendingResp(t *testing.T) {
 func TestConnTurnAccumulatesItemsFromItemCompleted(t *testing.T) {
 	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
 		replayHandshake(t, ctx, c)
+		replayThreadResume(t, ctx, c)
 		ts := readFrame(t, ctx, c)
 		writeJSON(t, ctx, c, map[string]any{
 			"jsonrpc": "2.0", "id": ts["id"],
