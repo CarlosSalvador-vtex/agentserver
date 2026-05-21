@@ -99,8 +99,8 @@ Browser ───────────▶ agentserver  ─┤    ┌───
                    sessions, mailboxes)
 
 Browser ──▶ sandboxproxy (:8082) ─▶ subdomain routing to sandbox services
-Browser ──▶ cc-broker          ───▶ stateless cc worker pool (Stage 3)
-Sandbox ──▶ executor-registry  ───▶ tool-call dispatch / executor lookup
+codex CLI ─▶ codex-exec-gateway ──▶ rendezvous for `codex exec --remote` executors
+codex app ─▶ codex-app-gateway  ──▶ per-workspace codex app-server subprocess pool
 ```
 
 | Service | Default Port | Role |
@@ -110,8 +110,8 @@ Sandbox ──▶ executor-registry  ───▶ tool-call dispatch / executor 
 | **sandboxproxy** | `:8082` | Subdomain-based routing to sandbox services |
 | **credentialproxy** | — | Server-side injection of provider credentials |
 | **imbridge** | — | IM channel bridge (WeChat / Weixin, Telegram) |
-| **cc-broker** | — | Stateless Claude Code / Codex worker pool (Stage 3) |
-| **executor-registry** | — | Tool-call dispatch / executor discovery (Stage 3) |
+| **codex-app-gateway** | `:8086` | Per-workspace codex app-server subprocess + ws bridge for codex desktop / web client |
+| **codex-exec-gateway** | `:6060` | Rendezvous endpoint for `codex exec --remote` executors (user-local processes) |
 
 ## Code of Conduct
 
