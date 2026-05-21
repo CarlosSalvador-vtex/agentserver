@@ -411,8 +411,7 @@ func TestIsThreadNotFoundErr(t *testing.T) {
 const tinyPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
 
 // TestBuildCodexInput_TextOnly pins the baseline: no media → exactly
-// one text item, no extra noise. Guards against accidentally emitting
-// an empty image item.
+// one text item, no extra noise.
 func TestBuildCodexInput_TextOnly(t *testing.T) {
 	raw := buildCodexInput(codexInboundRequest{Text: "hello"})
 	var got struct {
@@ -431,6 +430,8 @@ func TestBuildCodexInput_TextOnly(t *testing.T) {
 
 // TestBuildCodexInput_WithImage covers the main fix: image bytes from
 // imbridge become a UserInput::Image data URL in the codex turn input.
+// Order matches codex TUI's native pattern: image FIRST, text last
+// (chatwidget.rs pushes images before the Text item).
 func TestBuildCodexInput_WithImage(t *testing.T) {
 	raw := buildCodexInput(codexInboundRequest{
 		Text:      "look at this",
@@ -444,24 +445,48 @@ func TestBuildCodexInput_WithImage(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(got.Input) != 2 {
-		t.Fatalf("input items = %d, want 2 (text + image)", len(got.Input))
+		t.Fatalf("input items = %d, want 2 (image + text)", len(got.Input))
 	}
-	img := got.Input[1]
+	img := got.Input[0]
 	if img["type"] != "image" {
-		t.Errorf("input[1].type = %v, want image", img["type"])
+		t.Errorf("input[0].type = %v, want image (TUI ordering: images first)", img["type"])
 	}
 	url, _ := img["url"].(string)
 	if !strings.HasPrefix(url, "data:image/png;base64,") {
-		t.Errorf("input[1].url = %q, want data:image/png;base64,... prefix", url)
+		t.Errorf("input[0].url = %q, want data:image/png;base64,... prefix", url)
 	}
 	if !strings.HasSuffix(url, tinyPNGBase64) {
-		t.Errorf("input[1].url should round-trip the original base64 (no re-encode), got %q", url)
+		t.Errorf("input[0].url should round-trip the original base64 (no re-encode), got %q", url)
+	}
+	if got.Input[1]["type"] != "text" || got.Input[1]["text"] != "look at this" {
+		t.Errorf("input[1] = %v, want text/look at this", got.Input[1])
+	}
+}
+
+// TestBuildCodexInput_ImageOnlySkipsText — TUI skips the Text item
+// when the user submits only images (chatwidget.rs:
+// `if !text.is_empty() { items.push(Text) }`). We match.
+func TestBuildCodexInput_ImageOnlySkipsText(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		MediaType: "image",
+		MediaData: tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 1 {
+		t.Fatalf("input items = %d, want 1 (image alone, no empty text)", len(got.Input))
+	}
+	if got.Input[0]["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image", got.Input[0]["type"])
 	}
 }
 
 // TestBuildCodexInput_QuotedImageBeforeCurrent locks in chronological
-// order — the quoted (older) image must come before the current
-// message's image so the LLM sees them in conversation order.
+// order — quoted (older) image first, then current image, then text.
 func TestBuildCodexInput_QuotedImageBeforeCurrent(t *testing.T) {
 	raw := buildCodexInput(codexInboundRequest{
 		Text:            "follow-up",
@@ -479,13 +504,13 @@ func TestBuildCodexInput_QuotedImageBeforeCurrent(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(got.Input) != 3 {
-		t.Fatalf("input items = %d, want 3 (text + quoted-image + current-image)", len(got.Input))
+		t.Fatalf("input items = %d, want 3 (quoted-image + current-image + text)", len(got.Input))
 	}
-	if got.Input[0]["type"] != "text" {
-		t.Errorf("input[0].type = %v, want text", got.Input[0]["type"])
+	if got.Input[0]["type"] != "image" || got.Input[1]["type"] != "image" {
+		t.Errorf("input[0] and input[1] should both be image (quoted then current), got %v %v", got.Input[0]["type"], got.Input[1]["type"])
 	}
-	if got.Input[1]["type"] != "image" || got.Input[2]["type"] != "image" {
-		t.Errorf("input[1] and input[2] should both be image, got %v %v", got.Input[1]["type"], got.Input[2]["type"])
+	if got.Input[2]["type"] != "text" {
+		t.Errorf("input[2].type = %v, want text (last per TUI ordering)", got.Input[2]["type"])
 	}
 }
 
@@ -541,77 +566,16 @@ func TestImageInputItem_DetectsJPEG(t *testing.T) {
 	}
 }
 
-// TestFileTextSnippet_TextFileInlined covers the main file fix: text
-// files (code, configs, plain) get inlined into the text input.
-func TestFileTextSnippet_TextFileInlined(t *testing.T) {
-	content := "package main\nfunc main() { println(\"hi\") }\n"
-	b64 := base64.StdEncoding.EncodeToString([]byte(content))
-	snip := fileTextSnippet("file", b64, "main.go")
-	if !strings.Contains(snip, "main.go") {
-		t.Errorf("snippet should name the file, got %q", snip)
-	}
-	if !strings.Contains(snip, content) {
-		t.Errorf("snippet should embed file content verbatim, got %q", snip)
-	}
-	if !strings.Contains(snip, "```") {
-		t.Errorf("snippet should wrap content in a fenced code block, got %q", snip)
-	}
-}
-
-// TestFileTextSnippet_BinaryFileSkipped — PDFs, zips, etc. must NOT
-// have raw bytes inlined into text (would be unintelligible noise +
-// likely break UTF-8). Caller relies on imbridge's existing
-// "[User sent a file: X]" marker in that case.
-func TestFileTextSnippet_BinaryFileSkipped(t *testing.T) {
-	// PDF magic: "%PDF-"
-	pdf := []byte{'%', 'P', 'D', 'F', '-', '1', '.', '4', '\n', 0x00, 0x00, 0x00}
-	snip := fileTextSnippet("file", base64.StdEncoding.EncodeToString(pdf), "report.pdf")
-	if snip != "" {
-		t.Errorf("expected empty snippet for binary PDF, got %q", snip)
-	}
-}
-
-// TestFileTextSnippet_LargeTextTruncated guards the codex
-// MAX_USER_INPUT_TEXT_CHARS budget. A user dropping a 2 MB log
-// shouldn't blow the input limit.
-func TestFileTextSnippet_LargeTextTruncated(t *testing.T) {
-	large := strings.Repeat("ABCD\n", 60_000) // 300 KB of text
-	snip := fileTextSnippet("file", base64.StdEncoding.EncodeToString([]byte(large)), "big.log")
-	if !strings.Contains(snip, "truncated") {
-		t.Errorf("expected truncation marker, got %q", snip[:200])
-	}
-	// Snippet shouldn't carry the full original content.
-	if strings.Count(snip, "ABCD") >= 60_000 {
-		t.Errorf("snippet not truncated — got %d ABCD occurrences", strings.Count(snip, "ABCD"))
-	}
-}
-
-// TestFileTextSnippet_ImageMediaTypeSkipped — `image` mediaType is
-// handled by imageInputItem, not here. Avoid double-handling.
-func TestFileTextSnippet_ImageMediaTypeSkipped(t *testing.T) {
-	if snip := fileTextSnippet("image", tinyPNGBase64, "p.png"); snip != "" {
-		t.Errorf("image mediaType should be no-op for file snippet, got %q", snip)
-	}
-}
-
-// TestFileTextSnippet_NoFilenameUsesFallback — filename is optional in
-// some upstreams; ensure we emit a sensible default label.
-func TestFileTextSnippet_NoFilenameUsesFallback(t *testing.T) {
-	snip := fileTextSnippet("file", base64.StdEncoding.EncodeToString([]byte("hello")), "")
-	if !strings.Contains(snip, "file") {
-		t.Errorf("expected 'file' as default label, got %q", snip)
-	}
-}
-
-// TestBuildCodexInput_TextFileInlinedIntoText pins the user-visible
-// behavior: the file content appears inside the text input item, NOT
-// as a separate image item.
-func TestBuildCodexInput_TextFileInlinedIntoText(t *testing.T) {
+// TestBuildCodexInput_FileMediaTypeNoImageItem — file attachments
+// must NOT produce an image item (codex has no File variant, and the
+// inline-content path isn't designed yet). imbridge already injected
+// "[User sent a file: X]" into req.Text via describeWeixinMedia, so
+// the LLM sees the filename through that fallback alone.
+func TestBuildCodexInput_FileMediaTypeNoImageItem(t *testing.T) {
 	raw := buildCodexInput(codexInboundRequest{
-		Text:          "review this",
-		MediaType:     "file",
-		MediaData:     base64.StdEncoding.EncodeToString([]byte("hello world\n")),
-		MediaFilename: "notes.txt",
+		Text:      "[User sent a file: report.pdf]",
+		MediaType: "file",
+		MediaData: base64.StdEncoding.EncodeToString([]byte{'%', 'P', 'D', 'F', '-', '1'}),
 	})
 	var got struct {
 		Input []map[string]any `json:"input"`
@@ -620,13 +584,9 @@ func TestBuildCodexInput_TextFileInlinedIntoText(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(got.Input) != 1 {
-		t.Fatalf("expected 1 input item (text only — files don't get their own item), got %d", len(got.Input))
+		t.Fatalf("expected 1 input item (text only), got %d", len(got.Input))
 	}
-	text, _ := got.Input[0]["text"].(string)
-	if !strings.Contains(text, "review this") {
-		t.Errorf("user text missing from combined input, got %q", text)
-	}
-	if !strings.Contains(text, "notes.txt") || !strings.Contains(text, "hello world") {
-		t.Errorf("file content/name missing from text, got %q", text)
+	if got.Input[0]["type"] != "text" {
+		t.Errorf("input[0].type = %v, want text", got.Input[0]["type"])
 	}
 }

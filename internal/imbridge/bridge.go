@@ -481,25 +481,20 @@ func (b *Bridge) forwardToCodex(ctx context.Context, binding BridgeBinding, msg 
 		"quoted_text":        msg.QuotedText,
 		"quoted_sender":      msg.QuotedSender,
 	}
-	// Forward media so codex turn input can include the image as a data
-	// URL. forwardToNanoClaw has had this since day one; the codex path
-	// was added without it, which is why images "disappeared" before
-	// reaching the LLM. Pattern matches forwardToNanoClaw exactly
-	// (base64 + media_type), so codex_im_inbound can reuse the same
-	// decoder.
+	// Forward image bytes so codex turn input can carry them as a
+	// `data:<mime>;base64,...` URL (UserInput::Image). Mirrors
+	// forwardToNanoClaw's media payload shape, minus the filename —
+	// codex has no File variant and the image case doesn't need the
+	// filename. File attachments still come through imbridge's text
+	// fallback ("[User sent a file: X]" via describeWeixinMedia); a
+	// proper file-content path is deferred until designed.
 	if len(msg.MediaData) > 0 {
 		payload["media_data"] = base64.StdEncoding.EncodeToString(msg.MediaData)
 		payload["media_type"] = msg.MediaType
-		if msg.MediaFilename != "" {
-			payload["media_filename"] = msg.MediaFilename
-		}
 	}
 	if len(msg.QuotedMediaData) > 0 {
 		payload["quoted_media_data"] = base64.StdEncoding.EncodeToString(msg.QuotedMediaData)
 		payload["quoted_media_type"] = msg.QuotedMediaType
-		if msg.QuotedMediaFilename != "" {
-			payload["quoted_media_filename"] = msg.QuotedMediaFilename
-		}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
