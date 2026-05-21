@@ -1,5 +1,7 @@
 package server
 
+import "time"
+
 // This file holds package-level request/response types for the
 // public REST API. swaggo annotations on handler funcs reference
 // these by name; inline `var req struct {...}` shapes can't be
@@ -268,3 +270,38 @@ type IMSandboxBindResponse struct {
 type IMSandboxUnbindResponse struct {
 	Status string `json:"status" validate:"required" example:"unbound"`
 } // @name IMSandboxUnbindResponse
+
+// --- Codex Tokens ---
+
+// CodexTokenMintRequest is the body for POST /api/codex/tokens.
+// ttl_days is optional; defaults to 90 (range: 1–365).
+type CodexTokenMintRequest struct {
+	WorkspaceID string `json:"workspace_id" validate:"required"`
+	Name        string `json:"name" validate:"required" example:"my mac"`
+	TTLDays     int    `json:"ttl_days,omitempty" example:"90"`
+} // @name CodexTokenMintRequest
+
+// CodexTokenMintResponse is returned (201) by POST /api/codex/tokens.
+// token is the full bearer value and is shown only once — store it securely.
+type CodexTokenMintResponse struct {
+	ID          string    `json:"id" validate:"required"`
+	Token       string    `json:"token" validate:"required"`
+	Name        string    `json:"name" validate:"required"`
+	WorkspaceID string    `json:"workspace_id" validate:"required"`
+	ExpiresAt   time.Time `json:"expires_at" validate:"required"`
+	CreatedAt   time.Time `json:"created_at" validate:"required"`
+} // @name CodexTokenMintResponse
+
+// CodexTokenListItem is one entry returned by GET /api/codex/tokens.
+// The raw token value is never included. last_used_at and revoked_at
+// are null when not applicable.
+type CodexTokenListItem struct {
+	ID          string     `json:"id" validate:"required"`
+	Name        string     `json:"name" validate:"required"`
+	WorkspaceID string     `json:"workspace_id" validate:"required"`
+	CreatedAt   time.Time  `json:"created_at" validate:"required"`
+	ExpiresAt   time.Time  `json:"expires_at" validate:"required"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty" extensions:"x-nullable=true"`
+	Revoked     bool       `json:"revoked"`
+	RevokedAt   *time.Time `json:"revoked_at,omitempty" extensions:"x-nullable=true"`
+} // @name CodexTokenListItem
