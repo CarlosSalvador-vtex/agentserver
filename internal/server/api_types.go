@@ -87,10 +87,10 @@ type LLMQuotaResponse struct {
 } // @name LLMQuotaResponse
 
 // LLMModel is one entry in a workspace's per-model LLM config.
+// id is the model identifier used in API calls; name is the human-readable label.
 type LLMModel struct {
-	Name        string `json:"name" validate:"required" example:"claude-opus-4-7"`
-	DisplayName string `json:"display_name" example:"Claude Opus 4.7"`
-	MaxTokens   int    `json:"max_tokens" example:"200000"`
+	ID   string `json:"id" validate:"required" example:"claude-opus-4-7"`
+	Name string `json:"name" validate:"required" example:"Claude Opus 4.7"`
 } // @name LLMModel
 
 // LLMConfigResponse is the body returned by GET /api/workspaces/{id}/llm-config.

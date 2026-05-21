@@ -759,18 +759,18 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // --- Response types ---
 
 type workspaceResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
+	ID        string `json:"id" validate:"required"`
+	Name      string `json:"name" validate:"required"`
+	CreatedAt string `json:"created_at" validate:"required"`
+	UpdatedAt string `json:"updated_at" validate:"required"`
+} // @name Workspace
 
 type workspaceMemberResponse struct {
-	UserID  string  `json:"user_id"`
-	Email   string  `json:"email"`
-	Role    string  `json:"role"`
-	Picture *string `json:"picture,omitempty"`
-}
+	UserID  string  `json:"user_id" validate:"required"`
+	Email   string  `json:"email" validate:"required"`
+	Role    string  `json:"role" validate:"required" example:"developer"`
+	Picture *string `json:"picture" extensions:"x-nullable=true"`
+} // @name WorkspaceMember
 
 type agentInfoResponse struct {
 	Hostname        string `json:"hostname"`
@@ -1002,7 +1002,7 @@ func (s *Server) handleGetWorkspacesQuota(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"current": current, "max": maxWs})
+	json.NewEncoder(w).Encode(WorkspaceQuotaResponse{Current: current, Max: maxWs})
 }
 
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -1042,9 +1042,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req WorkspaceCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req.Name = "New Workspace"
 	}
@@ -1117,9 +1115,7 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !s.requireWorkspaceRole(w, r, id, "owner", "maintainer") {
 		return
 	}
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req WorkspaceRenameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
@@ -1241,10 +1237,7 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
-	}
+	var req MemberAddRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -1282,9 +1275,7 @@ func (s *Server) handleUpdateMemberRole(w http.ResponseWriter, r *http.Request) 
 	}
 
 	targetUserID := chi.URLParam(r, "userId")
-	var req struct {
-		Role string `json:"role"`
-	}
+	var req MemberRoleUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -1346,16 +1337,21 @@ func (s *Server) handleGetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Requ
 	}
 	if cfg == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"configured": false})
+		json.NewEncoder(w).Encode(LLMConfigResponse{Configured: false})
 		return
 	}
+	cfgModels := make([]LLMModel, len(cfg.Models))
+	for i, m := range cfg.Models {
+		cfgModels[i] = LLMModel{ID: m.ID, Name: m.Name}
+	}
+	updatedAt := cfg.UpdatedAt.Format(time.RFC3339)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"configured": true,
-		"base_url":   cfg.BaseURL,
-		"api_key":    maskAPIKey(cfg.APIKey),
-		"models":     cfg.Models,
-		"updated_at": cfg.UpdatedAt.Format(time.RFC3339),
+	json.NewEncoder(w).Encode(LLMConfigResponse{
+		Configured: true,
+		BaseURL:    cfg.BaseURL,
+		APIKey:     maskAPIKey(cfg.APIKey),
+		Models:     cfgModels,
+		UpdatedAt:  &updatedAt,
 	})
 }
 
@@ -1364,11 +1360,7 @@ func (s *Server) handleSetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Requ
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer") {
 		return
 	}
-	var req struct {
-		BaseURL string     `json:"base_url"`
-		APIKey  string     `json:"api_key"`
-		Models  []db.LLMModel `json:"models"`
-	}
+	var req LLMConfigUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -1406,13 +1398,17 @@ func (s *Server) handleSetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	if err := s.DB.SetWorkspaceLLMConfig(wsID, req.BaseURL, req.APIKey, req.Models); err != nil {
+	dbModels := make([]db.LLMModel, len(req.Models))
+	for i, m := range req.Models {
+		dbModels[i] = db.LLMModel{ID: m.ID, Name: m.Name}
+	}
+	if err := s.DB.SetWorkspaceLLMConfig(wsID, req.BaseURL, req.APIKey, dbModels); err != nil {
 		log.Printf("failed to set workspace llm config: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	json.NewEncoder(w).Encode(LLMConfigUpsertResponse{OK: true})
 }
 
 func (s *Server) handleDeleteWorkspaceLLMConfig(w http.ResponseWriter, r *http.Request) {
