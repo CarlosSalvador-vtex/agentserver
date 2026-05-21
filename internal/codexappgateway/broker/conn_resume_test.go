@@ -9,6 +9,64 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// TestConnTurn_SwallowsNoRolloutFoundOnFreshThread locks in that
+// `thread/resume` returning "no rollout found for thread id ..." does
+// NOT abort the turn. Codex emits this for a thread that's in memory
+// but whose rollout file hasn't been flushed to disk yet (i.e. a thread
+// just created via StartThread with no turns yet). The listener was
+// auto-attached at thread/start time so it's safe to proceed; otherwise
+// every first-message-per-thread would surface as "Codex 处理失败".
+func TestConnTurn_SwallowsNoRolloutFoundOnFreshThread(t *testing.T) {
+	url, stop := fakeCodexServer(t, func(t *testing.T, ctx context.Context, c *websocket.Conn) {
+		replayHandshake(t, ctx, c)
+
+		// thread/resume → reply with "no rollout found" (codex's exact
+		// wording from thread_processor.rs:3589).
+		f := readFrame(t, ctx, c)
+		if f["method"] != "thread/resume" {
+			t.Fatalf("first frame method = %v, want thread/resume", f["method"])
+		}
+		writeJSON(t, ctx, c, map[string]any{
+			"jsonrpc": "2.0", "id": f["id"],
+			"error": map[string]any{"code": -32600, "message": "no rollout found for thread id thr-fresh"},
+		})
+
+		// Turn MUST still proceed to turn/start.
+		ts := readFrame(t, ctx, c)
+		if ts["method"] != "turn/start" {
+			t.Fatalf("second frame method = %v, want turn/start (ensureListener should have swallowed no-rollout)", ts["method"])
+		}
+		writeJSON(t, ctx, c, map[string]any{
+			"jsonrpc": "2.0", "id": ts["id"],
+			"result": map[string]any{"turn": map[string]any{"id": "trn-fresh"}},
+		})
+		writeJSON(t, ctx, c, map[string]any{
+			"jsonrpc": "2.0", "method": "turn/completed",
+			"params": map[string]any{
+				"threadId": "thr-fresh",
+				"turn": map[string]any{
+					"id": "trn-fresh", "status": "completed",
+					"items": []any{}, "itemsView": "full", "error": nil,
+				},
+			},
+		})
+	})
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := Dial(ctx, url)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Turn(ctx, "thr-fresh",
+		json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`),
+		30*time.Second); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+}
+
 // TestConnTurn_AbortsIfThreadResumeErrors locks in that an error reply to
 // the thread/resume preamble surfaces from Turn without ever firing
 // turn/start. Avoids leaking RPC IDs and turn state when the listener

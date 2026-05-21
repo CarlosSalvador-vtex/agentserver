@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -433,6 +434,23 @@ func (c *Conn) ensureListener(ctx context.Context, threadID string) error {
 		return c.closeErrOr(errors.New("connection closed before thread/resume response"))
 	}
 	if resp.Error != nil {
+		// "no rollout found for thread id ..." (codex
+		// thread_processor.rs:3589) fires when thread/resume tries to
+		// load a thread whose rollout file isn't on disk yet. For a
+		// fresh thread (just created via StartThread, no turns yet),
+		// codex hasn't flushed the rollout, so this is expected and
+		// harmless — the listener was already auto-attached by
+		// thread/start (thread_processor.rs:1115). Swallow and proceed:
+		// the immediate turn/start will run on the existing listener.
+		//
+		// If the thread was supposed to be persisted and isn't (e.g. CXG
+		// subprocess restart wiped the rollout volume), turn/start that
+		// follows will hit the SAME error and surface it to agentserver,
+		// where the isThreadNotFoundErr path retries with a fresh thread.
+		if strings.Contains(resp.Error.Message, "no rollout found for thread id") ||
+			strings.Contains(resp.Error.Message, "no rollout found for conversation id") {
+			return nil
+		}
 		return &TurnRPCError{Code: resp.Error.Code, Message: resp.Error.Message, Data: resp.Error.Data}
 	}
 	return nil
