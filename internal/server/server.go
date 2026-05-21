@@ -987,6 +987,13 @@ func (s *Server) requireWorkspaceRole(w http.ResponseWriter, r *http.Request, wo
 
 // --- Workspace handlers ---
 
+//	@Summary    Get per-user workspace quota
+//	@Tags       Workspaces
+//	@Produce    json
+//	@Success    200  {object}  WorkspaceQuotaResponse
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/quota [get]
 func (s *Server) handleGetWorkspacesQuota(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	maxWs, err := s.effectiveQuota(userID)
@@ -1005,6 +1012,13 @@ func (s *Server) handleGetWorkspacesQuota(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(WorkspaceQuotaResponse{Current: current, Max: maxWs})
 }
 
+//	@Summary    List workspaces for the current user
+//	@Tags       Workspaces
+//	@Produce    json
+//	@Success    200  {array}   Workspace
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces [get]
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	workspaces, err := s.DB.ListWorkspacesByUser(userID)
@@ -1021,6 +1035,18 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//	@Summary    Create a new workspace
+//	@Description Creator is auto-added as owner. May fail with 403 if the per-user workspace quota is exceeded.
+//	@Tags       Workspaces
+//	@Accept     json
+//	@Produce    json
+//	@Param      body  body      WorkspaceCreateRequest  true  "Workspace name"
+//	@Success    201   {object}  Workspace
+//	@Failure    400   {string}  string  "bad request / empty name"
+//	@Failure    403   {string}  string  "workspace quota exceeded"
+//	@Failure    500   {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces [post]
 func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 
@@ -1094,6 +1120,16 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toWorkspaceResponse(ws))
 }
 
+//	@Summary    Get a workspace by id
+//	@Tags       Workspaces
+//	@Produce    json
+//	@Param      id  path  string  true  "Workspace id"
+//	@Success    200  {object}  Workspace
+//	@Failure    403  {string}  string  "not a member"
+//	@Failure    404  {string}  string  "workspace not found"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id} [get]
 func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if _, ok := s.requireWorkspaceMember(w, r, id); !ok {
@@ -1110,6 +1146,18 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toWorkspaceResponse(ws))
 }
 
+//	@Summary    Rename a workspace
+//	@Tags       Workspaces
+//	@Accept     json
+//	@Produce    json
+//	@Param      id    path      string                  true  "Workspace id"
+//	@Param      body  body      WorkspaceRenameRequest  true  "New name"
+//	@Success    200   {object}  Workspace
+//	@Failure    400   {string}  string  "empty name"
+//	@Failure    403   {string}  string  "owner or maintainer required"
+//	@Failure    500   {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id} [patch]
 func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, id, "owner", "maintainer") {
@@ -1134,6 +1182,14 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toWorkspaceResponse(ws))
 }
 
+//	@Summary    Delete a workspace (owner only; cascades to sandboxes + namespace)
+//	@Tags       Workspaces
+//	@Param      id   path  string  true  "Workspace id"
+//	@Success    204
+//	@Failure    403  {string}  string  "owner only"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id} [delete]
 func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, id, "owner") {
@@ -1197,6 +1253,15 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 // --- Member handlers ---
 
+//	@Summary    List members of a workspace
+//	@Tags       Workspaces
+//	@Produce    json
+//	@Param      id  path  string  true  "Workspace id"
+//	@Success    200  {array}   WorkspaceMember
+//	@Failure    403  {string}  string  "not a member"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/members [get]
 func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if _, ok := s.requireWorkspaceMember(w, r, wsID); !ok {
@@ -1231,6 +1296,20 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//	@Summary    Add a member to a workspace
+//	@Description Looks up the user by email. Default role is "developer" if omitted.
+//	@Tags       Workspaces
+//	@Accept     json
+//	@Produce    json
+//	@Param      id    path      string            true  "Workspace id"
+//	@Param      body  body      MemberAddRequest  true  "Email and optional role"
+//	@Success    201   {object}  WorkspaceMember
+//	@Failure    400   {string}  string  "bad request"
+//	@Failure    403   {string}  string  "owner or maintainer required"
+//	@Failure    404   {string}  string  "user not found"
+//	@Failure    500   {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/members [post]
 func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer") {
@@ -1268,6 +1347,18 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+//	@Summary    Change a member's role (owner only)
+//	@Tags       Workspaces
+//	@Accept     json
+//	@Param      id      path  string                   true  "Workspace id"
+//	@Param      userId  path  string                   true  "User id"
+//	@Param      body    body  MemberRoleUpdateRequest  true  "New role"
+//	@Success    204
+//	@Failure    400  {string}  string  "empty role"
+//	@Failure    403  {string}  string  "owner only"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/members/{userId} [put]
 func (s *Server) handleUpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner") {
@@ -1290,6 +1381,15 @@ func (s *Server) handleUpdateMemberRole(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+//	@Summary    Remove a member (owner only)
+//	@Tags       Workspaces
+//	@Param      id      path  string  true  "Workspace id"
+//	@Param      userId  path  string  true  "User id"
+//	@Success    204
+//	@Failure    403  {string}  string  "owner only"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/members/{userId} [delete]
 func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner") {
@@ -1306,6 +1406,15 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+//	@Summary    Get the workspace's daily LLM request quota usage
+//	@Tags       Workspaces
+//	@Produce    json
+//	@Param      id  path  string  true  "Workspace id"
+//	@Success    200  {object}  LLMQuotaResponse
+//	@Failure    403  {string}  string  "insufficient role"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/llm-quota [get]
 // handleGetWorkspaceLLMQuota returns the LLM RPD quota for a workspace (read-only for members).
 func (s *Server) handleGetWorkspaceLLMQuota(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
@@ -1324,6 +1433,16 @@ func maskAPIKey(key string) string {
 	return key[:3] + "..." + key[len(key)-4:]
 }
 
+//	@Summary    Get workspace LLM config (owner/maintainer)
+//	@Description The returned api_key is masked (first 3 + "..." + last 4). updated_at is null when no config is set.
+//	@Tags       Workspaces
+//	@Produce    json
+//	@Param      id  path  string  true  "Workspace id"
+//	@Success    200  {object}  LLMConfigResponse
+//	@Failure    403  {string}  string  "insufficient role"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/llm-config [get]
 func (s *Server) handleGetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer") {
@@ -1355,6 +1474,19 @@ func (s *Server) handleGetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+//	@Summary    Upsert workspace LLM config (owner/maintainer)
+//	@Description On update, omitting api_key retains the existing key.
+//	@Tags       Workspaces
+//	@Accept     json
+//	@Produce    json
+//	@Param      id    path      string                  true  "Workspace id"
+//	@Param      body  body      LLMConfigUpsertRequest  true  "Config payload"
+//	@Success    200   {object}  LLMConfigUpsertResponse
+//	@Failure    400   {string}  string  "validation error (invalid URL / missing field / too many models)"
+//	@Failure    403   {string}  string  "insufficient role"
+//	@Failure    500   {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/llm-config [put]
 func (s *Server) handleSetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer") {
@@ -1411,6 +1543,14 @@ func (s *Server) handleSetWorkspaceLLMConfig(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(LLMConfigUpsertResponse{OK: true})
 }
 
+//	@Summary    Delete workspace LLM config (owner/maintainer)
+//	@Tags       Workspaces
+//	@Param      id  path  string  true  "Workspace id"
+//	@Success    204
+//	@Failure    403  {string}  string  "insufficient role"
+//	@Failure    500  {string}  string  "internal error"
+//	@Security   CookieAuth
+//	@Router     /api/workspaces/{id}/llm-config [delete]
 func (s *Server) handleDeleteWorkspaceLLMConfig(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "id")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer") {
