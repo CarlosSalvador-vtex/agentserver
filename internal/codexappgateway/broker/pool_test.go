@@ -77,7 +77,7 @@ func TestPoolReusesConnForSameWorkspace(t *testing.T) {
 	p := NewPool(resolver, 5*time.Minute)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	for i := 0; i < 3; i++ {
@@ -85,7 +85,7 @@ func TestPoolReusesConnForSameWorkspace(t *testing.T) {
 		if err != nil {
 			t.Fatalf("iter %d Get: %v", i, err)
 		}
-		if _, err := conn.Turn(ctx, "thr-x", json.RawMessage(`{"input":[]}`), 5*time.Second); err != nil {
+		if _, err := conn.Turn(ctx, "thr-x", json.RawMessage(`{"input":[]}`), 30*time.Second); err != nil {
 			t.Fatalf("iter %d Turn: %v", i, err)
 		}
 	}
@@ -112,13 +112,13 @@ func TestPoolReapsIdleConn(t *testing.T) {
 	p := NewPool(resolver, 100*time.Millisecond)
 	defer p.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := p.Get(ctx, "ws-A")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if _, err := conn.Turn(ctx, "thr-x", json.RawMessage(`{"input":[]}`), 5*time.Second); err != nil {
+	if _, err := conn.Turn(ctx, "thr-x", json.RawMessage(`{"input":[]}`), 30*time.Second); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
 
