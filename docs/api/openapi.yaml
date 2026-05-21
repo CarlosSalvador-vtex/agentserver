@@ -754,18 +754,29 @@ components:
       type: object
     LLMQuotaResponse:
       properties:
-        daily_limit:
+        default_max_rpd:
           type: integer
-        daily_used:
+        today_request_count:
           type: integer
-        resets_at:
+        workspace_quota:
+          allOf:
+            - $ref: "#/components/schemas/LLMWorkspaceQuotaPart"
+          nullable: true
+      required:
+        - default_max_rpd
+        - today_request_count
+      type: object
+    LLMWorkspaceQuotaPart:
+      properties:
+        max_rpd:
+          type: integer
+          nullable: true
+        updated_at:
           type: string
         workspace_id:
           type: string
       required:
-        - daily_limit
-        - daily_used
-        - resets_at
+        - updated_at
         - workspace_id
       type: object
     MemberAddRequest:

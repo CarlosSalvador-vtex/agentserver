@@ -243,16 +243,7 @@ export async function getWorkspaceDefaults(workspaceId: string): Promise<Workspa
   return res.json()
 }
 
-// NOTE: WorkspaceLLMQuota uses a local type rather than the generated LLMQuotaResponse
-// because the /llm-quota endpoint proxies an upstream LLM service whose actual response
-// shape (default_max_rpd, workspace_quota, today_request_count) differs from the
-// spec-declared LLMQuotaResponse (daily_limit, daily_used, resets_at, workspace_id).
-// Resolve by fixing the Go DTO + regenerating once the actual upstream API is confirmed.
-export interface WorkspaceLLMQuota {
-  default_max_rpd: number
-  workspace_quota: { workspace_id: string; max_rpd: number | null; updated_at: string } | null
-  today_request_count: number
-}
+export type WorkspaceLLMQuota = components['schemas']['LLMQuotaResponse']
 
 export async function getWorkspaceLLMQuota(workspaceId: string): Promise<WorkspaceLLMQuota> {
   return apiFetch<WorkspaceLLMQuota>({
@@ -935,11 +926,7 @@ export async function adminDeleteWorkspaceQuota(workspaceId: string): Promise<vo
 }
 
 // LLM Quota management (proxied to llmproxy)
-export interface LLMQuotaResponse {
-  default_max_rpd: number
-  workspace_quota: { workspace_id: string; max_rpd: number | null; updated_at: string } | null
-  today_request_count: number
-}
+export type LLMQuotaResponse = components['schemas']['LLMQuotaResponse']
 
 export async function adminGetWorkspaceLLMQuota(workspaceId: string): Promise<LLMQuotaResponse> {
   const res = await fetch(`/api/admin/workspaces/${workspaceId}/llm-quota`)

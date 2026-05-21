@@ -77,13 +77,22 @@ type MemberRoleUpdateRequest struct {
 	Role string `json:"role" validate:"required" example:"maintainer"`
 } // @name MemberRoleUpdateRequest
 
+// LLMWorkspaceQuotaPart is the per-workspace quota override stored in the
+// LLM proxy DB. max_rpd is null when no custom limit is configured.
+type LLMWorkspaceQuotaPart struct {
+	WorkspaceID string  `json:"workspace_id" validate:"required"`
+	MaxRPD      *int    `json:"max_rpd" extensions:"x-nullable=true"`
+	UpdatedAt   string  `json:"updated_at" validate:"required"`
+} // @name LLMWorkspaceQuotaPart
+
 // LLMQuotaResponse mirrors the body the LLM proxy returns from its
-// internal /internal/quotas/{workspaceId} endpoint.
+// /internal/quotas/{workspaceId} endpoint, forwarded verbatim by
+// GET /api/workspaces/{id}/llm-quota.
+// workspace_quota is null when no per-workspace override is set.
 type LLMQuotaResponse struct {
-	WorkspaceID string `json:"workspace_id" validate:"required"`
-	DailyLimit  int    `json:"daily_limit" validate:"required"`
-	DailyUsed   int    `json:"daily_used" validate:"required"`
-	ResetsAt    string `json:"resets_at" validate:"required"`
+	DefaultMaxRPD     int                    `json:"default_max_rpd" validate:"required"`
+	TodayRequestCount int                    `json:"today_request_count" validate:"required"`
+	WorkspaceQuota    *LLMWorkspaceQuotaPart `json:"workspace_quota" extensions:"x-nullable=true"`
 } // @name LLMQuotaResponse
 
 // LLMModel is one entry in a workspace's per-model LLM config.

@@ -1222,19 +1222,38 @@
       "LLMQuotaResponse": {
         "type": "object",
         "required": [
-          "daily_limit",
-          "daily_used",
-          "resets_at",
+          "default_max_rpd",
+          "today_request_count"
+        ],
+        "properties": {
+          "default_max_rpd": {
+            "type": "integer"
+          },
+          "today_request_count": {
+            "type": "integer"
+          },
+          "workspace_quota": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LLMWorkspaceQuotaPart"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "LLMWorkspaceQuotaPart": {
+        "type": "object",
+        "required": [
+          "updated_at",
           "workspace_id"
         ],
         "properties": {
-          "daily_limit": {
-            "type": "integer"
+          "max_rpd": {
+            "type": "integer",
+            "nullable": true
           },
-          "daily_used": {
-            "type": "integer"
-          },
-          "resets_at": {
+          "updated_at": {
             "type": "string"
           },
           "workspace_id": {
