@@ -968,8 +968,11 @@ func (s *Server) handleUpdateWorkspaceIMChannel(w http.ResponseWriter, r *http.R
 
 	if req.RoutingMode != nil {
 		mode := *req.RoutingMode
-		if mode != "nanoclaw" && mode != "stateless_cc" && mode != "codex" {
-			http.Error(w, "invalid routing_mode: must be nanoclaw, stateless_cc, or codex", http.StatusBadRequest)
+		// stateless_cc is no longer accepted — the agentserver endpoint
+		// it pointed to (POST /api/workspaces/{id}/im/inbound) was
+		// removed in the #135 purge.
+		if mode != "nanoclaw" && mode != "codex" {
+			http.Error(w, "invalid routing_mode: must be nanoclaw or codex", http.StatusBadRequest)
 			return
 		}
 		if err := s.db.UpdateIMChannelRoutingMode(channelID, mode); err != nil {

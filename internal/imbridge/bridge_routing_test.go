@@ -20,15 +20,15 @@ func TestForwardMessageChannelRoutingOverridesBinding(t *testing.T) {
 		typingSessions:   map[string]func(){},
 	}
 
-	// Override with stateless_cc in the in-memory map.
-	b.SetChannelRoutingMode("ch-abc", "stateless_cc")
+	// Override with codex in the in-memory map.
+	b.SetChannelRoutingMode("ch-abc", "codex")
 
 	// Simulate forwardMessage's routing decision directly. We cannot
 	// invoke forwardMessage end-to-end here without a real provider /
 	// HTTP target, so we assert on the effective mode computation.
 	got := b.getChannelRoutingMode("ch-abc")
-	if got != "stateless_cc" {
-		t.Fatalf("expected in-memory routing=stateless_cc, got %q", got)
+	if got != "codex" {
+		t.Fatalf("expected in-memory routing=codex, got %q", got)
 	}
 
 	// Missing channel → empty string so forwardMessage falls back to
@@ -56,7 +56,7 @@ func TestSetChannelRoutingModeConcurrent(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			b.SetChannelRoutingMode("ch1", "stateless_cc")
+			b.SetChannelRoutingMode("ch1", "codex")
 		}()
 		go func() {
 			defer wg.Done()
@@ -65,7 +65,7 @@ func TestSetChannelRoutingModeConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	if b.getChannelRoutingMode("ch1") != "stateless_cc" {
-		t.Fatalf("expected stateless_cc after concurrent writes")
+	if b.getChannelRoutingMode("ch1") != "codex" {
+		t.Fatalf("expected codex after concurrent writes")
 	}
 }
