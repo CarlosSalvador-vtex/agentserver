@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -402,5 +403,140 @@ func TestIsThreadNotFoundErr(t *testing.T) {
 		if got := isThreadNotFoundErr(in); got != want {
 			t.Errorf("isThreadNotFoundErr(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// 1×1 transparent PNG — smallest valid PNG, just enough for
+// http.DetectContentType to return "image/png".
+const tinyPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+
+// TestBuildCodexInput_TextOnly pins the baseline: no media → exactly
+// one text item, no extra noise. Guards against accidentally emitting
+// an empty image item.
+func TestBuildCodexInput_TextOnly(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{Text: "hello"})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 1 {
+		t.Fatalf("input items = %d, want 1", len(got.Input))
+	}
+	if got.Input[0]["type"] != "text" || got.Input[0]["text"] != "hello" {
+		t.Errorf("input[0] = %v, want text/hello", got.Input[0])
+	}
+}
+
+// TestBuildCodexInput_WithImage covers the main fix: image bytes from
+// imbridge become a UserInput::Image data URL in the codex turn input.
+func TestBuildCodexInput_WithImage(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:      "look at this",
+		MediaType: "image",
+		MediaData: tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 2 {
+		t.Fatalf("input items = %d, want 2 (text + image)", len(got.Input))
+	}
+	img := got.Input[1]
+	if img["type"] != "image" {
+		t.Errorf("input[1].type = %v, want image", img["type"])
+	}
+	url, _ := img["url"].(string)
+	if !strings.HasPrefix(url, "data:image/png;base64,") {
+		t.Errorf("input[1].url = %q, want data:image/png;base64,... prefix", url)
+	}
+	if !strings.HasSuffix(url, tinyPNGBase64) {
+		t.Errorf("input[1].url should round-trip the original base64 (no re-encode), got %q", url)
+	}
+}
+
+// TestBuildCodexInput_QuotedImageBeforeCurrent locks in chronological
+// order — the quoted (older) image must come before the current
+// message's image so the LLM sees them in conversation order.
+func TestBuildCodexInput_QuotedImageBeforeCurrent(t *testing.T) {
+	raw := buildCodexInput(codexInboundRequest{
+		Text:            "follow-up",
+		QuotedText:      "earlier msg",
+		QuotedSender:    "alice",
+		QuotedMediaType: "image",
+		QuotedMediaData: tinyPNGBase64,
+		MediaType:       "image",
+		MediaData:       tinyPNGBase64,
+	})
+	var got struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Input) != 3 {
+		t.Fatalf("input items = %d, want 3 (text + quoted-image + current-image)", len(got.Input))
+	}
+	if got.Input[0]["type"] != "text" {
+		t.Errorf("input[0].type = %v, want text", got.Input[0]["type"])
+	}
+	if got.Input[1]["type"] != "image" || got.Input[2]["type"] != "image" {
+		t.Errorf("input[1] and input[2] should both be image, got %v %v", got.Input[1]["type"], got.Input[2]["type"])
+	}
+}
+
+// TestImageInputItem_RejectsNonImageMediaType — imbridge sends "file"
+// for non-image attachments (PDF, etc.); we must NOT misclassify those
+// as images. codex has no File variant, so handling falls back to the
+// "user sent a file: X" text injected by imbridge's describeWeixinMedia.
+func TestImageInputItem_RejectsNonImageMediaType(t *testing.T) {
+	_, ok := imageInputItem("file", tinyPNGBase64)
+	if ok {
+		t.Error("expected file mediaType to be rejected")
+	}
+}
+
+// TestImageInputItem_RejectsBadBase64 — a typo / truncation upstream
+// shouldn't crash or generate a malformed data URL; just skip.
+func TestImageInputItem_RejectsBadBase64(t *testing.T) {
+	_, ok := imageInputItem("image", "not!!!valid$$$base64===")
+	if ok {
+		t.Error("expected garbage base64 to be rejected")
+	}
+}
+
+// TestImageInputItem_RejectsNonImageBytes — defense against an upstream
+// that misdeclares mediaType=image but ships text/binary. We don't want
+// to ship a malformed data URL to codex.
+func TestImageInputItem_RejectsNonImageBytes(t *testing.T) {
+	// "hello world" base64 — http.DetectContentType returns "text/plain".
+	_, ok := imageInputItem("image", "aGVsbG8gd29ybGQ=")
+	if ok {
+		t.Error("expected non-image bytes to be rejected even when mediaType=image")
+	}
+}
+
+// TestImageInputItem_DetectsJPEG covers another MIME the iLink CDN
+// actually returns. http.DetectContentType reads the first 512 bytes,
+// JPEG magic is the first 3 (FF D8 FF).
+func TestImageInputItem_DetectsJPEG(t *testing.T) {
+	// Minimal JPEG header: SOI (FF D8 FF) + APP0 marker (E0) + length (00 10)
+	// + JFIF magic + version + density. Enough for DetectContentType.
+	jpegBytes := []byte{
+		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00,
+		0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+	}
+	jpegB64 := base64.StdEncoding.EncodeToString(jpegBytes)
+	item, ok := imageInputItem("image", jpegB64)
+	if !ok {
+		t.Fatal("expected JPEG to be accepted")
+	}
+	url := item["url"].(string)
+	if !strings.HasPrefix(url, "data:image/jpeg;base64,") {
+		t.Errorf("expected image/jpeg mime in data URL, got %q", url)
 	}
 }
