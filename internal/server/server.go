@@ -773,28 +773,28 @@ type workspaceMemberResponse struct {
 } // @name WorkspaceMember
 
 type agentInfoResponse struct {
-	Hostname        string `json:"hostname"`
-	OS              string `json:"os"`
-	Platform        string `json:"platform"`
-	PlatformVersion string `json:"platform_version"`
-	KernelArch      string `json:"kernel_arch"`
-	CPUModelName    string `json:"cpu_model_name"`
-	CPUCountLogical int    `json:"cpu_count_logical"`
-	MemoryTotal     int64  `json:"memory_total"`
-	DiskTotal       int64  `json:"disk_total"`
-	DiskFree        int64  `json:"disk_free"`
-	AgentVersion    string `json:"agent_version"`
-	OpencodeVersion string `json:"opencode_version"`
-	Workdir         string `json:"workdir"`
-	UpdatedAt       string `json:"updated_at"`
-}
+	Hostname        string `json:"hostname" validate:"required"`
+	OS              string `json:"os" validate:"required"`
+	Platform        string `json:"platform" validate:"required"`
+	PlatformVersion string `json:"platform_version" validate:"required"`
+	KernelArch      string `json:"kernel_arch" validate:"required"`
+	CPUModelName    string `json:"cpu_model_name" validate:"required"`
+	CPUCountLogical int    `json:"cpu_count_logical" validate:"required"`
+	MemoryTotal     int64  `json:"memory_total" validate:"required"`
+	DiskTotal       int64  `json:"disk_total" validate:"required"`
+	DiskFree        int64  `json:"disk_free" validate:"required"`
+	AgentVersion    string `json:"agent_version" validate:"required"`
+	OpencodeVersion string `json:"opencode_version" validate:"required"`
+	Workdir         string `json:"workdir" validate:"required"`
+	UpdatedAt       string `json:"updated_at" validate:"required"`
+} // @name AgentInfo
 
 type imBindingResponse struct {
-	Provider string `json:"provider"`
-	BotID    string `json:"bot_id"`
+	Provider string `json:"provider" validate:"required"`
+	BotID    string `json:"bot_id" validate:"required"`
 	UserID   string `json:"user_id,omitempty"`
-	BoundAt  string `json:"bound_at"`
-}
+	BoundAt  string `json:"bound_at" validate:"required"`
+} // @name IMBinding
 
 type sandboxResponse struct {
 	ID              string  `json:"id" validate:"required"`

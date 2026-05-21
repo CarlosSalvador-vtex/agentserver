@@ -9,13 +9,9 @@ export type WorkspaceMember = components['schemas']['WorkspaceMember']
 export type LLMModel = components['schemas']['LLMModel']
 export type WorkspaceLLMConfig = components['schemas']['LLMConfigResponse']
 
-export interface WeixinBinding {
-  bot_id: string
-  user_id: string
-  bound_at: string
-}
+export type WeixinBinding = components['schemas']['IMBinding']
 
-export type IMBinding = components['schemas']['server.imBindingResponse']
+export type IMBinding = components['schemas']['IMBinding']
 
 export interface TelegramConfigureResult {
   connected: boolean
@@ -34,7 +30,7 @@ export type SandboxCreateRequest = components['schemas']['SandboxCreateRequest']
 export type SandboxUsage = components['schemas']['SandboxUsage']
 export type SandboxUsageSummary = components['schemas']['SandboxUsageSummary']
 
-export type AgentInfo = components['schemas']['server.agentInfoResponse']
+export type AgentInfo = components['schemas']['AgentInfo']
 
 export async function login(email: string, password: string): Promise<boolean> {
   try {

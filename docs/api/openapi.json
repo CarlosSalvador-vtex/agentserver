@@ -1649,6 +1649,69 @@
       }
     },
     "schemas": {
+      "AgentInfo": {
+        "type": "object",
+        "required": [
+          "agent_version",
+          "cpu_count_logical",
+          "cpu_model_name",
+          "disk_free",
+          "disk_total",
+          "hostname",
+          "kernel_arch",
+          "memory_total",
+          "opencode_version",
+          "os",
+          "platform",
+          "platform_version",
+          "updated_at",
+          "workdir"
+        ],
+        "properties": {
+          "agent_version": {
+            "type": "string"
+          },
+          "cpu_count_logical": {
+            "type": "integer"
+          },
+          "cpu_model_name": {
+            "type": "string"
+          },
+          "disk_free": {
+            "type": "integer"
+          },
+          "disk_total": {
+            "type": "integer"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "kernel_arch": {
+            "type": "string"
+          },
+          "memory_total": {
+            "type": "integer"
+          },
+          "opencode_version": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "platform_version": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          }
+        }
+      },
       "AuthCredentials": {
         "type": "object",
         "required": [
@@ -1720,6 +1783,28 @@
           "status": {
             "type": "string",
             "example": "ok"
+          }
+        }
+      },
+      "IMBinding": {
+        "type": "object",
+        "required": [
+          "bot_id",
+          "bound_at",
+          "provider"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string"
+          },
+          "bound_at": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
           }
         }
       },
@@ -1886,7 +1971,7 @@
         ],
         "properties": {
           "agent_info": {
-            "$ref": "#/components/schemas/server.agentInfoResponse"
+            "$ref": "#/components/schemas/AgentInfo"
           },
           "claudecode_url": {
             "type": "string"
@@ -1909,7 +1994,7 @@
           "im_bindings": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/server.imBindingResponse"
+              "$ref": "#/components/schemas/IMBinding"
             }
           },
           "is_local": {
@@ -1957,7 +2042,7 @@
           "weixin_bindings": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/server.imBindingResponse"
+              "$ref": "#/components/schemas/IMBinding"
             }
           },
           "workspace_id": {
@@ -2162,70 +2247,6 @@
           "name": {
             "type": "string",
             "example": "Renamed Workspace"
-          }
-        }
-      },
-      "server.agentInfoResponse": {
-        "type": "object",
-        "properties": {
-          "agent_version": {
-            "type": "string"
-          },
-          "cpu_count_logical": {
-            "type": "integer"
-          },
-          "cpu_model_name": {
-            "type": "string"
-          },
-          "disk_free": {
-            "type": "integer"
-          },
-          "disk_total": {
-            "type": "integer"
-          },
-          "hostname": {
-            "type": "string"
-          },
-          "kernel_arch": {
-            "type": "string"
-          },
-          "memory_total": {
-            "type": "integer"
-          },
-          "opencode_version": {
-            "type": "string"
-          },
-          "os": {
-            "type": "string"
-          },
-          "platform": {
-            "type": "string"
-          },
-          "platform_version": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string"
-          },
-          "workdir": {
-            "type": "string"
-          }
-        }
-      },
-      "server.imBindingResponse": {
-        "type": "object",
-        "properties": {
-          "bot_id": {
-            "type": "string"
-          },
-          "bound_at": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "user_id": {
-            "type": "string"
           }
         }
       }

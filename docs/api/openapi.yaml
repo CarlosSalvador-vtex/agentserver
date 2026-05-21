@@ -998,6 +998,52 @@ components:
       name: agentserver-token
       type: apiKey
   schemas:
+    AgentInfo:
+      properties:
+        agent_version:
+          type: string
+        cpu_count_logical:
+          type: integer
+        cpu_model_name:
+          type: string
+        disk_free:
+          type: integer
+        disk_total:
+          type: integer
+        hostname:
+          type: string
+        kernel_arch:
+          type: string
+        memory_total:
+          type: integer
+        opencode_version:
+          type: string
+        os:
+          type: string
+        platform:
+          type: string
+        platform_version:
+          type: string
+        updated_at:
+          type: string
+        workdir:
+          type: string
+      required:
+        - agent_version
+        - cpu_count_logical
+        - cpu_model_name
+        - disk_free
+        - disk_total
+        - hostname
+        - kernel_arch
+        - memory_total
+        - opencode_version
+        - os
+        - platform
+        - platform_version
+        - updated_at
+        - workdir
+      type: object
     AuthCredentials:
       properties:
         email:
@@ -1049,6 +1095,21 @@ components:
           type: string
       required:
         - status
+      type: object
+    IMBinding:
+      properties:
+        bot_id:
+          type: string
+        bound_at:
+          type: string
+        provider:
+          type: string
+        user_id:
+          type: string
+      required:
+        - bot_id
+        - bound_at
+        - provider
       type: object
     LLMConfigResponse:
       properties:
@@ -1154,7 +1215,7 @@ components:
     Sandbox:
       properties:
         agent_info:
-          $ref: "#/components/schemas/server.agentInfoResponse"
+          $ref: "#/components/schemas/AgentInfo"
         claudecode_url:
           type: string
         cpu:
@@ -1169,7 +1230,7 @@ components:
           type: integer
         im_bindings:
           items:
-            $ref: "#/components/schemas/server.imBindingResponse"
+            $ref: "#/components/schemas/IMBinding"
           type: array
         is_local:
           type: boolean
@@ -1202,7 +1263,7 @@ components:
           type: string
         weixin_bindings:
           items:
-            $ref: "#/components/schemas/server.imBindingResponse"
+            $ref: "#/components/schemas/IMBinding"
           type: array
         workspace_id:
           type: string
@@ -1354,46 +1415,4 @@ components:
           type: string
       required:
         - name
-      type: object
-    server.agentInfoResponse:
-      properties:
-        agent_version:
-          type: string
-        cpu_count_logical:
-          type: integer
-        cpu_model_name:
-          type: string
-        disk_free:
-          type: integer
-        disk_total:
-          type: integer
-        hostname:
-          type: string
-        kernel_arch:
-          type: string
-        memory_total:
-          type: integer
-        opencode_version:
-          type: string
-        os:
-          type: string
-        platform:
-          type: string
-        platform_version:
-          type: string
-        updated_at:
-          type: string
-        workdir:
-          type: string
-      type: object
-    server.imBindingResponse:
-      properties:
-        bot_id:
-          type: string
-        bound_at:
-          type: string
-        provider:
-          type: string
-        user_id:
-          type: string
       type: object
