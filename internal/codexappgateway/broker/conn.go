@@ -387,7 +387,12 @@ func (c *Conn) ensureListener(ctx context.Context, threadID string) error {
 	c.pendingResp[id] = respCh
 	c.mu.Unlock()
 
-	params, _ := json.Marshal(map[string]string{"thread_id": threadID})
+	// ThreadResumeParams has #[serde(rename_all = "camelCase")] in
+	// codex-rs/app-server-protocol/src/protocol/v2/thread.rs — wire
+	// field is threadId, NOT thread_id. Wrong casing would surface as
+	// "missing field threadId" on every turn (verified by reading the
+	// struct serde attrs, not by trust).
+	params, _ := json.Marshal(map[string]string{"threadId": threadID})
 	if err := c.writeJSON(ctx, rpcRequest{JSONRPC: "2.0", ID: &id, Method: "thread/resume", Params: params}); err != nil {
 		c.mu.Lock()
 		delete(c.pendingResp, id)

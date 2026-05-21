@@ -81,9 +81,14 @@ func TestConnTurn_SendsThreadResumeBeforeTurnStart(t *testing.T) {
 		if first["method"] != "thread/resume" {
 			t.Fatalf("first frame method = %v, want thread/resume", first["method"])
 		}
+		// codex's ThreadResumeParams uses #[serde(rename_all = "camelCase")] —
+		// the wire field is threadId. Asserting the exact key here is
+		// load-bearing: a snake_case typo would slip past Go-on-Go tests
+		// (fake server roundtrips whatever the client sends) yet fail
+		// against real codex with "missing field threadId".
 		params, _ := first["params"].(map[string]any)
-		if params["thread_id"] != "thr-listener" {
-			t.Errorf("thread/resume thread_id = %v, want thr-listener", params["thread_id"])
+		if params["threadId"] != "thr-listener" {
+			t.Errorf("thread/resume threadId = %v, want thr-listener", params["threadId"])
 		}
 		writeJSON(t, ctx, c, map[string]any{
 			"jsonrpc": "2.0", "id": first["id"], "result": map[string]any{},

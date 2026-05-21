@@ -99,6 +99,16 @@ func classifyTransport(err error) *transportError {
 	if errors.As(err, &te) {
 		return &transportError{Code: "brokerTimeout", Message: te.Error()}
 	}
+	// Codex returned a JSON-RPC error response (well-formed, not a
+	// transport failure). Surface this as its own code so the broker
+	// reconnect/restart heuristics in ops dashboards don't fire on
+	// what is actually a codex-side application error (e.g. the
+	// "thread closing; retry after the thread is closed" race that
+	// thread/resume returns under teardown).
+	var rpcErr *broker.TurnRPCError
+	if errors.As(err, &rpcErr) {
+		return &transportError{Code: "codexRPCError", Message: err.Error()}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "dial"), strings.Contains(msg, "connection refused"), strings.Contains(msg, "subprocess"):
