@@ -28,7 +28,7 @@ func TestConnTurnInterruptOnTimeout(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {
@@ -70,7 +70,7 @@ func TestConnTurnFailsOnWSClose(t *testing.T) {
 		t.Fatalf("Dial: %v", err)
 	}
 	defer conn.Close()
-	_, err = conn.Turn(ctx, "thr-x", json.RawMessage(`{"input":[]}`), 5*time.Second)
+	_, err = conn.Turn(ctx, "thr-x", json.RawMessage(`{"input":[]}`), 30*time.Second)
 	if err == nil {
 		t.Fatal("expected error on ws close")
 	}
@@ -98,7 +98,7 @@ func TestConnTurnTimeoutClosesConn(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {

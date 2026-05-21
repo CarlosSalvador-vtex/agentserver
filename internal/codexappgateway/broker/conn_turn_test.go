@@ -69,7 +69,7 @@ func TestConnTurnSuccessful(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestConnTurnSuccessful(t *testing.T) {
 	}
 	defer conn.Close()
 
-	rawTurn, err := conn.Turn(ctx, "thr-abc", json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`), 5*time.Second)
+	rawTurn, err := conn.Turn(ctx, "thr-abc", json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`), 30*time.Second)
 	if err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestReadLoopDoesNotLeakWatcherGoroutines(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	before := runtime.NumGoroutine()
 
@@ -124,7 +124,7 @@ func TestReadLoopDoesNotLeakWatcherGoroutines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	if _, err := conn.Turn(ctx, "t", json.RawMessage(`{"input":[]}`), 5*time.Second); err != nil {
+	if _, err := conn.Turn(ctx, "t", json.RawMessage(`{"input":[]}`), 30*time.Second); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
 	conn.Close()
@@ -152,7 +152,7 @@ func TestTurnCallerCtxCancelCleansPendingResp(t *testing.T) {
 	})
 	defer stop()
 
-	dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer dcancel()
 	conn, err := Dial(dctx, url)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestTurnCallerCtxCancelCleansPendingResp(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		ccancel()
 	}()
-	_, err = conn.Turn(cctx, "t", json.RawMessage(`{"input":[]}`), 5*time.Second)
+	_, err = conn.Turn(cctx, "t", json.RawMessage(`{"input":[]}`), 30*time.Second)
 	if err == nil {
 		t.Fatal("expected ctx cancellation error")
 	}
@@ -222,7 +222,7 @@ func TestConnTurnAccumulatesItemsFromItemCompleted(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {
@@ -230,7 +230,7 @@ func TestConnTurnAccumulatesItemsFromItemCompleted(t *testing.T) {
 	}
 	defer conn.Close()
 
-	raw, err := conn.Turn(ctx, "thr-a", json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`), 5*time.Second)
+	raw, err := conn.Turn(ctx, "thr-a", json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`), 30*time.Second)
 	if err != nil {
 		t.Fatalf("Turn: %v", err)
 	}

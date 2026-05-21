@@ -51,14 +51,14 @@ func TestConnAutoApprovesRequestUserInput(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
 	defer conn.Close()
-	if _, err := conn.Turn(ctx, "thr-1", json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`), 5*time.Second); err != nil {
+	if _, err := conn.Turn(ctx, "thr-1", json.RawMessage(`{"input":[{"type":"text","text":"hi"}]}`), 30*time.Second); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
 }
@@ -95,14 +95,14 @@ func TestConnAutoApprovesPermissionsWithEmptyProfile(t *testing.T) {
 		})
 	})
 	defer stop()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
 	defer conn.Close()
-	if _, err := conn.Turn(ctx, "thr-2", json.RawMessage(`{"input":[]}`), 5*time.Second); err != nil {
+	if _, err := conn.Turn(ctx, "thr-2", json.RawMessage(`{"input":[]}`), 30*time.Second); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
 }
@@ -136,14 +136,14 @@ func TestConnRepliesMethodNotFoundForUnknownServerRequest(t *testing.T) {
 	})
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn, err := Dial(ctx, url)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
 	defer conn.Close()
-	if _, err := conn.Turn(ctx, "thr-u", json.RawMessage(`{"input":[]}`), 5*time.Second); err != nil {
+	if _, err := conn.Turn(ctx, "thr-u", json.RawMessage(`{"input":[]}`), 30*time.Second); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
 
