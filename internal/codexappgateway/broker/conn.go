@@ -23,10 +23,11 @@ type Conn struct {
 	writeMu sync.Mutex
 	nextID  atomic.Int64
 
-	mu           sync.Mutex
-	pendingResp  map[int64]chan rpcResponse   // request id → 1-buffered chan
-	pendingTurns map[string]chan turnPayload  // turn id → 1-buffered chan
-	itemsByTurn  map[string][]json.RawMessage // turn id → accumulated item/completed payloads
+	mu             sync.Mutex
+	pendingResp    map[int64]chan rpcResponse   // request id → 1-buffered chan
+	pendingTurns   map[string]chan turnPayload  // turn id → 1-buffered chan
+	itemsByTurn    map[string][]json.RawMessage // turn id → accumulated item/completed payloads
+	completedTurns map[string]turnPayload       // turn/completed arrived before Turn() finished registering — see deliverTurn for the race
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -48,11 +49,12 @@ func Dial(ctx context.Context, wsURL string) (*Conn, error) {
 	ws.SetReadLimit(64 << 20)
 
 	c := &Conn{
-		ws:           ws,
-		pendingResp:  make(map[int64]chan rpcResponse),
-		pendingTurns: make(map[string]chan turnPayload),
-		itemsByTurn:  make(map[string][]json.RawMessage),
-		closed:       make(chan struct{}),
+		ws:             ws,
+		pendingResp:    make(map[int64]chan rpcResponse),
+		pendingTurns:   make(map[string]chan turnPayload),
+		itemsByTurn:    make(map[string][]json.RawMessage),
+		completedTurns: make(map[string]turnPayload),
+		closed:         make(chan struct{}),
 	}
 
 	// Send initialize synchronously (no reader yet, so we read inline).
@@ -187,10 +189,6 @@ func (c *Conn) deliverTurn(turnID string, payload turnPayload) {
 	items := c.itemsByTurn[turnID]
 	delete(c.pendingTurns, turnID)
 	delete(c.itemsByTurn, turnID)
-	c.mu.Unlock()
-	if !ok {
-		return
-	}
 	// Inject the accumulated item/completed payloads into Turn.items.
 	// turn/completed's Turn.items is empty in codex's v2 protocol
 	// (TurnItemsView::NotLoaded); the items arrived as separate
@@ -201,6 +199,19 @@ func (c *Conn) deliverTurn(turnID string, payload turnPayload) {
 			payload.Raw = merged
 		}
 	}
+	if !ok {
+		// Race: turn/completed arrived before Turn() finished registering
+		// pendingTurns. Turn() registers AFTER waitResp on turn/start
+		// returns, so a server that streams turn/start ack + turn/completed
+		// back-to-back (and codex does this for cached/empty turns, plus
+		// the in-process fake server in tests) can have its completion
+		// dispatched by readLoop before Turn's goroutine wakes up to
+		// register. Buffer the payload; Turn() will drain on registration.
+		c.completedTurns[turnID] = payload
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
 	ch <- payload
 }
 
@@ -239,6 +250,9 @@ func (c *Conn) failAllPending(err error) {
 	}
 	for tid := range c.itemsByTurn {
 		delete(c.itemsByTurn, tid)
+	}
+	for tid := range c.completedTurns {
+		delete(c.completedTurns, tid)
 	}
 	c.mu.Unlock()
 	c.closeErr.CompareAndSwap(nil, &errHolder{err})
@@ -310,6 +324,15 @@ func (c *Conn) Turn(ctx context.Context, threadID string, callerParams json.RawM
 
 	turnCh := make(chan turnPayload, 1)
 	c.mu.Lock()
+	// Race-fix companion to deliverTurn: if turn/completed already arrived
+	// (and was buffered there because no pending receiver existed yet),
+	// consume it now instead of registering and blocking forever.
+	if buffered, ok := c.completedTurns[startResp.Turn.ID]; ok {
+		delete(c.completedTurns, startResp.Turn.ID)
+		c.mu.Unlock()
+		log.Printf("broker.Turn: turn/completed (preregistered) thread=%s turn=%s totalMs=%d items=0", threadID, startResp.Turn.ID, time.Since(startedAt).Milliseconds())
+		return buffered.Raw, nil
+	}
 	c.pendingTurns[startResp.Turn.ID] = turnCh
 	c.mu.Unlock()
 
