@@ -797,21 +797,21 @@ type imBindingResponse struct {
 }
 
 type sandboxResponse struct {
-	ID              string  `json:"id"`
+	ID              string  `json:"id" validate:"required"`
 	ShortID         string  `json:"short_id,omitempty"`
-	WorkspaceID     string  `json:"workspace_id"`
-	Name            string  `json:"name"`
-	Type            string  `json:"type"`
-	Status          string  `json:"status"`
+	WorkspaceID     string  `json:"workspace_id" validate:"required"`
+	Name            string  `json:"name" validate:"required"`
+	Type            string  `json:"type" validate:"required"`
+	Status          string  `json:"status" validate:"required"`
 	OpencodeURL     string  `json:"opencode_url,omitempty"`
 	OpenclawURL     string  `json:"openclaw_url,omitempty"`
 	ClaudeCodeURL   string  `json:"claudecode_url,omitempty"`
 	JupyterURL      string  `json:"jupyter_url,omitempty"`
 	CustomURL       string  `json:"custom_url,omitempty"`
-	CreatedAt       string  `json:"created_at"`
-	LastActivityAt  *string `json:"last_activity_at"`
-	PausedAt        *string `json:"paused_at"`
-	IsLocal         bool    `json:"is_local"`
+	CreatedAt       string  `json:"created_at" validate:"required"`
+	LastActivityAt  *string `json:"last_activity_at" extensions:"x-nullable=true"`
+	PausedAt        *string `json:"paused_at" extensions:"x-nullable=true"`
+	IsLocal         bool    `json:"is_local" validate:"required"`
 	LastHeartbeatAt *string `json:"last_heartbeat_at,omitempty"`
 	CPU             int     `json:"cpu,omitempty"`
 	Memory          int64   `json:"memory,omitempty"`
@@ -820,7 +820,7 @@ type sandboxResponse struct {
 	WeixinBindings  []imBindingResponse    `json:"weixin_bindings,omitempty"`
 	IMBindings      []imBindingResponse    `json:"im_bindings,omitempty"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
-}
+} // @name Sandbox
 
 func (s *Server) toWorkspaceResponse(ws *db.Workspace) workspaceResponse {
 	return workspaceResponse{
@@ -1648,14 +1648,7 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	cpuMillis := wd.MaxSandboxCPU   // already int millicores
 	memBytes := wd.MaxSandboxMemory // already int64 bytes
 
-	var req struct {
-		Name          string                 `json:"name"`
-		Type          string                 `json:"type"`
-		CPU           *int                   `json:"cpu"`
-		Memory        *int64                 `json:"memory"`
-		IdleTimeout   *int                   `json:"idle_timeout"`
-		Metadata      map[string]interface{} `json:"metadata"`
-	}
+	var req SandboxCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req.Name = "New Sandbox"
 	}
@@ -1893,9 +1886,7 @@ func (s *Server) handleRenameSandbox(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireWorkspaceMember(w, r, sbx.WorkspaceID); !ok {
 		return
 	}
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req SandboxRenameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
@@ -2010,7 +2001,7 @@ func (s *Server) handlePauseSandbox(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "pausing"})
+	json.NewEncoder(w).Encode(SandboxLifecycleStatusResponse{Status: "pausing"})
 }
 
 func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
@@ -2080,7 +2071,7 @@ func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "resuming"})
+	json.NewEncoder(w).Encode(SandboxLifecycleStatusResponse{Status: "resuming"})
 }
 
 func (s *Server) handleSandboxUsage(w http.ResponseWriter, r *http.Request) {
