@@ -28,6 +28,14 @@ func (s *Server) extractProxyTokenSandbox(w http.ResponseWriter, r *http.Request
 
 // handleAgentDiscoverAgents is the proxy_token-authed version of handleListAgentCards.
 // GET /api/agent/discovery/agents
+//
+//	@Summary   Discover agents in the calling agent's workspace (proxy_token auth)
+//	@Tags      Agent
+//	@Produce   json
+//	@Success   200  {array}   AgentCardItem
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   500  {string}  string  "internal error"
+//	@Router    /api/agent/discovery/agents [get]
 func (s *Server) handleAgentDiscoverAgents(w http.ResponseWriter, r *http.Request) {
 	sbx := s.extractProxyTokenSandbox(w, r)
 	if sbx == nil {
@@ -71,6 +79,19 @@ func (s *Server) handleAgentDiscoverAgents(w http.ResponseWriter, r *http.Reques
 
 // handleAgentCreateTask is the proxy_token-authed version of handleCreateTask.
 // POST /api/agent/tasks
+//
+//	@Summary   Create a delegated task (proxy_token auth)
+//	@Tags      Agent
+//	@Accept    json
+//	@Produce   json
+//	@Param     body  body      AgentTaskCreateRequest  true  "Task details"
+//	@Success   201   {object}  AgentTaskCreateResponse
+//	@Failure   400   {string}  string  "bad request"
+//	@Failure   401   {string}  string  "unauthorized"
+//	@Failure   403   {string}  string  "forbidden"
+//	@Failure   404   {string}  string  "target agent not found"
+//	@Failure   500   {string}  string  "internal error"
+//	@Router    /api/agent/tasks [post]
 func (s *Server) handleAgentCreateTask(w http.ResponseWriter, r *http.Request) {
 	sbx := s.extractProxyTokenSandbox(w, r)
 	if sbx == nil {
@@ -81,6 +102,16 @@ func (s *Server) handleAgentCreateTask(w http.ResponseWriter, r *http.Request) {
 
 // handleAgentGetTask is the proxy_token-authed version of handleGetTask.
 // GET /api/agent/tasks/{id}
+//
+//	@Summary   Get a task by ID (proxy_token auth)
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     id  path      string  true  "Task ID"
+//	@Success   200  {object}  AgentTaskDetail
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   404  {string}  string  "not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Router    /api/agent/tasks/{id} [get]
 func (s *Server) handleAgentGetTask(w http.ResponseWriter, r *http.Request) {
 	sbx := s.extractProxyTokenSandbox(w, r)
 	if sbx == nil {

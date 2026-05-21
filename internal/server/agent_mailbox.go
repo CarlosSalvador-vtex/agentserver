@@ -13,6 +13,19 @@ import (
 // handleSendMessage sends a message to another agent's mailbox.
 // POST /api/agent/mailbox/send
 // Auth: proxy_token (Bearer)
+//
+//	@Summary   Send a message to another agent's mailbox
+//	@Tags      Agent
+//	@Accept    json
+//	@Produce   json
+//	@Param     body  body      AgentMailboxSendRequest  true  "Message payload"
+//	@Success   201   {object}  AgentMailboxSendResponse
+//	@Failure   400   {string}  string  "bad request"
+//	@Failure   401   {string}  string  "unauthorized"
+//	@Failure   403   {string}  string  "target not in same workspace"
+//	@Failure   404   {string}  string  "target agent not found"
+//	@Failure   500   {string}  string  "internal error"
+//	@Router    /api/agent/mailbox/send [post]
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Authorization")
 	if len(token) > 7 && token[:7] == "Bearer " {
@@ -86,6 +99,15 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 // handleReadInbox reads unread messages for the calling agent.
 // GET /api/agent/mailbox/inbox
 // Auth: proxy_token (Bearer)
+//
+//	@Summary   Read messages from the calling agent's inbox
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     limit  query     int  false  "Max messages to return (default 10)"
+//	@Success   200    {array}   AgentMailboxMessage
+//	@Failure   401    {string}  string  "unauthorized"
+//	@Failure   500    {string}  string  "internal error"
+//	@Router    /api/agent/mailbox/inbox [get]
 func (s *Server) handleReadInbox(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Authorization")
 	if len(token) > 7 && token[:7] == "Bearer " {

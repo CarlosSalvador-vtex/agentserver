@@ -7,6 +7,653 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/agent/discovery/agents": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Discover agents in the calling agent's workspace (proxy_token auth)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentCardItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/discovery/cards": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Register or update an agent capability card",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCardRegisterRequest"
+              }
+            }
+          },
+          "description": "Agent card info",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCardRegisterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/mailbox/inbox": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Read messages from the calling agent's inbox",
+        "parameters": [
+          {
+            "description": "Max messages to return (default 10)",
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentMailboxMessage"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/mailbox/send": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Send a message to another agent's mailbox",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMailboxSendRequest"
+              }
+            }
+          },
+          "description": "Message payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMailboxSendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "target not in same workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "target agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/register": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Register an agent (obtain sandbox credentials)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRegisterRequest"
+              }
+            }
+          },
+          "description": "Agent registration info",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRegisterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "no permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/tasks": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Create a delegated task (proxy_token auth)",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/AgentTaskCreateRequest"
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTaskCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "target agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/tasks/poll": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Poll for pending tasks (proxy_token auth)",
+        "parameters": [
+          {
+            "description": "Sandbox ID (defaults to token's sandbox)",
+            "name": "sandbox_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentTaskPollItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/tasks/{id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Get a task by ID (proxy_token auth)",
+        "parameters": [
+          {
+            "description": "Task ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTaskDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/tasks/{id}/status": {
+      "put": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Update task status (proxy_token auth)",
+        "parameters": [
+          {
+            "description": "Task ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentTaskStatusRequest"
+              }
+            }
+          },
+          "description": "Status update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{sandboxId}": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Get a single agent card by sandbox ID",
+        "parameters": [
+          {
+            "description": "Sandbox ID",
+            "name": "sandboxId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCardItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/check": {
       "get": {
         "security": [
@@ -1003,6 +1650,156 @@
           },
           "404": {
             "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Get a task by ID",
+        "parameters": [
+          {
+            "description": "Task ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Include output events",
+            "name": "include_output",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTaskDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}/cancel": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Cancel a task",
+        "parameters": [
+          {
+            "description": "Task ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTaskCancelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "task already finished",
             "content": {
               "application/json": {
                 "schema": {
@@ -2362,6 +3159,75 @@
         }
       }
     },
+    "/api/workspaces/{wid}/agents": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List agent cards in a workspace",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentCardItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{wid}/browsers": {
       "get": {
         "security": [
@@ -2565,6 +3431,162 @@
           }
         }
       }
+    },
+    "/api/workspaces/{wid}/tasks": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List delegated tasks for a workspace",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentTaskItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Create a delegated task in a workspace",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/AgentTaskCreateRequest"
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTaskCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "target agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "servers": [
@@ -2584,6 +3606,17 @@
         },
         "description": "Email and password",
         "required": true
+      },
+      "AgentTaskCreateRequest": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AgentTaskCreateRequest"
+            }
+          }
+        },
+        "description": "Task details",
+        "required": true
       }
     },
     "securitySchemes": {
@@ -2595,6 +3628,73 @@
       }
     },
     "schemas": {
+      "AgentCardItem": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "agent_type",
+          "card",
+          "display_name",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_type": {
+            "type": "string",
+            "example": "claudecode"
+          },
+          "card": {},
+          "description": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "available"
+          },
+          "version": {
+            "type": "integer"
+          }
+        }
+      },
+      "AgentCardRegisterRequest": {
+        "type": "object",
+        "properties": {
+          "agent_type": {
+            "description": "optional; defaults to \"claudecode\"",
+            "type": "string",
+            "example": "claudecode"
+          },
+          "card": {
+            "description": "optional; arbitrary JSON"
+          },
+          "description": {
+            "type": "string",
+            "example": "A helpful coding agent"
+          },
+          "display_name": {
+            "type": "string",
+            "example": "My Agent"
+          }
+        }
+      },
+      "AgentCardRegisterResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          }
+        }
+      },
       "AgentInfo": {
         "type": "object",
         "required": [
@@ -2655,6 +3755,344 @@
           },
           "workdir": {
             "type": "string"
+          }
+        }
+      },
+      "AgentMailboxMessage": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "from",
+          "id",
+          "msg_type",
+          "text"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "msg_type": {
+            "type": "string",
+            "example": "text"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentMailboxSendRequest": {
+        "type": "object",
+        "required": [
+          "text",
+          "to"
+        ],
+        "properties": {
+          "msg_type": {
+            "type": "string",
+            "example": "text"
+          },
+          "text": {
+            "type": "string",
+            "example": "Hello from another agent"
+          },
+          "to": {
+            "type": "string",
+            "example": "sandbox-uuid-of-target"
+          }
+        }
+      },
+      "AgentMailboxSendResponse": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "status"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "sent"
+          }
+        }
+      },
+      "AgentRegisterRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Local Agent"
+          },
+          "type": {
+            "description": "optional; defaults to \"opencode\"",
+            "type": "string",
+            "example": "opencode"
+          }
+        }
+      },
+      "AgentRegisterResponse": {
+        "type": "object",
+        "required": [
+          "proxy_token",
+          "sandbox_id",
+          "short_id",
+          "tunnel_token",
+          "workspace_id"
+        ],
+        "properties": {
+          "proxy_token": {
+            "type": "string"
+          },
+          "sandbox_id": {
+            "type": "string"
+          },
+          "short_id": {
+            "type": "string"
+          },
+          "tunnel_token": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentTaskCancelResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "cancelled"
+          }
+        }
+      },
+      "AgentTaskCreateRequest": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "target_id"
+        ],
+        "properties": {
+          "delegation_chain": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_budget_usd": {
+            "type": "number",
+            "example": 1
+          },
+          "max_turns": {
+            "type": "integer",
+            "example": 50
+          },
+          "prompt": {
+            "type": "string",
+            "example": "Run the test suite"
+          },
+          "requester_id": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string",
+            "example": "testing"
+          },
+          "system_context": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string",
+            "example": "sandbox-uuid"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "example": 300
+          }
+        }
+      },
+      "AgentTaskCreateResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "task_id"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "pending"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentTaskDetail": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "prompt",
+          "status",
+          "target_id",
+          "task_id",
+          "workspace_id"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "failure_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "num_turns": {
+            "type": "integer"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "requester_id": {
+            "type": "string"
+          },
+          "result": {
+            "nullable": true
+          },
+          "session_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "skill": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "example": "pending"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "nullable": true
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentTaskItem": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "prompt",
+          "status",
+          "target_id",
+          "task_id"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "num_turns": {
+            "type": "integer"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "requester_id": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "pending"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "AgentTaskPollItem": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "task_id"
+        ],
+        "properties": {
+          "max_budget_usd": {
+            "type": "number"
+          },
+          "max_turns": {
+            "type": "integer"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "system_context": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentTaskStatusRequest": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "failure_reason": {
+            "type": "string"
+          },
+          "num_turns": {
+            "type": "integer"
+          },
+          "result": {},
+          "status": {
+            "type": "string",
+            "example": "completed"
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "nullable": true
           }
         }
       },

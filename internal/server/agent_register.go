@@ -12,6 +12,18 @@ import (
 
 // handleAgentRegister processes a CLI agent registration using an OAuth Bearer token.
 // The token must contain workspace_id and agent:register scope from the Hydra consent flow.
+//
+//	@Summary   Register an agent (obtain sandbox credentials)
+//	@Tags      Agent
+//	@Accept    json
+//	@Produce   json
+//	@Param     body  body      AgentRegisterRequest  true  "Agent registration info"
+//	@Success   201   {object}  AgentRegisterResponse
+//	@Failure   400   {string}  string  "bad request"
+//	@Failure   401   {string}  string  "unauthorized"
+//	@Failure   403   {string}  string  "no permission"
+//	@Failure   500   {string}  string  "internal error"
+//	@Router    /api/agent/register [post]
 func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	// Extract Bearer token.
 	authHeader := r.Header.Get("Authorization")

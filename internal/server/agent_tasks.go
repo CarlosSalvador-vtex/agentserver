@@ -14,6 +14,21 @@ import (
 
 // handleCreateTask creates a new delegated task.
 // POST /api/workspaces/{wid}/tasks
+//
+//	@Summary   Create a delegated task in a workspace
+//	@Tags      Agent
+//	@Accept    json
+//	@Produce   json
+//	@Param     wid   path      string                  true  "Workspace ID"
+//	@Param     body  body      AgentTaskCreateRequest  true  "Task details"
+//	@Success   201   {object}  AgentTaskCreateResponse
+//	@Failure   400   {string}  string  "bad request"
+//	@Failure   401   {string}  string  "unauthorized"
+//	@Failure   403   {string}  string  "forbidden"
+//	@Failure   404   {string}  string  "target agent not found"
+//	@Failure   500   {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/workspaces/{wid}/tasks [post]
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	s.handleCreateTaskForWorkspace(w, r, chi.URLParam(r, "wid"))
 }
@@ -100,6 +115,17 @@ func (s *Server) handleCreateTaskForWorkspace(w http.ResponseWriter, r *http.Req
 
 // handleListTasks lists tasks for a workspace.
 // GET /api/workspaces/{wid}/tasks
+//
+//	@Summary   List delegated tasks for a workspace
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     wid  path      string  true  "Workspace ID"
+//	@Success   200  {array}   AgentTaskItem
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/workspaces/{wid}/tasks [get]
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	wid := chi.URLParam(r, "wid")
 	tasks, err := s.DB.ListAgentTasksByWorkspace(wid, 100)
@@ -153,6 +179,18 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTask returns a single task.
 // GET /api/tasks/{id}
+//
+//	@Summary   Get a task by ID
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     id              path      string  true   "Task ID"
+//	@Param     include_output  query     bool    false  "Include output events"
+//	@Success   200             {object}  AgentTaskDetail
+//	@Failure   401             {string}  string  "unauthorized"
+//	@Failure   404             {string}  string  "not found"
+//	@Failure   500             {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/tasks/{id} [get]
 func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	task, err := s.DB.GetAgentTask(taskID)
@@ -211,6 +249,16 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 // handlePollTasks returns pending tasks for a worker agent.
 // GET /api/agent/tasks/poll?sandbox_id=xxx
 // Auth: proxy_token
+//
+//	@Summary   Poll for pending tasks (proxy_token auth)
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     sandbox_id  query     string  false  "Sandbox ID (defaults to token's sandbox)"
+//	@Success   200         {array}   AgentTaskPollItem
+//	@Failure   401         {string}  string  "unauthorized"
+//	@Failure   403         {string}  string  "forbidden"
+//	@Failure   500         {string}  string  "internal error"
+//	@Router    /api/agent/tasks/poll [get]
 func (s *Server) handlePollTasks(w http.ResponseWriter, r *http.Request) {
 	// Auth via proxy_token.
 	token := r.Header.Get("Authorization")
@@ -276,6 +324,17 @@ func (s *Server) handlePollTasks(w http.ResponseWriter, r *http.Request) {
 // handleUpdateTaskStatus updates task status from the worker.
 // PUT /api/agent/tasks/{id}/status
 // Auth: proxy_token
+//
+//	@Summary   Update task status (proxy_token auth)
+//	@Tags      Agent
+//	@Accept    json
+//	@Param     id    path  string                  true  "Task ID"
+//	@Param     body  body  AgentTaskStatusRequest  true  "Status update"
+//	@Success   200
+//	@Failure   400   {string}  string  "bad request"
+//	@Failure   401   {string}  string  "unauthorized"
+//	@Failure   500   {string}  string  "internal error"
+//	@Router    /api/agent/tasks/{id}/status [put]
 func (s *Server) handleUpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Authorization")
 	if len(token) > 7 && token[:7] == "Bearer " {
@@ -327,6 +386,18 @@ func (s *Server) handleUpdateTaskStatus(w http.ResponseWriter, r *http.Request) 
 
 // handleCancelTask cancels a running task.
 // POST /api/tasks/{id}/cancel
+//
+//	@Summary   Cancel a task
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     id  path      string  true  "Task ID"
+//	@Success   200  {object}  AgentTaskCancelResponse
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   404  {string}  string  "not found"
+//	@Failure   409  {string}  string  "task already finished"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/tasks/{id}/cancel [post]
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	task, err := s.DB.GetAgentTask(taskID)
