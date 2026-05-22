@@ -1,4 +1,5 @@
 import { HomeCompare } from './HomeCompare'
+import { HomeFinalCTA } from './HomeFinalCTA'
 import { HomeHero } from './HomeHero'
 import { HomeNav } from './HomeNav'
 import { HomeHero } from './HomeHero'
