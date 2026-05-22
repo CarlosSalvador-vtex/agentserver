@@ -57,7 +57,7 @@ func NewCodexClient(baseURL, internalSecret string) *CodexClient {
 		secret:  internalSecret,
 		// Generous default — caller is the codex_im handler which has its
 		// own per-turn timeout coming from the request body.
-		http: &http.Client{Timeout: 6 * time.Minute},
+		http: &http.Client{Timeout: 61 * time.Minute},
 	}
 }
 
