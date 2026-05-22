@@ -5482,7 +5482,7 @@ components:
             type: string
           type: array
         secret:
-          example: wak_a1b2c3d4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          example: wak_a3b4c5d6_x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0
           type: string
       required:
         - created_at
