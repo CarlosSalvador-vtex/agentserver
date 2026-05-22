@@ -249,9 +249,9 @@ func (b *Bridge) startTypingForUser(binding BridgeBinding, msg InboundMessage) {
 
 	// Create context with timeout and register cancel in map BEFORE starting
 	// the typing goroutine, so StopTyping can find it even if a reply arrives
-	// quickly. The 5-minute timeout ensures goroutines don't leak if NanoClaw
+	// quickly. The 60-minute timeout ensures goroutines don't leak if NanoClaw
 	// never replies, and triggers an error notice to the user.
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancelFn := context.WithTimeout(context.Background(), 60*time.Minute)
 
 	b.mu.Lock()
 	if existingCancel, exists := b.typingSessions[key]; exists {

@@ -45,7 +45,7 @@ type turnAPIHandler struct {
 	runner turnRunner
 }
 
-const defaultTurnTimeout = 5 * time.Minute
+const defaultTurnTimeout = 60 * time.Minute
 
 func (h *turnAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req turnAPIRequest
