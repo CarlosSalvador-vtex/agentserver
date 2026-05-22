@@ -34,6 +34,23 @@ jobs:
       - name: Test
         run: go test ./... -count=1 -timeout 5m
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install web deps (for swagger2openapi)
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Install swag CLI
+        run: go install github.com/swaggo/swag/cmd/swag@latest
+
+      - name: OpenAPI drift check
+        run: make openapi-check
+
   build-server:
     runs-on: ubuntu-latest
     needs: [test]
