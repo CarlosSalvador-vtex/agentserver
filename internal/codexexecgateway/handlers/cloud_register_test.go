@@ -133,3 +133,63 @@ func TestCloudRegister_RejectsWithoutValidator(t *testing.T) {
 		t.Fatalf("want 401, got %d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+// Codex 0.133 renamed the URL param to `env_id` and the path to
+// /cloud/environment/{env_id}/register. The handler accepts either chi
+// param name so both the legacy and the new route resolve correctly.
+func TestCloudRegister_AcceptsEnvIDParam(t *testing.T) {
+	agentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"user_id": "u-1"})
+	}))
+	defer agentSrv.Close()
+
+	store := newStoreWithExecutor(t, "exe_x", "u-1")
+	h := CloudRegister(store, "wss://test", AgentserverValidator{
+		BaseURL: agentSrv.URL, InternalSecret: "shh",
+	}, testTicketSecret)
+
+	req := httptest.NewRequest(http.MethodPost, "/cloud/environment/exe_x/register", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("env_id", "exe_x") // codex 0.133 path uses env_id
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp cloudRegisterResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.ExecutorID != "exe_x" {
+		t.Fatalf("executor_id = %q", resp.ExecutorID)
+	}
+}
+
+// Both legacy `exe_id` and new `env_id` chi params resolve to the same
+// id when both happen to be set (defensive — production routes never
+// set both, but document the precedence).
+func TestCloudRegister_ExeIDTakesPrecedenceOverEnvID(t *testing.T) {
+	agentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"user_id": "u-1"})
+	}))
+	defer agentSrv.Close()
+
+	store := newStoreWithExecutor(t, "exe_legacy", "u-1")
+	h := CloudRegister(store, "wss://test", AgentserverValidator{
+		BaseURL: agentSrv.URL, InternalSecret: "shh",
+	}, testTicketSecret)
+
+	req := httptest.NewRequest(http.MethodPost, "/cloud/executor/exe_legacy/register", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("exe_id", "exe_legacy")
+	rctx.URLParams.Add("env_id", "exe_new") // ignored when exe_id present
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
