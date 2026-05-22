@@ -9,7 +9,6 @@ export const homeStrings: Dicts = {
     'nav.compare': '对比',
     'nav.signin': '登录 →',
     'nav.lang.toggle': 'EN',
-    'nav.online': '在线',
 
     // hero
     'hero.h1': '你的个人算力网。',
@@ -91,7 +90,6 @@ export const homeStrings: Dicts = {
     'nav.compare': 'Compare',
     'nav.signin': 'Sign in →',
     'nav.lang.toggle': '中',
-    'nav.online': 'online',
 
     // hero
     'hero.h1': 'Your Personal Computility.',
