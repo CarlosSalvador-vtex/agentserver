@@ -1,3 +1,4 @@
+import { HomeCompare } from './HomeCompare'
 import { HomeHero } from './HomeHero'
 import { HomeNav } from './HomeNav'
 import { HomeHero } from './HomeHero'
