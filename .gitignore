@@ -13,3 +13,6 @@ notebook/smoke-workspace/
 # Generated from docs/api/openapi.yaml via `pnpm openapi:gen` —
 # never commit; CI and local dev regenerate on demand.
 web/src/lib/api-generated/
+
+# Brainstorming companion scratch dir (HTML mockups served to local browser).
+.superpowers/
