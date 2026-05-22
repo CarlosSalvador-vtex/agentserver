@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +24,7 @@ import (
 	"github.com/agentserver/agentserver/internal/namespace"
 	"github.com/agentserver/agentserver/internal/process"
 	"github.com/agentserver/agentserver/internal/sbxstore"
+	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/agentserver/agentserver/internal/shortid"
 	"github.com/agentserver/agentserver/internal/storage"
 	"github.com/agentserver/agentserver/internal/tunnel"
@@ -1797,10 +1796,18 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 
 	// Generate auth credentials based on sandbox type.
 	var opencodeToken, openclawToken string
-	proxyToken := generatePassword()
+	proxyToken, err := generatePassword()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	switch sandboxType {
 	case "openclaw":
-		openclawToken = generatePassword()
+		openclawToken, err = generatePassword()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 	case "nanoclaw":
 		// NanoClaw uses a bridge secret instead of openclaw/opencode tokens.
 		// The bridge secret is stored separately after sandbox creation.
@@ -1810,7 +1817,11 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		// Jupyter Server uses proxyToken as its built-in JUPYTER_TOKEN.
 		// No opencodeToken needed.
 	default: // "opencode"
-		opencodeToken = generatePassword()
+		opencodeToken, err = generatePassword()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Generate a short ID for subdomain routing (retry on collision).
@@ -1832,7 +1843,12 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 
 	// Generate and store bridge secret for nanoclaw sandboxes.
 	if sandboxType == "nanoclaw" {
-		bridgeSecret := generatePassword()
+		bridgeSecret, err := generatePassword()
+		if err != nil {
+			log.Printf("failed to generate nanoclaw bridge secret: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		if err := s.DB.UpdateSandboxNanoclawBridgeSecret(id, bridgeSecret); err != nil {
 			log.Printf("failed to store nanoclaw bridge secret: %v", err)
 		}
@@ -2369,13 +2385,9 @@ func shortID(id string) string {
 }
 
 // generatePassword creates a random 32-character hex password for opencode server auth.
-func generatePassword() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback: use UUID if crypto/rand fails (should not happen).
-		return uuid.New().String()
-	}
-	return hex.EncodeToString(b)
+// For new credential kinds (e.g. prefix-id-secret tokens) use internal/secrets instead.
+func generatePassword() (string, error) {
+	return secrets.RandomHex(16)
 }
 
 // notifyIMBridgePollerRestore sends a fire-and-forget notification to the
