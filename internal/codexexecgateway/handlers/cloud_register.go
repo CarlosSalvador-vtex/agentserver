@@ -30,14 +30,19 @@ type clientMetaStore interface {
 }
 
 // cloudRegisterResponse mirrors the upstream codex exec-server registry
-// response shape. Codex v0.130 expects {id, executor_id, url}; main has
-// dropped `id`. We include all three so both shapes deserialize cleanly.
-// The `id` field is only used by upstream for log messages — we reuse
-// executor_id since we don't track per-attempt registration IDs.
+// response shape across versions:
+//   - codex v0.130: {id, executor_id, url}
+//   - codex 0.131-0.132: {executor_id, url}
+//   - codex 0.133+: {environment_id, url} (rename, hard-required)
+//
+// Emitting all three id fields lets both old and new clients deserialize
+// without a version-aware switch. The values are identical (our opaque
+// exe_* UUID).
 type cloudRegisterResponse struct {
-	ID         string `json:"id"`
-	ExecutorID string `json:"executor_id"`
-	URL        string `json:"url"`
+	ID            string `json:"id"`
+	ExecutorID    string `json:"executor_id"`
+	EnvironmentID string `json:"environment_id"`
+	URL           string `json:"url"`
 }
 
 // AgentserverValidator calls agentserver's /internal/codex-auth/validate
@@ -197,7 +202,10 @@ func respondWithWSURL(w http.ResponseWriter, r *http.Request, exeID, ticket, pub
 	}
 	wsURL := base + "/codex-exec/" + url.PathEscape(exeID) + "?token=" + url.QueryEscape(ticket)
 	writeJSON(w, http.StatusOK, cloudRegisterResponse{
-		ID: exeID, ExecutorID: exeID, URL: wsURL,
+		ID:            exeID,
+		ExecutorID:    exeID,
+		EnvironmentID: exeID,
+		URL:           wsURL,
 	})
 }
 
