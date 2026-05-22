@@ -1,10 +1,6 @@
 package server
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base32"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,34 +9,9 @@ import (
 
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/db"
+	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/go-chi/chi/v5"
 )
-
-// crockford base32 alphabet (no padding, no ambiguous chars).
-var crockford = base32.NewEncoding("0123456789ABCDEFGHJKMNPQRSTVWXYZ").WithPadding(base32.NoPadding)
-
-// generateAPIKey returns (id, prefix, secret, secret_hash).
-//
-//	id     = "wak_<8-char-prefix>"
-//	prefix = same as id
-//	secret = "wak_<prefix>_<40-char-secret>"  (full wire token presented in Bearer header)
-//	secret_hash = hex(sha256(secret))
-func generateAPIKey() (id, prefix, secret, secretHash string, err error) {
-	prefixBytes := make([]byte, 5)  // 5 bytes → 8 base32 chars
-	secretBytes := make([]byte, 25) // 25 bytes → 40 base32 chars
-	if _, err = rand.Read(prefixBytes); err != nil {
-		return
-	}
-	if _, err = rand.Read(secretBytes); err != nil {
-		return
-	}
-	prefix = "wak_" + crockford.EncodeToString(prefixBytes)
-	id = prefix
-	secret = prefix + "_" + crockford.EncodeToString(secretBytes)
-	sum := sha256.Sum256([]byte(secret))
-	secretHash = hex.EncodeToString(sum[:])
-	return
-}
 
 // handleListWorkspaceAPIKeys returns all keys for a workspace (any member).
 //
@@ -121,7 +92,7 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	id, prefix, secret, secretHash, err := generateAPIKey()
+	tok, err := secrets.Mint(secrets.APIKeySpec)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -130,12 +101,12 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 	// Re-derive from context since the helper doesn't return it.
 	userID := auth.UserIDFromContext(r.Context())
 	row := db.WorkspaceAPIKey{
-		ID:          id,
+		ID:          tok.ID,
 		WorkspaceID: wid,
 		UserID:      userID,
 		Name:        req.Name,
-		Prefix:      prefix,
-		SecretHash:  secretHash,
+		Prefix:      tok.ID, // prefix == ID for ask_ tokens (both = "ask_<16chars>")
+		SecretHash:  tok.Hash,
 		Scopes:      req.Scopes,
 	}
 	if err := s.DB.CreateWorkspaceAPIKey(r.Context(), row); err != nil {
@@ -145,10 +116,10 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(WorkspaceAPIKeyMintResponse{
-		ID:        id,
+		ID:        tok.ID,
 		Name:      req.Name,
-		Prefix:    prefix,
-		Secret:    secret,
+		Prefix:    tok.ID,
+		Secret:    tok.Full, // full wire-format token returned once to the user
 		Scopes:    req.Scopes,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})

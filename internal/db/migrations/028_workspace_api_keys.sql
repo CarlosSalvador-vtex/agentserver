@@ -1,13 +1,14 @@
 -- workspace_api_keys: long-lived workspace-scoped developer API keys.
 -- Used by external integrators (bots, IM bridges, webhooks) to call
--- codex-app-gateway /api/turns via Authorization: Bearer wak_...
+-- codex-app-gateway /api/turns via Authorization: Bearer ask_...
 --
--- Key format on the wire: wak_<8-char prefix>_<40-char secret>
+-- Format on the wire (see internal/secrets.APIKeySpec):
+--   ask_<16-char base62 id>_<48-char base62 secret><6-char base62 CRC32>
 -- DB stores:
---   - id    = "wak_<prefix>" (also indexed for O(1) bearer lookup)
---   - secret_hash = hex(sha256(presented_secret))
+--   - id    = "ask_<id>" (also indexed for O(1) bearer lookup)
+--   - secret_hash = hex(HMAC-SHA256(server_pepper, full_token))
+--                   or hex(sha256(full_token)) when pepper unset (dev)
 --   - scopes = action-based scope strings, e.g. {'turns:submit'}
--- Secrets are CSPRNG (25 bytes → ~200 bits entropy); SHA-256 is sufficient.
 CREATE TABLE workspace_api_keys (
     id            TEXT        PRIMARY KEY,
     workspace_id  TEXT        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

@@ -98,11 +98,23 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Create sandbox.
 	sandboxID := uuid.New().String()
-	tunnelToken := generatePassword()
-	proxyToken := generatePassword()
+	tunnelToken, err := generatePassword()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	proxyToken, err := generatePassword()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	var opencodePassword string
 	if sandboxType == "opencode" {
-		opencodePassword = generatePassword()
+		opencodePassword, err = generatePassword()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	sid := shortid.Generate()

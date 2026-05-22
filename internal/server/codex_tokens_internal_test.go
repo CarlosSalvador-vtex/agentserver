@@ -10,29 +10,36 @@ import (
 	"time"
 
 	"github.com/agentserver/agentserver/internal/db"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/agentserver/agentserver/internal/secrets"
 )
 
-func mintRow(t *testing.T, d *db.DB, id, secret, uid, wid string, exp time.Time, revokedAt *time.Time) {
+// mintRow inserts a codex_remote_tokens row using the new secrets module.
+// id and full are derived from secrets.Mint; callers that need the full
+// token for the verify request should use mintRowFromSpec instead.
+func mintRow(t *testing.T, d *db.DB, uid, wid string, exp time.Time, revokedAt *time.Time) (fullToken string) {
 	t.Helper()
-	hash, _ := bcrypt.GenerateFromPassword([]byte(secret), bcrypt.MinCost)
+	tok, err := secrets.Mint(secrets.AgentserverTokenSpec)
+	if err != nil {
+		t.Fatalf("mintRow: Mint: %v", err)
+	}
 	row := db.CodexToken{
-		ID: id, UserID: uid, WorkspaceID: wid, Name: "n",
-		TokenHash: string(hash), ExpiresAt: exp,
+		ID: tok.ID, UserID: uid, WorkspaceID: wid, Name: "n",
+		TokenHash: tok.Hash, ExpiresAt: exp,
 	}
 	if err := d.CreateCodexToken(context.Background(), row); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if revokedAt != nil {
-		_, _ = d.Exec(`UPDATE codex_remote_tokens SET revoked_at = $1 WHERE id = $2`, *revokedAt, id)
+		_, _ = d.Exec(`UPDATE codex_remote_tokens SET revoked_at = $1 WHERE id = $2`, *revokedAt, tok.ID)
 	}
+	return tok.Full
 }
 
 func TestHandleVerifyCodexToken_HappyPath(t *testing.T) {
 	srv, d := newCodexTokensTestServer(t)
-	mintRow(t, d, "abc12345", "supersecret", "u1", "ws_a", time.Now().Add(time.Hour), nil)
+	fullToken := mintRow(t, d, "u1", "ws_a", time.Now().Add(time.Hour), nil)
 
-	body := bytes.NewReader([]byte(`{"token":"ast_abc12345_supersecret"}`))
+	body := bytes.NewReader([]byte(`{"token":"` + fullToken + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/codex/tokens/verify", body)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -51,8 +58,13 @@ func TestHandleVerifyCodexToken_HappyPath(t *testing.T) {
 
 func TestHandleVerifyCodexToken_BadSecret_401(t *testing.T) {
 	srv, d := newCodexTokensTestServer(t)
-	mintRow(t, d, "abc12345", "rightsecret", "u1", "ws_a", time.Now().Add(time.Hour), nil)
-	body := bytes.NewReader([]byte(`{"token":"ast_abc12345_wrongsecret"}`))
+	_ = mintRow(t, d, "u1", "ws_a", time.Now().Add(time.Hour), nil)
+	// Mint a second token — its Full will not match the first row's stored hash.
+	otherTok, err := secrets.Mint(secrets.AgentserverTokenSpec)
+	if err != nil {
+		t.Fatalf("Mint other: %v", err)
+	}
+	body := bytes.NewReader([]byte(`{"token":"` + otherTok.Full + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/codex/tokens/verify", body)
 	rr := httptest.NewRecorder()
 	srv.handleVerifyCodexToken(rr, req)
@@ -63,8 +75,8 @@ func TestHandleVerifyCodexToken_BadSecret_401(t *testing.T) {
 
 func TestHandleVerifyCodexToken_Expired_401(t *testing.T) {
 	srv, d := newCodexTokensTestServer(t)
-	mintRow(t, d, "abc12345", "s", "u1", "ws_a", time.Now().Add(-time.Hour), nil)
-	body := bytes.NewReader([]byte(`{"token":"ast_abc12345_s"}`))
+	fullToken := mintRow(t, d, "u1", "ws_a", time.Now().Add(-time.Hour), nil)
+	body := bytes.NewReader([]byte(`{"token":"` + fullToken + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/codex/tokens/verify", body)
 	rr := httptest.NewRecorder()
 	srv.handleVerifyCodexToken(rr, req)
@@ -76,8 +88,8 @@ func TestHandleVerifyCodexToken_Expired_401(t *testing.T) {
 func TestHandleVerifyCodexToken_Revoked_401(t *testing.T) {
 	srv, d := newCodexTokensTestServer(t)
 	now := time.Now()
-	mintRow(t, d, "abc12345", "s", "u1", "ws_a", time.Now().Add(time.Hour), &now)
-	body := bytes.NewReader([]byte(`{"token":"ast_abc12345_s"}`))
+	fullToken := mintRow(t, d, "u1", "ws_a", time.Now().Add(time.Hour), &now)
+	body := bytes.NewReader([]byte(`{"token":"` + fullToken + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/codex/tokens/verify", body)
 	rr := httptest.NewRecorder()
 	srv.handleVerifyCodexToken(rr, req)
@@ -88,7 +100,12 @@ func TestHandleVerifyCodexToken_Revoked_401(t *testing.T) {
 
 func TestHandleVerifyCodexToken_NotFound_401(t *testing.T) {
 	srv, _ := newCodexTokensTestServer(t)
-	body := bytes.NewReader([]byte(`{"token":"ast_zzzzzzzz_zzzz"}`))
+	// A valid-shape token that doesn't exist in the DB.
+	tok, err := secrets.Mint(secrets.AgentserverTokenSpec)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	body := bytes.NewReader([]byte(`{"token":"` + tok.Full + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/codex/tokens/verify", body)
 	rr := httptest.NewRecorder()
 	srv.handleVerifyCodexToken(rr, req)

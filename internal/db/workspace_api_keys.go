@@ -2,13 +2,11 @@ package db
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/lib/pq"
 )
 
@@ -28,7 +26,7 @@ type WorkspaceAPIKey struct {
 }
 
 // CreateWorkspaceAPIKey inserts a new key row. Caller is responsible for
-// generating id (= "wak_<prefix>"), prefix, secret_hash, and validating
+// generating id (= "ask_<id>"), prefix, secret_hash, and validating
 // the scopes against the catalog (see internal/server/api_key_scopes.go).
 func (db *DB) CreateWorkspaceAPIKey(ctx context.Context, k WorkspaceAPIKey) error {
 	scopes := k.Scopes
@@ -116,9 +114,7 @@ func (db *DB) ValidateWorkspaceAPIKeySecret(ctx context.Context, prefix, secret 
 		&k.CreatedAt, &lastUsed, &revoked); err != nil {
 		return nil, err // includes sql.ErrNoRows
 	}
-	sum := sha256.Sum256([]byte(secret))
-	presented := hex.EncodeToString(sum[:])
-	if subtle.ConstantTimeCompare([]byte(presented), []byte(k.SecretHash)) != 1 {
+	if !secrets.ConstantTimeMatch(secret, k.SecretHash) {
 		return nil, sql.ErrNoRows
 	}
 	k.Scopes = []string(scopes)

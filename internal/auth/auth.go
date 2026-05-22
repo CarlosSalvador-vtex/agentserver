@@ -2,14 +2,13 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/agentserver/agentserver/internal/db"
+	"github.com/agentserver/agentserver/internal/secrets"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -73,9 +72,10 @@ func (a *Auth) Login(email, password string) (string, string, bool) {
 
 // IssueToken generates a random token, stores it, and returns it.
 func (a *Auth) IssueToken(userID string) (string, error) {
-	b := make([]byte, 32)
-	rand.Read(b)
-	token := hex.EncodeToString(b)
+	token, err := secrets.RandomHex(32)
+	if err != nil {
+		return "", err
+	}
 	if err := a.db.CreateToken(token, userID, time.Now().Add(tokenTTL)); err != nil {
 		return "", err
 	}

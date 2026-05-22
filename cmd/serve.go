@@ -29,6 +29,7 @@ import (
 	"github.com/agentserver/agentserver/internal/process"
 	"github.com/agentserver/agentserver/internal/sandbox"
 	"github.com/agentserver/agentserver/internal/sbxstore"
+	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/agentserver/agentserver/internal/server"
 	"github.com/agentserver/agentserver/internal/storage"
 	"github.com/agentserver/agentserver/internal/tunnel"
@@ -48,6 +49,14 @@ var serveCmd = &cobra.Command{
 	Short: "Start the agentserver HTTP server",
 	Long:  `Start the web server that provides a browser-based interface to opencode.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Install server-side HMAC pepper for API key hashing, if configured.
+		// SECRETS_PEPPER must be the same value across all replicas; rotating
+		// it invalidates all existing workspace API keys (re-mint required).
+		// When unset, Hash falls back to plain SHA-256 (acceptable for dev).
+		if p := os.Getenv("SECRETS_PEPPER"); p != "" {
+			secrets.SetPepper([]byte(p))
+		}
+
 		// Resolve DB URL from flag or env.
 		if dbURL == "" {
 			dbURL = os.Getenv("DATABASE_URL")

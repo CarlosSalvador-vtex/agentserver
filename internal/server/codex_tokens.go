@@ -7,9 +7,9 @@ import (
 
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/db"
+	"github.com/agentserver/agentserver/internal/secrets"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -66,20 +66,15 @@ func (s *Server) handleMintCodexToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	full, id, secret, err := generateCodexToken()
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(secret), bcrypt.DefaultCost)
+	tok, err := secrets.Mint(secrets.AgentserverTokenSpec)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	exp := time.Now().Add(time.Duration(req.TTLDays) * 24 * time.Hour).UTC()
 	if err := s.DB.CreateCodexToken(r.Context(), db.CodexToken{
-		ID: id, UserID: userID, WorkspaceID: req.WorkspaceID, Name: req.Name,
-		TokenHash: string(hash), ExpiresAt: exp,
+		ID: tok.ID, UserID: userID, WorkspaceID: req.WorkspaceID, Name: req.Name,
+		TokenHash: tok.Hash, ExpiresAt: exp,
 	}); err != nil {
 		http.Error(w, "create failed", http.StatusInternalServerError)
 		return
@@ -88,7 +83,7 @@ func (s *Server) handleMintCodexToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(CodexTokenMintResponse{
-		ID: id, Token: full, Name: req.Name, WorkspaceID: req.WorkspaceID,
+		ID: tok.ID, Token: tok.Full, Name: req.Name, WorkspaceID: req.WorkspaceID,
 		ExpiresAt: exp, CreatedAt: time.Now().UTC(),
 	})
 }

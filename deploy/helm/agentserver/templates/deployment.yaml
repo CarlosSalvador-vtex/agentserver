@@ -227,6 +227,14 @@ spec:
             - name: INTERNAL_API_SECRET
               value: {{ .Values.internal.apiSecret | quote }}
             {{- end }}
+            {{- if .Values.secretsPepper }}
+            - name: SECRETS_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secret
+                  key: secrets-pepper
+                  optional: true
+            {{- end }}
             - name: AGENTSERVER_OPERATIONS_RETENTION_DAYS
               value: {{ .Values.operations.retentionDays | quote }}
             {{- if .Values.codexExecGateway.publicHost }}
@@ -392,6 +400,9 @@ stringData:
   {{- if .Values.credentialproxy.enabled }}
   credproxy-encryption-key: {{ .Values.credentialproxy.encryptionKey | quote }}
   {{- end }}
+  {{- if .Values.secretsPepper }}
+  secrets-pepper: {{ .Values.secretsPepper | quote }}
+  {{- end }}
 {{- else }}
 ---
 apiVersion: v1
@@ -415,5 +426,8 @@ stringData:
   {{- end }}
   {{- if .Values.credentialproxy.enabled }}
   credproxy-encryption-key: {{ .Values.credentialproxy.encryptionKey | quote }}
+  {{- end }}
+  {{- if .Values.secretsPepper }}
+  secrets-pepper: {{ .Values.secretsPepper | quote }}
   {{- end }}
 {{- end }}

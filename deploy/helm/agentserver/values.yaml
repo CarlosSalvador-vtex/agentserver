@@ -233,6 +233,13 @@ credentialproxy:
 internal:
   apiSecret: ""
 
+# HMAC pepper for workspace API key storage hashes (SECRETS_PEPPER env var).
+# Set to a 32-byte random hex string; generate with: openssl rand -hex 32
+# When empty, agentserver falls back to plain SHA-256 (dev-only; set in prod).
+# WARNING: rotating this value invalidates all existing workspace API keys —
+# all API key holders must re-mint after a pepper change.
+secretsPepper: ""
+
 # Operation log (Plan 2): codex-app-gateway records every MCP tool call to
 # agentserver's /internal/operations endpoint for audit + replay.
 operations:

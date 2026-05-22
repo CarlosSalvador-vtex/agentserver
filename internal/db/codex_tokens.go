@@ -20,7 +20,7 @@ type CodexToken struct {
 	RevokedAt   *time.Time
 }
 
-// CreateCodexToken inserts a new row. Caller mints the bcrypt hash.
+// CreateCodexToken inserts a new row. Caller mints the HMAC-SHA256 hash via secrets.Mint.
 func (db *DB) CreateCodexToken(ctx context.Context, t CodexToken) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO codex_remote_tokens (id, user_id, workspace_id, name, token_hash, expires_at)
