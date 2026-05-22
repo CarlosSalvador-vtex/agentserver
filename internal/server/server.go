@@ -734,6 +734,15 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 //	@Success  200  {object}  AuthStatusResponse
 //	@Router   /api/auth/logout [post]
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Invalidate the token in the database first, so even if the browser
+	// fails to clear the cookie (Domain attribute drift across deploys,
+	// extension interference, etc.) the same cookie value will no longer
+	// authenticate on the next request.
+	if c, err := r.Cookie("agentserver-token"); err == nil && c.Value != "" {
+		if err := s.Auth.InvalidateToken(c.Value); err != nil {
+			log.Printf("logout: invalidate token: %v", err)
+		}
+	}
 	// Cookie Domain must match the issuance side (auth.SetTokenCookie)
 	// or the browser won't actually clear the cross-subdomain cookie.
 	http.SetCookie(w, &http.Cookie{

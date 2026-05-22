@@ -32,6 +32,14 @@ func (db *DB) ValidateToken(token string) (string, error) {
 	return userID, nil
 }
 
+func (db *DB) DeleteToken(token string) error {
+	_, err := db.Exec("DELETE FROM auth_tokens WHERE token = $1", token)
+	if err != nil {
+		return fmt.Errorf("delete token: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) DeleteExpiredTokens() error {
 	_, err := db.Exec("DELETE FROM auth_tokens WHERE expires_at < NOW()")
 	if err != nil {

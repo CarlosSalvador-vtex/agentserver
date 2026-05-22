@@ -91,6 +91,12 @@ func (a *Auth) ValidateToken(token string) (string, bool) {
 	return userID, true
 }
 
+// InvalidateToken removes the token row so the same cookie value cannot
+// re-authenticate even if the browser fails to clear the cookie.
+func (a *Auth) InvalidateToken(token string) error {
+	return a.db.DeleteToken(token)
+}
+
 // Middleware authenticates web requests via session cookie. The TUI / agent
 // CLI does NOT use this — it goes through BearerMiddleware on /api/agents/*.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
