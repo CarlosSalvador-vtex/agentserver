@@ -35,39 +35,44 @@ func TestMint_HappyPath(t *testing.T) {
 		t.Fatalf("Mint: unexpected error: %v", err)
 	}
 
-	// Full = "wak_<8>_<40><6crc>" — total length = 4+8+1+40+6 = 59 chars
-	if !strings.HasPrefix(tok.Full, "wak_") {
-		t.Errorf("Full %q does not start with wak_", tok.Full)
+	// Derive expected sizes from the spec rather than hardcoding, so this
+	// test stays valid if APIKeySpec sizes change. Full layout is
+	// "<prefix><id>_<secret><crc6>".
+	spec := secrets.APIKeySpec
+	wantFullLen := len(spec.Prefix) + spec.IDLen + 1 + spec.SecretLen + 6
+	bodyLen := wantFullLen - 6
+	if !strings.HasPrefix(tok.Full, spec.Prefix) {
+		t.Errorf("Full %q does not start with %s", tok.Full, spec.Prefix)
 	}
-	if len(tok.Full) != 59 {
-		t.Errorf("Full len=%d want 59 (4+8+1+40+6)", len(tok.Full))
+	if len(tok.Full) != wantFullLen {
+		t.Errorf("Full len=%d want %d", len(tok.Full), wantFullLen)
 	}
 
-	// Body = first 53 chars, CRC = last 6 chars.
-	body := tok.Full[:53]
-	// Split body after "wak_": body = "wak_<id8>_<secret40>"
-	parts := strings.SplitN(body[4:], "_", 2) // after "wak_"
+	// Body = first bodyLen chars, CRC = last 6 chars.
+	body := tok.Full[:bodyLen]
+	// Split body after prefix: body = "<prefix><id>_<secret>"
+	parts := strings.SplitN(body[len(spec.Prefix):], "_", 2)
 	if len(parts) != 2 {
 		t.Fatalf("Full body %q does not have id+secret segments", body)
 	}
-	if len(parts[0]) != 8 {
-		t.Errorf("ID segment len=%d want 8", len(parts[0]))
+	if len(parts[0]) != spec.IDLen {
+		t.Errorf("ID segment len=%d want %d", len(parts[0]), spec.IDLen)
 	}
-	if len(parts[1]) != 40 {
-		t.Errorf("Secret segment len=%d want 40", len(parts[1]))
-	}
-
-	// ID = "wak_" + 8 chars
-	if tok.ID != "wak_"+parts[0] {
-		t.Errorf("ID %q != wak_+%s", tok.ID, parts[0])
-	}
-	if len(tok.ID) != 4+8 {
-		t.Errorf("ID len=%d want 12", len(tok.ID))
+	if len(parts[1]) != spec.SecretLen {
+		t.Errorf("Secret segment len=%d want %d", len(parts[1]), spec.SecretLen)
 	}
 
-	// Secret = 40 chars (no crc suffix)
-	if len(tok.Secret) != 40 {
-		t.Errorf("Secret len=%d want 40", len(tok.Secret))
+	// ID = prefix + IDLen chars
+	if tok.ID != spec.Prefix+parts[0] {
+		t.Errorf("ID %q != %s+%s", tok.ID, spec.Prefix, parts[0])
+	}
+	if len(tok.ID) != len(spec.Prefix)+spec.IDLen {
+		t.Errorf("ID len=%d want %d", len(tok.ID), len(spec.Prefix)+spec.IDLen)
+	}
+
+	// Secret = SecretLen chars (no crc suffix)
+	if len(tok.Secret) != spec.SecretLen {
+		t.Errorf("Secret len=%d want %d", len(tok.Secret), spec.SecretLen)
 	}
 	if tok.Secret != parts[1] {
 		t.Errorf("Secret %q != %s", tok.Secret, parts[1])
@@ -248,12 +253,16 @@ func TestMint_HasCRC32Suffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	// Full token is 59 chars; body is first 53, CRC is last 6.
-	if len(tok.Full) != 59 {
-		t.Fatalf("Full len=%d want 59", len(tok.Full))
+	// Body is everything before the trailing 6-char CRC suffix; sizes
+	// derived from the spec so this test stays valid if APIKeySpec changes.
+	spec := secrets.APIKeySpec
+	bodyLen := len(spec.Prefix) + spec.IDLen + 1 + spec.SecretLen
+	wantFullLen := bodyLen + 6
+	if len(tok.Full) != wantFullLen {
+		t.Fatalf("Full len=%d want %d", len(tok.Full), wantFullLen)
 	}
-	body := tok.Full[:53]
-	crcSuffix := tok.Full[53:]
+	body := tok.Full[:bodyLen]
+	crcSuffix := tok.Full[bodyLen:]
 	if len(crcSuffix) != 6 {
 		t.Fatalf("CRC suffix len=%d want 6", len(crcSuffix))
 	}
@@ -319,8 +328,11 @@ func TestCRC32Base62_Stable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	body := tok1.Full[:53]
-	crc1 := tok1.Full[53:]
+	// Derive body offset from the spec rather than hardcoding, so this
+	// test stays valid if APIKeySpec sizes change.
+	bodyLen := len(secrets.APIKeySpec.Prefix) + secrets.APIKeySpec.IDLen + 1 + secrets.APIKeySpec.SecretLen
+	body := tok1.Full[:bodyLen]
+	crc1 := tok1.Full[bodyLen:]
 	// Re-parse to implicitly re-derive the CRC.
 	tok2, err := secrets.Mint(secrets.APIKeySpec)
 	if err != nil {

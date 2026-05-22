@@ -5426,7 +5426,7 @@ components:
         created_at:
           type: string
         id:
-          example: wak_a1b2c3d4
+          example: wak_a1b2c3d4e5f6g7h8
           type: string
         last_used_at:
           type: string
@@ -5434,7 +5434,7 @@ components:
         name:
           type: string
         prefix:
-          example: wak_a1b2c3d4
+          example: wak_a1b2c3d4e5f6g7h8
           type: string
         revoked_at:
           type: string
@@ -5470,19 +5470,19 @@ components:
         created_at:
           type: string
         id:
-          example: wak_a1b2c3d4
+          example: wak_a1b2c3d4e5f6g7h8
           type: string
         name:
           type: string
         prefix:
-          example: wak_a1b2c3d4
+          example: wak_a1b2c3d4e5f6g7h8
           type: string
         scopes:
           items:
             type: string
           type: array
         secret:
-          example: wak_a3b4c5d6_x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0AbCdEf
+          example: wak_a1b2c3d4e5f6g7h8_X9y8Z7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4AbCdEf
           type: string
       required:
         - created_at

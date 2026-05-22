@@ -284,4 +284,11 @@ func crc32Base62(s string) string {
 
 // APIKeySpec is the format for per-workspace developer API keys
 // (POST /api/workspaces/{wid}/api-keys → returns Token.Full once).
-var APIKeySpec = Spec{Prefix: "wak_", IDLen: 8, SecretLen: 40}
+//
+// Sizing rationale:
+//   - IDLen=16 chars of base62 = ~95 bits. Globally collision-free for any
+//     plausible total key count (birthday bound ~ 2^47 keys for 50% odds).
+//   - SecretLen=48 chars of base62 = ~286 bits. Well past any cryptographic
+//     threshold; oversized vs strictly necessary to leave headroom.
+//   - Total wire length: 4 + 16 + 1 + 48 + 6 = 75 chars including CRC32.
+var APIKeySpec = Spec{Prefix: "wak_", IDLen: 16, SecretLen: 48}
