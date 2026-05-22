@@ -2,13 +2,11 @@ package db
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/lib/pq"
 )
 
@@ -116,9 +114,7 @@ func (db *DB) ValidateWorkspaceAPIKeySecret(ctx context.Context, prefix, secret 
 		&k.CreatedAt, &lastUsed, &revoked); err != nil {
 		return nil, err // includes sql.ErrNoRows
 	}
-	sum := sha256.Sum256([]byte(secret))
-	presented := hex.EncodeToString(sum[:])
-	if subtle.ConstantTimeCompare([]byte(presented), []byte(k.SecretHash)) != 1 {
+	if !secrets.ConstantTimeMatch(secret, k.SecretHash) {
 		return nil, sql.ErrNoRows
 	}
 	k.Scopes = []string(scopes)

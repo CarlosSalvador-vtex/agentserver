@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
+
+	"github.com/agentserver/agentserver/internal/secrets"
 )
 
 // internalValidateAPIKeyRequest is the body for the internal RPC.
@@ -35,8 +36,8 @@ func (s *Server) handleInternalValidateAPIKey(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	prefix, _, ok := splitAPIKey(req.Secret)
-	if !ok {
+	prefix, _, err := secrets.Parse(secrets.APIKeySpec, req.Secret)
+	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -71,21 +72,3 @@ func (s *Server) handleInternalValidateAPIKey(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// splitAPIKey expects "wak_<8-char-prefix>_<rest>" and returns
-// ("wak_<8-char-prefix>", full-original, true) or ("", "", false).
-//
-// The full original is what gets hashed; the prefix is the DB index key.
-func splitAPIKey(full string) (prefix, secret string, ok bool) {
-	if !strings.HasPrefix(full, "wak_") {
-		return "", "", false
-	}
-	parts := strings.SplitN(full, "_", 3)
-	if len(parts) != 3 {
-		return "", "", false
-	}
-	if len(parts[1]) != 8 {
-		return "", "", false
-	}
-	prefix = "wak_" + parts[1]
-	return prefix, full, true
-}

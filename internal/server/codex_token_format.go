@@ -1,3 +1,8 @@
+// NOTE: This file is intentionally NOT migrated to internal/secrets.
+// ast_ codex tokens use bcrypt hashing and base36 encoding. Migrating
+// would invalidate all existing tokens stored in the DB (bcrypt hashes
+// are not forward-compatible with sha256 hashes). For NEW credential
+// kinds, use internal/secrets instead of duplicating this pattern.
 package server
 
 import (
