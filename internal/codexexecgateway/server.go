@@ -165,15 +165,17 @@ func (s *Server) Routes() http.Handler {
 	r.Put("/relay/{ticket}", s.handleRelayPut)
 	r.Get("/relay/{ticket}", s.handleRelayGet)
 
-	// Upstream codex `exec-server --remote` compat: clients POST here
-	// with bearer auth, get back the ws URL above.
-	r.Post("/cloud/executor/{exe_id}/register",
-		handlers.CloudRegister(s.store, s.config.PublicWSBaseURL,
-			handlers.AgentserverValidator{
-				BaseURL:        s.config.AgentserverInternalURL,
-				InternalSecret: s.config.AgentserverInternalSecret,
-			},
-			s.config.AgentserverInternalSecret))
+	// Upstream codex `exec-server --remote` compat. Two paths because
+	// codex renamed the endpoint in 0.133 (executor → environment); the
+	// handler treats them identically.
+	cloudRegister := handlers.CloudRegister(s.store, s.config.PublicWSBaseURL,
+		handlers.AgentserverValidator{
+			BaseURL:        s.config.AgentserverInternalURL,
+			InternalSecret: s.config.AgentserverInternalSecret,
+		},
+		s.config.AgentserverInternalSecret)
+	r.Post("/cloud/executor/{exe_id}/register", cloudRegister)
+	r.Post("/cloud/environment/{env_id}/register", cloudRegister)
 
 	// *Store satisfies handlers.Store, handlers.BindingStore, and
 	// handlers.InternalConnectedStore directly — no adapter needed because

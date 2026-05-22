@@ -66,3 +66,35 @@ func TestNewServer_RejectsZeroConfig(t *testing.T) {
 		t.Fatal("NewServer should reject zero-value Config")
 	}
 }
+
+// TestRoutes_BothCloudRegisterPaths confirms that the chi router mounts
+// the cloud_register handler at both the codex 0.132 path
+// (/cloud/executor/{exe_id}/register) and the codex 0.133+ path
+// (/cloud/environment/{env_id}/register). Without auth headers both
+// should fall through to the same 401 — the point is that neither
+// returns 404 (which would mean the route isn't mounted).
+func TestRoutes_BothCloudRegisterPaths(t *testing.T) {
+	srv, err := newServerNoStoreForTesting(Config{
+		CapTokenHMACSecret:        []byte("k"),
+		InternalSharedSecret:      "is",
+		AgentserverInternalSecret: "tic",
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	for _, path := range []string{
+		"/cloud/executor/exe_x/register",    // codex 0.132
+		"/cloud/environment/exe_x/register", // codex 0.133+
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rr := httptest.NewRecorder()
+		srv.Routes().ServeHTTP(rr, req)
+		if rr.Code == http.StatusNotFound {
+			t.Errorf("%s: route not mounted (404)", path)
+			continue
+		}
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("%s: got %d body=%s (want 401)", path, rr.Code, rr.Body.String())
+		}
+	}
+}
