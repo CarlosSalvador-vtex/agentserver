@@ -12,6 +12,16 @@ metadata:
     app: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  # New pod must be Ready before the old one is removed. With the
+  # default 25%/25% on a 1-replica deployment, the old pod could be
+  # killed before the new one is serving — codex-exec-gateway then
+  # returns 401 from the validator round-trip and every codex client
+  # disconnects with `executor registry authentication error`.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: {{ .Release.Name }}
@@ -345,6 +355,18 @@ spec:
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
+          # On pod delete, sleep before the binary sees SIGTERM so kube
+          # endpoints controller has time to remove this pod from the
+          # Service backend list. Without this gap, in-flight requests
+          # (notably codex-exec-gateway's /internal/codex-auth/validate
+          # call) get RST'd mid-flight when the binary exits, surfacing
+          # as 401 to codex which then exits its register loop. 10s
+          # comfortably exceeds the worst-case endpoints propagation.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+      terminationGracePeriodSeconds: 30
 {{- if not .Values.externalDatabase.existingSecret }}
 ---
 apiVersion: v1
