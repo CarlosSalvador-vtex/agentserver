@@ -5,6 +5,12 @@ WORKDIR /app/web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
+# Generate TypeScript types from the committed OpenAPI spec before tsc runs.
+# The output (src/lib/api-generated/schema.d.ts) is gitignored — without
+# this step `web/src/lib/api.ts` can't resolve its `components` import and
+# tsc fails with TS2307 + cascading TS7006 implicit-any errors.
+COPY docs/api/openapi.yaml /app/docs/api/openapi.yaml
+RUN pnpm openapi:gen
 RUN pnpm build
 
 # Stage 2: Build opencode frontend from submodule
