@@ -99,6 +99,10 @@ type Server struct {
 	// codexHandler is set by Router() when CODEX_APP_GATEWAY_URL is
 	// configured. Kept here so Close() can stop its dispatcher.
 	codexHandler *codexInboundHandler
+
+	// imBridgeProxy is set by Router() when IMBridgeURL is non-empty.
+	// Stored here so per-route wrapper methods (im_routes.go) can call it.
+	imBridgeProxy http.HandlerFunc
 }
 
 func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore *sbxstore.Store, processManager process.Manager, driveManager storage.DriveManager, nsMgr *namespace.Manager, tunnelReg *tunnel.Registry, staticFS fs.FS, passwordAuthEnabled bool) *Server {
@@ -284,10 +288,10 @@ func (s *Server) Router() http.Handler {
 
 	// IM bridge routes: proxy to standalone imbridge service when configured.
 	if s.IMBridgeURL != "" {
-		imbridgeProxy := newReverseProxy(s.IMBridgeURL)
+		s.imBridgeProxy = newReverseProxy(s.IMBridgeURL)
 		// Internal API for NanoClaw pods to send IM replies (auth via bridge secret).
-		r.Post("/api/internal/nanoclaw/{id}/im/send", imbridgeProxy)
-		r.Post("/api/internal/nanoclaw/{id}/weixin/send", imbridgeProxy) // legacy alias
+		r.Post("/api/internal/nanoclaw/{id}/im/send", s.imBridgeProxy)
+		r.Post("/api/internal/nanoclaw/{id}/weixin/send", s.imBridgeProxy) // legacy alias
 	}
 
 	// Codex routing path: WeChat (and other channels) with routing_mode="codex"
@@ -477,28 +481,27 @@ func (s *Server) Router() http.Handler {
 
 		// IM routes: proxy to standalone imbridge service.
 		if s.IMBridgeURL != "" {
-			imbridgeProxy := newReverseProxy(s.IMBridgeURL)
-			// Workspace IM channel management
-			r.Get("/api/workspaces/{id}/im/channels", imbridgeProxy)
-			r.Delete("/api/workspaces/{id}/im/channels/{channelId}", imbridgeProxy)
-			r.Patch("/api/workspaces/{id}/im/channels/{channelId}", imbridgeProxy)
-			r.Post("/api/workspaces/{id}/im/weixin/qr-start", imbridgeProxy)
-			r.Post("/api/workspaces/{id}/im/weixin/qr-wait", imbridgeProxy)
-			r.Post("/api/workspaces/{id}/im/telegram/configure", imbridgeProxy)
-			r.Post("/api/workspaces/{id}/im/matrix/configure", imbridgeProxy)
-			// Sandbox IM channel binding
-			r.Post("/api/sandboxes/{id}/im/bind", imbridgeProxy)
-			r.Delete("/api/sandboxes/{id}/im/bind", imbridgeProxy)
-			// Legacy sandbox-level IM routes
-			r.Post("/api/sandboxes/{id}/im/weixin/qr-start", imbridgeProxy)
-			r.Post("/api/sandboxes/{id}/im/weixin/qr-wait", imbridgeProxy)
-			r.Post("/api/sandboxes/{id}/im/telegram/configure", imbridgeProxy)
-			r.Delete("/api/sandboxes/{id}/im/telegram", imbridgeProxy)
-			r.Post("/api/sandboxes/{id}/im/matrix/configure", imbridgeProxy)
-			r.Delete("/api/sandboxes/{id}/im/matrix", imbridgeProxy)
-			r.Get("/api/sandboxes/{id}/im/bindings", imbridgeProxy)
-			r.Post("/api/sandboxes/{id}/weixin/qr-start", imbridgeProxy)
-			r.Post("/api/sandboxes/{id}/weixin/qr-wait", imbridgeProxy)
+			// Workspace IM channel management (annotated wrappers in im_routes.go).
+			r.Get("/api/workspaces/{id}/im/channels", s.handleIMChannelList)
+			r.Patch("/api/workspaces/{id}/im/channels/{channelId}", s.handleIMChannelPatch)
+			r.Delete("/api/workspaces/{id}/im/channels/{channelId}", s.handleIMChannelDelete)
+			r.Post("/api/workspaces/{id}/im/weixin/qr-start", s.handleIMWeixinQRStart)
+			r.Post("/api/workspaces/{id}/im/weixin/qr-wait", s.handleIMWeixinQRWait)
+			r.Post("/api/workspaces/{id}/im/telegram/configure", s.handleIMTelegramConfigure)
+			r.Post("/api/workspaces/{id}/im/matrix/configure", s.handleIMMatrixConfigure)
+			// Sandbox IM channel binding (annotated wrappers in im_routes.go).
+			r.Post("/api/sandboxes/{id}/im/bind", s.handleIMSandboxBind)
+			r.Delete("/api/sandboxes/{id}/im/bind", s.handleIMSandboxUnbind)
+			// Legacy sandbox-level IM routes (un-annotated, proxied directly).
+			r.Post("/api/sandboxes/{id}/im/weixin/qr-start", s.imBridgeProxy)
+			r.Post("/api/sandboxes/{id}/im/weixin/qr-wait", s.imBridgeProxy)
+			r.Post("/api/sandboxes/{id}/im/telegram/configure", s.imBridgeProxy)
+			r.Delete("/api/sandboxes/{id}/im/telegram", s.imBridgeProxy)
+			r.Post("/api/sandboxes/{id}/im/matrix/configure", s.imBridgeProxy)
+			r.Delete("/api/sandboxes/{id}/im/matrix", s.imBridgeProxy)
+			r.Get("/api/sandboxes/{id}/im/bindings", s.imBridgeProxy)
+			r.Post("/api/sandboxes/{id}/weixin/qr-start", s.imBridgeProxy)
+			r.Post("/api/sandboxes/{id}/weixin/qr-wait", s.imBridgeProxy)
 		}
 
 		// Agent discovery

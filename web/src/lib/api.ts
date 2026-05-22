@@ -13,6 +13,18 @@ export type WeixinBinding = components['schemas']['IMBinding']
 
 export type IMBinding = components['schemas']['IMBinding']
 
+// IM Channels — generated types from OpenAPI spec
+export type IMChannel = components['schemas']['IMChannel']
+export type IMChannelListResponse = components['schemas']['IMChannelListResponse']
+export type IMChannelPatchRequest = components['schemas']['IMChannelPatchRequest']
+export type IMWeixinQRStartResponse = components['schemas']['IMWeixinQRStartResponse']
+export type IMWeixinQRWaitResponse = components['schemas']['IMWeixinQRWaitResponse']
+export type IMTelegramConfigureRequest = components['schemas']['IMTelegramConfigureRequest']
+export type IMTelegramConfigureResponse = components['schemas']['IMTelegramConfigureResponse']
+export type IMMatrixConfigureRequest = components['schemas']['IMMatrixConfigureRequest']
+export type IMMatrixConfigureResponse = components['schemas']['IMMatrixConfigureResponse']
+export type IMSandboxBindRequest = components['schemas']['IMSandboxBindRequest']
+
 export interface TelegramConfigureResult {
   connected: boolean
   bot_id: string
@@ -403,41 +415,32 @@ export async function listIMBindings(sandboxId: string): Promise<{ bindings: IMB
   return res.json()
 }
 
-// Workspace IM Channel types and API
+// Workspace IM Channel management API
 
-export interface IMChannel {
-  id: string
-  workspace_id: string
-  provider: string
-  bot_id: string
-  user_id: string
-  require_mention: boolean
-  routing_mode: string
-  bound_at: string
-}
-
-export async function listWorkspaceIMChannels(workspaceId: string): Promise<{ channels: IMChannel[] }> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/channels`)
-  if (!res.ok) throw new Error('Failed to list IM channels')
-  return res.json()
+export async function listWorkspaceIMChannels(workspaceId: string): Promise<IMChannelListResponse> {
+  return apiFetch<IMChannelListResponse>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/channels`,
+  })
 }
 
 export async function updateWorkspaceIMChannel(
   workspaceId: string,
   channelId: string,
-  settings: { require_mention?: boolean; routing_mode?: 'nanoclaw' | 'codex' },
+  settings: IMChannelPatchRequest,
 ): Promise<void> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/channels/${channelId}`, {
+  await apiFetch<void>({
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/channels/${encodeURIComponent(channelId)}`,
+    body: settings,
   })
-  if (!res.ok) throw new Error('Failed to update IM channel')
 }
 
 export async function deleteWorkspaceIMChannel(workspaceId: string, channelId: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/channels/${channelId}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to delete IM channel')
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/channels/${encodeURIComponent(channelId)}`,
+  })
 }
 
 // Credential Bindings (kubeconfig / external API credentials)
@@ -527,65 +530,52 @@ export async function pollDeviceCodeComplete(
 }
 
 // Workspace-level WeChat QR login
-export async function workspaceWeixinQRStart(workspaceId: string): Promise<{ qrcode_url: string; message: string }> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/weixin/qr-start`, { method: 'POST' })
-  if (!res.ok) throw new Error('Failed to start WeChat login')
-  return res.json()
+export async function workspaceWeixinQRStart(workspaceId: string): Promise<IMWeixinQRStartResponse> {
+  return apiFetch<IMWeixinQRStartResponse>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/weixin/qr-start`,
+  })
 }
 
-export async function workspaceWeixinQRWait(workspaceId: string): Promise<any> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/weixin/qr-wait`, { method: 'POST' })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Failed to poll WeChat status')
-  }
-  return res.json()
+export async function workspaceWeixinQRWait(workspaceId: string): Promise<IMWeixinQRWaitResponse> {
+  return apiFetch<IMWeixinQRWaitResponse>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/weixin/qr-wait`,
+  })
 }
 
 // Workspace-level Telegram configure
-export async function workspaceTelegramConfigure(workspaceId: string, botToken: string): Promise<{ connected: boolean; bot_id: string }> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/telegram/configure`, {
+export async function workspaceTelegramConfigure(workspaceId: string, botToken: string): Promise<IMTelegramConfigureResponse> {
+  return apiFetch<IMTelegramConfigureResponse>({
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bot_token: botToken }),
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/telegram/configure`,
+    body: { bot_token: botToken } satisfies IMTelegramConfigureRequest,
   })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Failed to configure Telegram')
-  }
-  return res.json()
 }
 
 // Workspace-level Matrix configure
-export async function workspaceMatrixConfigure(workspaceId: string, homeserverUrl: string, accessToken: string, recoveryKey?: string): Promise<{ connected: boolean; bot_id: string }> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/im/matrix/configure`, {
+export async function workspaceMatrixConfigure(workspaceId: string, homeserverUrl: string, accessToken: string, recoveryKey?: string): Promise<IMMatrixConfigureResponse> {
+  return apiFetch<IMMatrixConfigureResponse>({
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ homeserver_url: homeserverUrl, access_token: accessToken, recovery_key: recoveryKey || '' }),
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/matrix/configure`,
+    body: { homeserver_url: homeserverUrl, access_token: accessToken, recovery_key: recoveryKey || '' } satisfies IMMatrixConfigureRequest,
   })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Failed to configure Matrix')
-  }
-  return res.json()
 }
 
 // Sandbox channel binding
 export async function bindSandboxToChannel(sandboxId: string, channelId: string): Promise<void> {
-  const res = await fetch(`/api/sandboxes/${sandboxId}/im/bind`, {
+  await apiFetch<void>({
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channel_id: channelId }),
+    path: `/api/sandboxes/${encodeURIComponent(sandboxId)}/im/bind`,
+    body: { channel_id: channelId } satisfies IMSandboxBindRequest,
   })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Failed to bind channel')
-  }
 }
 
 export async function unbindSandboxFromChannel(sandboxId: string): Promise<void> {
-  const res = await fetch(`/api/sandboxes/${sandboxId}/im/bind`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to unbind channel')
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/sandboxes/${encodeURIComponent(sandboxId)}/im/bind`,
+  })
 }
 
 // Usage & Traces API

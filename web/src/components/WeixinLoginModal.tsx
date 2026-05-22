@@ -60,18 +60,18 @@ export function WeixinLoginModal({ sandboxId, workspaceId, onClose, onConnected 
 
           if (res.connected) {
             setPhase('connected')
-            setMessage(res.message)
+            setMessage(res.message ?? '')
             onConnected?.()
             return
           }
 
           if (res.status === 'scaned') {
             setPhase('scanned')
-            setMessage(res.message)
+            setMessage(res.message ?? '')
           } else if (res.status === 'expired' && res.qrcode_url) {
-            setQrUrl(res.qrcode_url)
+            setQrUrl(res.qrcode_url ?? '')
             setPhase('qr')
-            setMessage(res.message)
+            setMessage(res.message ?? '')
           }
           // "wait" → continue polling
         } catch {

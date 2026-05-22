@@ -172,3 +172,99 @@ type SandboxUsageResponse struct {
 	Usage []SandboxUsageSummary `json:"usage" validate:"required"`
 	Since *string               `json:"since,omitempty" extensions:"x-nullable=true" example:"2026-01-01T00:00:00Z"`
 } // @name SandboxUsage
+
+// --- IM Channels ---
+
+// IMChannelResponse mirrors workspace_im_channels rows returned by
+// GET /api/workspaces/{id}/im/channels via the imbridge service.
+// user_id is omitted when not set (weixin sets it; telegram/matrix do not).
+type IMChannelResponse struct {
+	ID             string `json:"id" validate:"required"`
+	WorkspaceID    string `json:"workspace_id" validate:"required"`
+	Provider       string `json:"provider" validate:"required" example:"weixin"`
+	BotID          string `json:"bot_id" validate:"required"`
+	UserID         string `json:"user_id,omitempty"`
+	RequireMention bool   `json:"require_mention"`
+	RoutingMode    string `json:"routing_mode" validate:"required" example:"codex"`
+	BoundAt        string `json:"bound_at" validate:"required"`
+} // @name IMChannel
+
+// IMChannelListResponse is the {"channels": [...]} envelope returned by
+// GET /api/workspaces/{id}/im/channels.
+type IMChannelListResponse struct {
+	Channels []IMChannelResponse `json:"channels" validate:"required"`
+} // @name IMChannelListResponse
+
+// IMChannelPatchRequest is the body for PATCH /api/workspaces/{id}/im/channels/{channelId}.
+// Both fields are optional — only the supplied keys are applied.
+// routing_mode must be "nanoclaw" or "codex".
+type IMChannelPatchRequest struct {
+	RequireMention *bool   `json:"require_mention" extensions:"x-nullable=true"`
+	RoutingMode    *string `json:"routing_mode" extensions:"x-nullable=true" example:"codex"`
+} // @name IMChannelPatchRequest
+
+// IMChannelPatchResponse is the body returned on success by
+// PATCH /api/workspaces/{id}/im/channels/{channelId}.
+type IMChannelPatchResponse struct {
+	Status string `json:"status" validate:"required" example:"updated"`
+} // @name IMChannelPatchResponse
+
+// IMWeixinQRStartResponse is returned by POST .../im/weixin/qr-start.
+type IMWeixinQRStartResponse struct {
+	QRCodeURL string `json:"qrcode_url" validate:"required"`
+	Message   string `json:"message" validate:"required"`
+} // @name IMWeixinQRStartResponse
+
+// IMWeixinQRWaitResponse is the polymorphic response from POST .../im/weixin/qr-wait.
+// status values: "wait", "scaned", "confirmed", "expired", "binded_redirect",
+// "verify_code_blocked", "need_verifycode".
+// qrcode_url is only present when status is "expired" (new QR code generated).
+// bot_id and user_id are only present when status is "confirmed".
+type IMWeixinQRWaitResponse struct {
+	Connected  bool    `json:"connected"`
+	Status     string  `json:"status" validate:"required" example:"wait"`
+	Message    *string `json:"message,omitempty" extensions:"x-nullable=true"`
+	QRCodeURL  *string `json:"qrcode_url,omitempty" extensions:"x-nullable=true"`
+	BotID      *string `json:"bot_id,omitempty" extensions:"x-nullable=true"`
+	UserID     *string `json:"user_id,omitempty" extensions:"x-nullable=true"`
+} // @name IMWeixinQRWaitResponse
+
+// IMTelegramConfigureRequest is the body for POST .../im/telegram/configure.
+type IMTelegramConfigureRequest struct {
+	BotToken string `json:"bot_token" validate:"required" example:"123456:ABC-DEF..."`
+} // @name IMTelegramConfigureRequest
+
+// IMTelegramConfigureResponse is returned by POST .../im/telegram/configure.
+type IMTelegramConfigureResponse struct {
+	Connected bool   `json:"connected" validate:"required"`
+	BotID     string `json:"bot_id" validate:"required"`
+} // @name IMTelegramConfigureResponse
+
+// IMMatrixConfigureRequest is the body for POST .../im/matrix/configure.
+// recovery_key is optional and only used to enable E2EE.
+type IMMatrixConfigureRequest struct {
+	HomeserverURL string `json:"homeserver_url" validate:"required" example:"https://matrix.example.com"`
+	AccessToken   string `json:"access_token" validate:"required"`
+	RecoveryKey   string `json:"recovery_key"` // optional, for E2EE
+} // @name IMMatrixConfigureRequest
+
+// IMMatrixConfigureResponse is returned by POST .../im/matrix/configure.
+type IMMatrixConfigureResponse struct {
+	Connected bool   `json:"connected" validate:"required"`
+	BotID     string `json:"bot_id" validate:"required"`
+} // @name IMMatrixConfigureResponse
+
+// IMSandboxBindRequest is the body for POST /api/sandboxes/{id}/im/bind.
+type IMSandboxBindRequest struct {
+	ChannelID string `json:"channel_id" validate:"required"`
+} // @name IMSandboxBindRequest
+
+// IMSandboxBindResponse is returned on success by POST /api/sandboxes/{id}/im/bind.
+type IMSandboxBindResponse struct {
+	Status string `json:"status" validate:"required" example:"bound"`
+} // @name IMSandboxBindResponse
+
+// IMSandboxUnbindResponse is returned on success by DELETE /api/sandboxes/{id}/im/bind.
+type IMSandboxUnbindResponse struct {
+	Status string `json:"status" validate:"required" example:"unbound"`
+} // @name IMSandboxUnbindResponse
