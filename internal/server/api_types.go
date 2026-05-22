@@ -274,11 +274,11 @@ type IMSandboxUnbindResponse struct {
 // --- Codex Tokens ---
 
 // CodexTokenMintRequest is the body for POST /api/codex/tokens.
-// ttl_days is optional; defaults to 90 (range: 1–365).
+// expires_at is optional; defaults to NOW + 90 days, capped at NOW + 365d.
 type CodexTokenMintRequest struct {
 	WorkspaceID string `json:"workspace_id" validate:"required"`
 	Name        string `json:"name" validate:"required" example:"my mac"`
-	TTLDays     int    `json:"ttl_days,omitempty" example:"90"`
+	ExpiresAt   string `json:"expires_at,omitempty" example:"2026-08-20T08:30:00Z"`
 } // @name CodexTokenMintRequest
 
 // CodexTokenMintResponse is returned (201) by POST /api/codex/tokens.
@@ -849,8 +849,9 @@ type APIKeyScopeDescriptor struct {
 // Scopes must be non-empty and every entry must reference an Available
 // scope in the catalog (see GET .../api-keys/scopes).
 type WorkspaceAPIKeyMintRequest struct {
-	Name   string   `json:"name" validate:"required" example:"my-bot-integration"`
-	Scopes []string `json:"scopes" validate:"required" example:"[\"turns:submit\"]"`
+	Name      string   `json:"name" validate:"required" example:"my-bot-integration"`
+	Scopes    []string `json:"scopes" validate:"required" example:"[\"turns:submit\"]"`
+	ExpiresAt string   `json:"expires_at,omitempty" example:"2026-08-20T08:30:00Z"`
 } // @name WorkspaceAPIKeyMintRequest
 
 // WorkspaceAPIKeyMintResponse is the body returned by the mint endpoint
@@ -863,6 +864,7 @@ type WorkspaceAPIKeyMintResponse struct {
 	Secret    string   `json:"secret" validate:"required" example:"ask_a1b2c3d4e5f6g7h8_X9y8Z7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4AbCdEf"`
 	Scopes    []string `json:"scopes" validate:"required"`
 	CreatedAt string   `json:"created_at" validate:"required"`
+	ExpiresAt string   `json:"expires_at" validate:"required" example:"2026-08-20T08:30:00Z"`
 } // @name WorkspaceAPIKeyMintResponse
 
 // WorkspaceAPIKey is one row in the list response. Secret is NEVER
@@ -873,6 +875,7 @@ type WorkspaceAPIKey struct {
 	Prefix     string   `json:"prefix" validate:"required" example:"ask_a1b2c3d4e5f6g7h8"`
 	Scopes     []string `json:"scopes" validate:"required"`
 	CreatedAt  string   `json:"created_at" validate:"required"`
+	ExpiresAt  string   `json:"expires_at" validate:"required" example:"2026-08-20T08:30:00Z"`
 	LastUsedAt *string  `json:"last_used_at" extensions:"x-nullable=true"`
 	RevokedAt  *string  `json:"revoked_at" extensions:"x-nullable=true"`
 } // @name WorkspaceAPIKey

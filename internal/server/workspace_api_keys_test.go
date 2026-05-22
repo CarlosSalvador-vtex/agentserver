@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/agentserver/agentserver/internal/auth"
 )
@@ -75,6 +76,12 @@ func TestMintListRevoke(t *testing.T) {
 	if len(resp.Scopes) != 1 || resp.Scopes[0] != "turns:submit" {
 		t.Fatalf("wrong scopes: %v", resp.Scopes)
 	}
+	if resp.ExpiresAt == "" {
+		t.Fatal("mint response should include expires_at")
+	}
+	if _, err := time.Parse(time.RFC3339, resp.ExpiresAt); err != nil {
+		t.Fatalf("expires_at is not RFC3339: %q", resp.ExpiresAt)
+	}
 
 	// List.
 	listReq := reqWithUser(http.MethodGet, "/api/workspaces/ws_a/api-keys", "u1", nil, map[string]string{"wid": "ws_a"})
@@ -90,6 +97,9 @@ func TestMintListRevoke(t *testing.T) {
 	}
 	if keys[0].ID != resp.ID {
 		t.Fatalf("key id mismatch: got %q want %q", keys[0].ID, resp.ID)
+	}
+	if keys[0].ExpiresAt == "" {
+		t.Fatal("list response should include expires_at")
 	}
 
 	// Revoke.
@@ -138,6 +148,99 @@ func TestMint_RejectsUnknownScope(t *testing.T) {
 	err := validateScopes([]string{"bogus:scope"})
 	if err == nil {
 		t.Fatal("expected error for unknown scope, got nil")
+	}
+}
+
+// TestMint_DefaultExpiration verifies that omitting expires_at results in
+// a response with expires_at approximately NOW + 90 days.
+func TestMint_DefaultExpiration(t *testing.T) {
+	srv := newAPIKeyTestServer(t)
+	seedWorkspaceMember(t, srv.DB, "ws_exp1", "u_exp1", "owner")
+
+	resp := mintKeyViaHandler(t, srv, "ws_exp1", "u_exp1", "default-exp", []string{"turns:submit"})
+	if resp.ExpiresAt == "" {
+		t.Fatal("expires_at must be set")
+	}
+	exp, err := time.Parse(time.RFC3339, resp.ExpiresAt)
+	if err != nil {
+		t.Fatalf("expires_at not RFC3339: %q — %v", resp.ExpiresAt, err)
+	}
+	lo := time.Now().UTC().Add(89 * 24 * time.Hour)
+	hi := time.Now().UTC().Add(91 * 24 * time.Hour)
+	if exp.Before(lo) || exp.After(hi) {
+		t.Fatalf("expected ~NOW+90d, got %v (lo=%v hi=%v)", exp, lo, hi)
+	}
+}
+
+// TestMint_RejectsPastExpiration verifies that sending an expires_at in the
+// past returns HTTP 422.
+func TestMint_RejectsPastExpiration(t *testing.T) {
+	srv := newAPIKeyTestServer(t)
+	seedWorkspaceMember(t, srv.DB, "ws_exp2", "u_exp2", "owner")
+
+	pastExp := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	body, _ := json.Marshal(WorkspaceAPIKeyMintRequest{
+		Name:      "past-exp",
+		Scopes:    []string{"turns:submit"},
+		ExpiresAt: pastExp,
+	})
+	req := reqWithUser(http.MethodPost, "/api/workspaces/ws_exp2/api-keys", "u_exp2", body, map[string]string{"wid": "ws_exp2"})
+	rr := httptest.NewRecorder()
+	srv.handleMintWorkspaceAPIKey(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d — %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestMint_RejectsTooFarFutureExpiration verifies that sending an expires_at
+// more than 365 days in the future returns HTTP 422.
+func TestMint_RejectsTooFarFutureExpiration(t *testing.T) {
+	srv := newAPIKeyTestServer(t)
+	seedWorkspaceMember(t, srv.DB, "ws_exp3", "u_exp3", "owner")
+
+	tooFar := time.Now().UTC().Add(400 * 24 * time.Hour).Format(time.RFC3339)
+	body, _ := json.Marshal(WorkspaceAPIKeyMintRequest{
+		Name:      "too-far",
+		Scopes:    []string{"turns:submit"},
+		ExpiresAt: tooFar,
+	})
+	req := reqWithUser(http.MethodPost, "/api/workspaces/ws_exp3/api-keys", "u_exp3", body, map[string]string{"wid": "ws_exp3"})
+	rr := httptest.NewRecorder()
+	srv.handleMintWorkspaceAPIKey(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d — %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestMint_AcceptsValidExpiration verifies that a valid expires_at in the
+// allowed window returns HTTP 201 and echoes the expires_at back.
+func TestMint_AcceptsValidExpiration(t *testing.T) {
+	srv := newAPIKeyTestServer(t)
+	seedWorkspaceMember(t, srv.DB, "ws_exp4", "u_exp4", "owner")
+
+	exp30d := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	body, _ := json.Marshal(WorkspaceAPIKeyMintRequest{
+		Name:      "valid-exp",
+		Scopes:    []string{"turns:submit"},
+		ExpiresAt: exp30d.Format(time.RFC3339),
+	})
+	req := reqWithUser(http.MethodPost, "/api/workspaces/ws_exp4/api-keys", "u_exp4", body, map[string]string{"wid": "ws_exp4"})
+	rr := httptest.NewRecorder()
+	srv.handleMintWorkspaceAPIKey(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d — %s", rr.Code, rr.Body.String())
+	}
+	var resp WorkspaceAPIKeyMintResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	gotExp, err := time.Parse(time.RFC3339, resp.ExpiresAt)
+	if err != nil {
+		t.Fatalf("expires_at not RFC3339: %q", resp.ExpiresAt)
+	}
+	// Allow 1s tolerance for round-trip through RFC3339 format.
+	if gotExp.Sub(exp30d).Abs() > time.Second {
+		t.Fatalf("expires_at mismatch: got %v, want ~%v", gotExp, exp30d)
 	}
 }
 

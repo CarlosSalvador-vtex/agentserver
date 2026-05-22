@@ -20,9 +20,18 @@ export function MintAPIKeyModal({ workspaceId, onClose, onCreated }: MintAPIKeyM
   const [scopes, setScopes] = useState<APIKeyScopeDescriptor[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  const EXPIRY_OPTIONS = [
+    { label: '7 days',   days: 7   },
+    { label: '30 days',  days: 30  },
+    { label: '90 days',  days: 90  },
+    { label: '180 days', days: 180 },
+    { label: '365 days', days: 365 },
+  ] as const
+
   // Form state
   const [name, setName] = useState('')
   const [checkedScopes, setCheckedScopes] = useState<Set<string>>(new Set())
+  const [expiryDays, setExpiryDays] = useState<number>(90)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -64,7 +73,8 @@ export function MintAPIKeyModal({ workspaceId, onClose, onCreated }: MintAPIKeyM
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const result = await mintWorkspaceAPIKey(workspaceId, name.trim(), Array.from(checkedScopes))
+      const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString()
+      const result = await mintWorkspaceAPIKey(workspaceId, name.trim(), Array.from(checkedScopes), expiresAt)
       setMinted(result)
       setPhase('reveal')
     } catch (err) {
@@ -175,6 +185,22 @@ export function MintAPIKeyModal({ workspaceId, onClose, onCreated }: MintAPIKeyM
                   ))}
                 </div>
               )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+                Expires in
+              </label>
+              <select
+                value={expiryDays}
+                onChange={(e) => setExpiryDays(parseInt(e.target.value, 10))}
+                disabled={submitting}
+                className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] disabled:opacity-50"
+              >
+                {EXPIRY_OPTIONS.map((opt) => (
+                  <option key={opt.days} value={opt.days}>{opt.label}</option>
+                ))}
+              </select>
             </div>
 
             {submitError && (

@@ -7,6 +7,20 @@ import {
 } from '../lib/api'
 import { MintAPIKeyModal } from './MintAPIKeyModal'
 
+function formatExpiresAt(expiresAt: string): { label: string; className: string } {
+  const now = Date.now()
+  const exp = new Date(expiresAt).getTime()
+  const diffMs = exp - now
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (diffMs <= 0) {
+    return { label: 'expired', className: 'text-red-400' }
+  }
+  if (diffDays <= 7) {
+    return { label: `expires in ${diffDays}d`, className: 'text-amber-400' }
+  }
+  return { label: `expires in ${diffDays}d`, className: 'text-[var(--muted-foreground)]' }
+}
+
 interface WorkspaceAPIKeysTabProps {
   workspaceId: string
 }
@@ -72,6 +86,7 @@ export function WorkspaceAPIKeysTab({ workspaceId }: WorkspaceAPIKeysTabProps) {
                     <th className="px-3 py-2 text-left font-medium">Prefix</th>
                     <th className="px-3 py-2 text-left font-medium">Scopes</th>
                     <th className="w-36 px-3 py-2 text-left font-medium">Created</th>
+                    <th className="w-36 px-3 py-2 text-left font-medium">Expires</th>
                     <th className="w-36 px-3 py-2 text-left font-medium">Last used</th>
                     <th className="w-20 px-3 py-2 text-left font-medium">Status</th>
                     <th className="w-16 px-3 py-2 text-right font-medium">Action</th>
@@ -109,6 +124,12 @@ export function WorkspaceAPIKeysTab({ workspaceId }: WorkspaceAPIKeysTabProps) {
                         </td>
                         <td className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
                           {new Date(k.created_at).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          {k.expires_at ? (() => {
+                            const { label, className } = formatExpiresAt(k.expires_at)
+                            return <span className={className}>{label}</span>
+                          })() : '—'}
                         </td>
                         <td className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
                           {k.last_used_at ? new Date(k.last_used_at).toLocaleString() : '—'}

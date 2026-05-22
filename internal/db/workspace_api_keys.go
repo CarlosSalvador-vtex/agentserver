@@ -21,6 +21,7 @@ type WorkspaceAPIKey struct {
 	SecretHash  string // populated only by the row that just inserted
 	Scopes      []string
 	CreatedAt   time.Time
+	ExpiresAt   time.Time
 	LastUsedAt  *time.Time
 	RevokedAt   *time.Time
 }
@@ -35,9 +36,9 @@ func (db *DB) CreateWorkspaceAPIKey(ctx context.Context, k WorkspaceAPIKey) erro
 	}
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO workspace_api_keys
-		    (id, workspace_id, user_id, name, prefix, secret_hash, scopes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		k.ID, k.WorkspaceID, k.UserID, k.Name, k.Prefix, k.SecretHash, pq.Array(scopes))
+		    (id, workspace_id, user_id, name, prefix, secret_hash, scopes, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		k.ID, k.WorkspaceID, k.UserID, k.Name, k.Prefix, k.SecretHash, pq.Array(scopes), k.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("insert workspace_api_keys: %w", err)
 	}
@@ -49,7 +50,7 @@ func (db *DB) CreateWorkspaceAPIKey(ctx context.Context, k WorkspaceAPIKey) erro
 func (db *DB) ListWorkspaceAPIKeys(ctx context.Context, workspaceID string) ([]WorkspaceAPIKey, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, workspace_id, user_id, name, prefix, scopes,
-		       created_at, last_used_at, revoked_at
+		       created_at, expires_at, last_used_at, revoked_at
 		  FROM workspace_api_keys
 		 WHERE workspace_id = $1
 		 ORDER BY created_at DESC`, workspaceID)
@@ -64,7 +65,7 @@ func (db *DB) ListWorkspaceAPIKeys(ctx context.Context, workspaceID string) ([]W
 		var lastUsed, revoked sql.NullTime
 		var scopes pq.StringArray
 		if err := rows.Scan(&k.ID, &k.WorkspaceID, &k.UserID, &k.Name, &k.Prefix, &scopes,
-			&k.CreatedAt, &lastUsed, &revoked); err != nil {
+			&k.CreatedAt, &k.ExpiresAt, &lastUsed, &revoked); err != nil {
 			return nil, fmt.Errorf("scan workspace_api_keys: %w", err)
 		}
 		k.Scopes = []string(scopes)
@@ -104,14 +105,14 @@ func (db *DB) RevokeWorkspaceAPIKey(ctx context.Context, workspaceID, keyID stri
 func (db *DB) ValidateWorkspaceAPIKeySecret(ctx context.Context, prefix, secret string) (*WorkspaceAPIKey, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, workspace_id, user_id, name, prefix, secret_hash, scopes,
-		       created_at, last_used_at, revoked_at
+		       created_at, expires_at, last_used_at, revoked_at
 		  FROM workspace_api_keys
-		 WHERE prefix = $1 AND revoked_at IS NULL`, prefix)
+		 WHERE prefix = $1 AND revoked_at IS NULL AND expires_at > NOW()`, prefix)
 	var k WorkspaceAPIKey
 	var lastUsed, revoked sql.NullTime
 	var scopes pq.StringArray
 	if err := row.Scan(&k.ID, &k.WorkspaceID, &k.UserID, &k.Name, &k.Prefix, &k.SecretHash, &scopes,
-		&k.CreatedAt, &lastUsed, &revoked); err != nil {
+		&k.CreatedAt, &k.ExpiresAt, &lastUsed, &revoked); err != nil {
 		return nil, err // includes sql.ErrNoRows
 	}
 	if !secrets.ConstantTimeMatch(secret, k.SecretHash) {

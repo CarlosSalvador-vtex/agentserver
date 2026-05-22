@@ -62,6 +62,7 @@ func TestWorkspaceAPIKey_CreateAndGet(t *testing.T) {
 		Prefix:      "wak_testcreate",
 		SecretHash:  makeHash("wak_testcreate_secretvalue"),
 		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -107,6 +108,7 @@ func TestWorkspaceAPIKey_ValidateHashMatch(t *testing.T) {
 		Prefix:      "wak_hashtest1",
 		SecretHash:  makeHash(secret),
 		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -141,6 +143,7 @@ func TestWorkspaceAPIKey_ValidateHashMismatch(t *testing.T) {
 		Prefix:      "wak_hashmism1",
 		SecretHash:  makeHash(secret),
 		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -166,6 +169,7 @@ func TestWorkspaceAPIKey_ValidateRevoked(t *testing.T) {
 		Prefix:      "wak_revoktest",
 		SecretHash:  makeHash(secret),
 		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -193,6 +197,7 @@ func TestWorkspaceAPIKeys_ListExcludesSecretHash(t *testing.T) {
 		Prefix:      "wak_listsecret",
 		SecretHash:  makeHash("wak_listsecret_somevalue"),
 		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -228,6 +233,7 @@ func TestWorkspaceAPIKey_TouchLastUsed(t *testing.T) {
 		Prefix:      "wak_touchtest1",
 		SecretHash:  makeHash("wak_touchtest1_val"),
 		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -280,6 +286,7 @@ func TestWorkspaceAPIKey_MultipleScopes(t *testing.T) {
 		Prefix:      "wak_multiscope",
 		SecretHash:  makeHash(secret),
 		Scopes:      []string{"turns:submit", "threads:read"},
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
 		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
@@ -301,5 +308,31 @@ func TestWorkspaceAPIKey_MultipleScopes(t *testing.T) {
 	}
 	if !scopeSet["threads:read"] {
 		t.Errorf("missing threads:read in scopes: %v", got.Scopes)
+	}
+}
+
+func TestWorkspaceAPIKey_ValidateExpired(t *testing.T) {
+	d := newTestDB(t)
+	ctx := context.Background()
+	wsID, uID := setupAPIKeyFixtures(t, d)
+
+	secret := "wak_expirtest_secretvalue0000000000000000"
+	key := WorkspaceAPIKey{
+		ID:          "wak_expirtest",
+		WorkspaceID: wsID,
+		UserID:      uID,
+		Name:        "expire-test",
+		Prefix:      "wak_expirtest",
+		SecretHash:  makeHash(secret),
+		Scopes:      []string{"turns:submit"},
+		ExpiresAt:   time.Now().Add(-time.Hour), // already expired
+	}
+	if err := d.CreateWorkspaceAPIKey(ctx, key); err != nil {
+		t.Fatalf("CreateWorkspaceAPIKey: %v", err)
+	}
+
+	_, err := d.ValidateWorkspaceAPIKeySecret(ctx, "wak_expirtest", secret)
+	if err != sql.ErrNoRows {
+		t.Fatalf("want sql.ErrNoRows for expired key, got %v", err)
 	}
 }

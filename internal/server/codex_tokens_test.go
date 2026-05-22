@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/db"
@@ -28,7 +29,8 @@ func TestHandleMintCodexToken_HappyPath(t *testing.T) {
 	srv, d := newCodexTokensTestServer(t)
 	seedWorkspaceMember(t, d, "ws_a", "u1", "owner")
 
-	body := bytes.NewReader([]byte(`{"workspace_id":"ws_a","name":"my mac","ttl_days":30}`))
+	exp30d := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
+	body := bytes.NewReader([]byte(`{"workspace_id":"ws_a","name":"my mac","expires_at":"` + exp30d + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/codex/tokens", body).
 		WithContext(ctxWithUser("u1"))
 	req.Header.Set("Content-Type", "application/json")
@@ -75,7 +77,8 @@ func TestHandleMintCodexToken_NotMember_403(t *testing.T) {
 func TestHandleMintCodexToken_TTLClamp(t *testing.T) {
 	srv, d := newCodexTokensTestServer(t)
 	seedWorkspaceMember(t, d, "ws_a", "u1", "owner")
-	body := bytes.NewReader([]byte(`{"workspace_id":"ws_a","name":"x","ttl_days":99999}`))
+	tooFar := time.Now().UTC().Add(400 * 24 * time.Hour).Format(time.RFC3339)
+	body := bytes.NewReader([]byte(`{"workspace_id":"ws_a","name":"x","expires_at":"` + tooFar + `"}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/codex/tokens", body).
 		WithContext(ctxWithUser("u1"))
 	req.Header.Set("Content-Type", "application/json")
