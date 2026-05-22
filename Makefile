@@ -115,8 +115,7 @@ openapi-check:
 CXG_SPEC := docs/api/codex-app-gateway.openapi
 
 openapi-codex-app-gateway:
-	$(SWAG) init -g internal/codexappgateway/swagger.go --parseDependency \
-	    --outputTypes yaml,json -o $(CXG_SPEC).tmp/ -d ./
+	$(SWAG) init -g swagger.go --outputTypes yaml,json -o $(CXG_SPEC).tmp/ -d ./internal/codexappgateway
 	@$(S2O) --yaml --outfile $(CURDIR)/$(CXG_SPEC).yaml $(CURDIR)/$(CXG_SPEC).tmp/swagger.yaml
 	@$(S2O)         --outfile $(CURDIR)/$(CXG_SPEC).json $(CURDIR)/$(CXG_SPEC).tmp/swagger.json
 	@jq '$(X_NULLABLE_JSON)' $(CXG_SPEC).json > $(CXG_SPEC).json.tmp && mv $(CXG_SPEC).json.tmp $(CXG_SPEC).json
@@ -125,8 +124,7 @@ openapi-codex-app-gateway:
 
 openapi-codex-app-gateway-check:
 	@rm -rf /tmp/cxg-openapi-check && mkdir -p /tmp/cxg-openapi-check
-	@$(SWAG) init -g internal/codexappgateway/swagger.go --parseDependency \
-	    --outputTypes yaml,json -o /tmp/cxg-openapi-check/ -d ./ >/dev/null
+	@$(SWAG) init -g swagger.go --outputTypes yaml,json -o /tmp/cxg-openapi-check/ -d ./internal/codexappgateway >/dev/null
 	@$(S2O) --yaml --outfile /tmp/cxg-openapi-check/openapi.yaml /tmp/cxg-openapi-check/swagger.yaml >/dev/null
 	@$(S2O)         --outfile /tmp/cxg-openapi-check/openapi.json /tmp/cxg-openapi-check/swagger.json >/dev/null
 	@jq '$(X_NULLABLE_JSON)' /tmp/cxg-openapi-check/openapi.json > /tmp/cxg-openapi-check/openapi.json.tmp && mv /tmp/cxg-openapi-check/openapi.json.tmp /tmp/cxg-openapi-check/openapi.json
