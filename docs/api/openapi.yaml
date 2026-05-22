@@ -122,6 +122,511 @@ paths:
       summary: Register a new user
       tags:
         - Auth
+  /api/workspaces:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Workspace"
+                type: array
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List workspaces for the current user
+      tags:
+        - Workspaces
+    post:
+      description: Creator is auto-added as owner. May fail with 403 if the per-user
+        workspace quota is exceeded.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceCreateRequest"
+        description: Workspace name
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          description: bad request / empty name
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: workspace quota exceeded
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Create a new workspace
+      tags:
+        - Workspaces
+  "/api/workspaces/{id}":
+    delete:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: owner only
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Delete a workspace (owner only; cascades to sandboxes + namespace)
+      tags:
+        - Workspaces
+    get:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: workspace not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get a workspace by id
+      tags:
+        - Workspaces
+    patch:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceRenameRequest"
+        description: New name
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          description: empty name
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: owner or maintainer required
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Rename a workspace
+      tags:
+        - Workspaces
+  "/api/workspaces/{id}/llm-config":
+    delete:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: insufficient role
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Delete workspace LLM config (owner/maintainer)
+      tags:
+        - Workspaces
+    get:
+      description: The returned api_key is masked (first 3 + "..." + last 4).
+        updated_at is null when no config is set.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMConfigResponse"
+        "403":
+          description: insufficient role
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get workspace LLM config (owner/maintainer)
+      tags:
+        - Workspaces
+    put:
+      description: On update, omitting api_key retains the existing key.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LLMConfigUpsertRequest"
+        description: Config payload
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMConfigUpsertResponse"
+        "400":
+          description: validation error (invalid URL / missing field / too many models)
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: insufficient role
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Upsert workspace LLM config (owner/maintainer)
+      tags:
+        - Workspaces
+  "/api/workspaces/{id}/llm-quota":
+    get:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMQuotaResponse"
+        "403":
+          description: insufficient role
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get the workspace's daily LLM request quota usage
+      tags:
+        - Workspaces
+  "/api/workspaces/{id}/members":
+    get:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/WorkspaceMember"
+                type: array
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List members of a workspace
+      tags:
+        - Workspaces
+    post:
+      description: Looks up the user by email. Default role is "developer" if omitted.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberAddRequest"
+        description: Email and optional role
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMember"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: owner or maintainer required
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: user not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Add a member to a workspace
+      tags:
+        - Workspaces
+  "/api/workspaces/{id}/members/{userId}":
+    delete:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: User id
+          in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: owner only
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Remove a member (owner only)
+      tags:
+        - Workspaces
+    put:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: User id
+          in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberRoleUpdateRequest"
+        description: New role
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: empty role
+          content:
+            "*/*":
+              schema:
+                type: string
+        "403":
+          description: owner only
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Change a member's role (owner only)
+      tags:
+        - Workspaces
+  /api/workspaces/quota:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceQuotaResponse"
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get per-user workspace quota
+      tags:
+        - Workspaces
 servers:
   - url: /
 components:
@@ -192,4 +697,164 @@ components:
           type: string
       required:
         - status
+      type: object
+    LLMConfigResponse:
+      properties:
+        api_key:
+          type: string
+        base_url:
+          type: string
+        configured:
+          type: boolean
+        models:
+          items:
+            $ref: "#/components/schemas/LLMModel"
+          type: array
+        updated_at:
+          type: string
+          nullable: true
+      required:
+        - configured
+      type: object
+    LLMConfigUpsertRequest:
+      properties:
+        api_key:
+          description: optional on update
+          example: sk-ant-...
+          type: string
+        base_url:
+          example: https://api.anthropic.com
+          type: string
+        models:
+          items:
+            $ref: "#/components/schemas/LLMModel"
+          type: array
+      required:
+        - base_url
+        - models
+      type: object
+    LLMConfigUpsertResponse:
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+      type: object
+    LLMModel:
+      properties:
+        id:
+          example: claude-opus-4-7
+          type: string
+        name:
+          example: Claude Opus 4.7
+          type: string
+      required:
+        - id
+        - name
+      type: object
+    LLMQuotaResponse:
+      properties:
+        default_max_rpd:
+          type: integer
+        today_request_count:
+          type: integer
+        workspace_quota:
+          allOf:
+            - $ref: "#/components/schemas/LLMWorkspaceQuotaPart"
+          nullable: true
+      required:
+        - default_max_rpd
+        - today_request_count
+      type: object
+    LLMWorkspaceQuotaPart:
+      properties:
+        max_rpd:
+          type: integer
+          nullable: true
+        updated_at:
+          type: string
+        workspace_id:
+          type: string
+      required:
+        - updated_at
+        - workspace_id
+      type: object
+    MemberAddRequest:
+      properties:
+        email:
+          example: alice@example.com
+          type: string
+        role:
+          description: optional; defaults to "developer"
+          example: developer
+          type: string
+      required:
+        - email
+      type: object
+    MemberRoleUpdateRequest:
+      properties:
+        role:
+          example: maintainer
+          type: string
+      required:
+        - role
+      type: object
+    Workspace:
+      properties:
+        created_at:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        updated_at:
+          type: string
+      required:
+        - created_at
+        - id
+        - name
+        - updated_at
+      type: object
+    WorkspaceCreateRequest:
+      properties:
+        name:
+          example: My Workspace
+          type: string
+      required:
+        - name
+      type: object
+    WorkspaceMember:
+      properties:
+        email:
+          type: string
+        picture:
+          type: string
+          nullable: true
+        role:
+          example: developer
+          type: string
+        user_id:
+          type: string
+      required:
+        - email
+        - role
+        - user_id
+      type: object
+    WorkspaceQuotaResponse:
+      properties:
+        current:
+          type: integer
+        max:
+          type: integer
+      required:
+        - current
+        - max
+      type: object
+    WorkspaceRenameRequest:
+      properties:
+        name:
+          example: Renamed Workspace
+          type: string
+      required:
+        - name
       type: object

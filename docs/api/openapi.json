@@ -194,6 +194,848 @@
           }
         }
       }
+    },
+    "/api/workspaces": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "List workspaces for the current user",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Workspace"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Creator is auto-added as owner. May fail with 403 if the per-user workspace quota is exceeded.",
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Create a new workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceCreateRequest"
+              }
+            }
+          },
+          "description": "Workspace name",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request / empty name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "workspace quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/quota": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Get per-user workspace quota",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceQuotaResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Get a workspace by id",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Delete a workspace (owner only; cascades to sandboxes + namespace)",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "owner only",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Rename a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceRenameRequest"
+              }
+            }
+          },
+          "description": "New name",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "empty name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "owner or maintainer required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/llm-config": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "The returned api_key is masked (first 3 + \"...\" + last 4). updated_at is null when no config is set.",
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Get workspace LLM config (owner/maintainer)",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMConfigResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "On update, omitting api_key retains the existing key.",
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Upsert workspace LLM config (owner/maintainer)",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMConfigUpsertRequest"
+              }
+            }
+          },
+          "description": "Config payload",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMConfigUpsertResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation error (invalid URL / missing field / too many models)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Delete workspace LLM config (owner/maintainer)",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "insufficient role",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/llm-quota": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Get the workspace's daily LLM request quota usage",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMQuotaResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/members": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "List members of a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceMember"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Looks up the user by email. Default role is \"developer\" if omitted.",
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Add a member to a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberAddRequest"
+              }
+            }
+          },
+          "description": "Email and optional role",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "owner or maintainer required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "user not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/members/{userId}": {
+      "put": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Change a member's role (owner only)",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "User id",
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRoleUpdateRequest"
+              }
+            }
+          },
+          "description": "New role",
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "empty role",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "owner only",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Remove a member (owner only)",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "User id",
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "owner only",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "servers": [
@@ -295,6 +1137,242 @@
           "status": {
             "type": "string",
             "example": "ok"
+          }
+        }
+      },
+      "LLMConfigResponse": {
+        "type": "object",
+        "required": [
+          "configured"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LLMModel"
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "LLMConfigUpsertRequest": {
+        "type": "object",
+        "required": [
+          "base_url",
+          "models"
+        ],
+        "properties": {
+          "api_key": {
+            "description": "optional on update",
+            "type": "string",
+            "example": "sk-ant-..."
+          },
+          "base_url": {
+            "type": "string",
+            "example": "https://api.anthropic.com"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LLMModel"
+            }
+          }
+        }
+      },
+      "LLMConfigUpsertResponse": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LLMModel": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "claude-opus-4-7"
+          },
+          "name": {
+            "type": "string",
+            "example": "Claude Opus 4.7"
+          }
+        }
+      },
+      "LLMQuotaResponse": {
+        "type": "object",
+        "required": [
+          "default_max_rpd",
+          "today_request_count"
+        ],
+        "properties": {
+          "default_max_rpd": {
+            "type": "integer"
+          },
+          "today_request_count": {
+            "type": "integer"
+          },
+          "workspace_quota": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LLMWorkspaceQuotaPart"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "LLMWorkspaceQuotaPart": {
+        "type": "object",
+        "required": [
+          "updated_at",
+          "workspace_id"
+        ],
+        "properties": {
+          "max_rpd": {
+            "type": "integer",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "MemberAddRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "alice@example.com"
+          },
+          "role": {
+            "description": "optional; defaults to \"developer\"",
+            "type": "string",
+            "example": "developer"
+          }
+        }
+      },
+      "MemberRoleUpdateRequest": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "example": "maintainer"
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "id",
+          "name",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "My Workspace"
+          }
+        }
+      },
+      "WorkspaceMember": {
+        "type": "object",
+        "required": [
+          "email",
+          "role",
+          "user_id"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "picture": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "example": "developer"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceQuotaResponse": {
+        "type": "object",
+        "required": [
+          "current",
+          "max"
+        ],
+        "properties": {
+          "current": {
+            "type": "integer"
+          },
+          "max": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkspaceRenameRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Renamed Workspace"
           }
         }
       }

@@ -4,19 +4,10 @@ import type { components } from './api-generated/schema'
 export type SandboxStatus = 'creating' | 'running' | 'pausing' | 'paused' | 'resuming' | 'offline'
 export type WorkspaceRole = 'owner' | 'maintainer' | 'developer' | 'guest'
 
-export interface Workspace {
-  id: string
-  name: string
-  created_at: string
-  updated_at: string
-}
-
-export interface WorkspaceMember {
-  user_id: string
-  email: string
-  role: WorkspaceRole
-  picture?: string
-}
+export type Workspace = components['schemas']['Workspace']
+export type WorkspaceMember = components['schemas']['WorkspaceMember']
+export type LLMModel = components['schemas']['LLMModel']
+export type WorkspaceLLMConfig = components['schemas']['LLMConfigResponse']
 
 export interface WeixinBinding {
   bot_id: string
@@ -163,95 +154,77 @@ export async function logout(): Promise<void> {
 
 // Workspace API
 
-async function checkQuotaError(res: Response): Promise<QuotaExceededError | ResourceBudgetExceededError | null> {
-  if (res.status !== 403) return null
-  try {
-    const body = await res.json()
-    if (body.error === 'quota_exceeded') return body as QuotaExceededError
-    if (body.error === 'resource_budget_exceeded') return body as ResourceBudgetExceededError
-  } catch {
-    // not a quota error
-  }
-  return null
-}
-
 export async function listWorkspaces(): Promise<Workspace[]> {
-  const res = await fetch('/api/workspaces')
-  if (!res.ok) throw new Error('Failed to list workspaces')
-  return res.json()
+  return apiFetch<Workspace[]>({ method: 'GET', path: '/api/workspaces' })
 }
 
 export async function createWorkspace(name?: string): Promise<Workspace> {
-  const res = await fetch('/api/workspaces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name || 'New Workspace' }),
-  })
-  if (!res.ok) {
-    const err = await checkQuotaError(res)
-    if (err) throw err
-    throw new Error('Failed to create workspace')
+  try {
+    return await apiFetch<Workspace>({
+      method: 'POST',
+      path: '/api/workspaces',
+      body: { name: name || 'New Workspace' } satisfies components['schemas']['WorkspaceCreateRequest'],
+    })
+  } catch (err) {
+    if (err instanceof ApiError) {
+      // Re-throw structured quota errors so callers can inspect .error / .message
+      const body = err.body as { error?: string; message?: string } | null | undefined
+      if (body?.error === 'quota_exceeded' || body?.error === 'resource_budget_exceeded') throw body
+    }
+    throw err
   }
-  return res.json()
 }
 
 export async function getWorkspace(id: string): Promise<Workspace> {
-  const res = await fetch(`/api/workspaces/${id}`)
-  if (!res.ok) throw new Error('Failed to get workspace')
-  return res.json()
+  return apiFetch<Workspace>({ method: 'GET', path: `/api/workspaces/${encodeURIComponent(id)}` })
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to delete workspace')
+  await apiFetch<void>({ method: 'DELETE', path: `/api/workspaces/${encodeURIComponent(id)}` })
 }
 
 export async function renameWorkspace(id: string, name: string): Promise<Workspace> {
-  const res = await fetch(`/api/workspaces/${id}`, {
+  return apiFetch<Workspace>({
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    path: `/api/workspaces/${encodeURIComponent(id)}`,
+    body: { name } satisfies components['schemas']['WorkspaceRenameRequest'],
   })
-  if (!res.ok) throw new Error('Failed to rename workspace')
-  return res.json()
 }
 
-export async function getWorkspacesQuota(): Promise<WorkspacesQuota> {
-  const res = await fetch('/api/workspaces/quota')
-  if (!res.ok) throw new Error('Failed to get workspaces quota')
-  return res.json()
+export async function getWorkspacesQuota(): Promise<components['schemas']['WorkspaceQuotaResponse']> {
+  return apiFetch<components['schemas']['WorkspaceQuotaResponse']>({ method: 'GET', path: '/api/workspaces/quota' })
 }
 
 // Workspace member API
 
 export async function listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/members`)
-  if (!res.ok) throw new Error('Failed to list members')
-  return res.json()
+  return apiFetch<WorkspaceMember[]>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+  })
 }
 
 export async function addMember(workspaceId: string, email: string, role?: string): Promise<WorkspaceMember> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/members`, {
+  return apiFetch<WorkspaceMember>({
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, role: role || 'developer' }),
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+    body: { email, role: role ?? 'developer' } satisfies components['schemas']['MemberAddRequest'],
   })
-  if (!res.ok) throw new Error('Failed to add member')
-  return res.json()
 }
 
 export async function updateMemberRole(workspaceId: string, userId: string, role: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/members/${userId}`, {
+  await apiFetch<void>({
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role }),
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    body: { role } satisfies components['schemas']['MemberRoleUpdateRequest'],
   })
-  if (!res.ok) throw new Error('Failed to update member role')
 }
 
 export async function removeMember(workspaceId: string, userId: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/members/${userId}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to remove member')
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+  })
 }
 
 // Sandbox API
@@ -270,54 +243,40 @@ export async function getWorkspaceDefaults(workspaceId: string): Promise<Workspa
   return res.json()
 }
 
-export interface WorkspaceLLMQuota {
-  default_max_rpd: number
-  workspace_quota: { workspace_id: string; max_rpd: number | null; updated_at: string } | null
-  today_request_count: number
-}
+export type WorkspaceLLMQuota = components['schemas']['LLMQuotaResponse']
 
 export async function getWorkspaceLLMQuota(workspaceId: string): Promise<WorkspaceLLMQuota> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/llm-quota`)
-  if (!res.ok) throw new Error('Failed to get LLM quota')
-  return res.json()
+  return apiFetch<WorkspaceLLMQuota>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/llm-quota`,
+  })
 }
 
 // Workspace BYOK LLM config
 
-export interface LLMModel {
-  id: string
-  name: string
-}
-
-export interface WorkspaceLLMConfig {
-  configured: boolean
-  base_url?: string
-  api_key?: string
-  models?: LLMModel[]
-  updated_at?: string
-}
-
 export async function getWorkspaceLLMConfig(workspaceId: string): Promise<WorkspaceLLMConfig> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/llm-config`)
-  if (!res.ok) throw new Error('Failed to get LLM config')
-  return res.json()
+  return apiFetch<WorkspaceLLMConfig>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/llm-config`,
+  })
 }
 
 export async function setWorkspaceLLMConfig(
   workspaceId: string,
   config: { base_url: string; api_key: string; models: LLMModel[] }
 ): Promise<void> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/llm-config`, {
+  await apiFetch<components['schemas']['LLMConfigUpsertResponse']>({
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/llm-config`,
+    body: config satisfies components['schemas']['LLMConfigUpsertRequest'],
   })
-  if (!res.ok) throw new Error('Failed to set LLM config')
 }
 
 export async function deleteWorkspaceLLMConfig(workspaceId: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/llm-config`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to delete LLM config')
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/llm-config`,
+  })
 }
 
 // ModelServer connection
@@ -338,6 +297,21 @@ export async function getModelserverStatus(workspaceId: string): Promise<Modelse
 export async function disconnectModelserver(workspaceId: string): Promise<void> {
   const res = await fetch(`/api/workspaces/${workspaceId}/modelserver/disconnect`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to disconnect')
+}
+
+// checkQuotaError parses a 403 response body and returns a structured
+// quota error if present, so non-apiFetch callers (e.g. createSandbox)
+// can rethrow structured errors for UI inspection.
+async function checkQuotaError(res: Response): Promise<QuotaExceededError | ResourceBudgetExceededError | null> {
+  if (res.status !== 403) return null
+  try {
+    const body = await res.json()
+    if (body.error === 'quota_exceeded') return body as QuotaExceededError
+    if (body.error === 'resource_budget_exceeded') return body as ResourceBudgetExceededError
+  } catch {
+    // not a quota error
+  }
+  return null
 }
 
 export async function listSandboxes(workspaceId: string): Promise<Sandbox[]> {
@@ -875,11 +849,6 @@ export interface ResourceBudgetExceededError {
   message: string
 }
 
-export interface WorkspacesQuota {
-  current: number
-  max: number
-}
-
 // Admin quota API
 
 export async function adminGetQuotaDefaults(): Promise<QuotaDefaults> {
@@ -957,11 +926,7 @@ export async function adminDeleteWorkspaceQuota(workspaceId: string): Promise<vo
 }
 
 // LLM Quota management (proxied to llmproxy)
-export interface LLMQuotaResponse {
-  default_max_rpd: number
-  workspace_quota: { workspace_id: string; max_rpd: number | null; updated_at: string } | null
-  today_request_count: number
-}
+export type LLMQuotaResponse = components['schemas']['LLMQuotaResponse']
 
 export async function adminGetWorkspaceLLMQuota(workspaceId: string): Promise<LLMQuotaResponse> {
   const res = await fetch(`/api/admin/workspaces/${workspaceId}/llm-quota`)
