@@ -1,4 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { login, register, getOIDCProviders } from '../lib/api'
 
 interface LoginProps {
@@ -65,7 +66,9 @@ export function Login({ onSuccess }: LoginProps) {
     <div className="flex min-h-screen flex-col items-center justify-center">
       <div className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 shadow-lg">
         <h1 className="mb-6 text-center text-xl font-semibold text-[var(--card-foreground)]">
-          agentserver
+          <Link to="/" className="hover:text-[var(--muted-foreground)] transition-colors">
+            ← agentserver
+          </Link>
         </h1>
         {!providersLoaded && (
           <div className="flex justify-center py-4">
