@@ -157,7 +157,7 @@ func (s *Server) handleRegisterExecutor(w http.ResponseWriter, r *http.Request) 
 		issuer := s.CodexAuthIssuerURL
 		resp.ConnectCommands = ConnectCommands{
 			AgentIdentity: fmt.Sprintf(
-				"export CODEX_ACCESS_TOKEN='%s'\nexport CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL='%s'\ncodex -c chatgpt_base_url='%s' exec-server --remote '%s' --executor-id '%s' --name '%s' --use-agent-identity-auth",
+				"export CODEX_ACCESS_TOKEN='%s'\nexport CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL='%s'\ncodex -c chatgpt_base_url='%s' exec-server --remote '%s' --environment-id '%s' --name '%s' --use-agent-identity-auth",
 				aiResult.JWT, issuer, issuer, gatewayURL, reg.ExeID, req.Name),
 		}
 		resp.ConnectCommand = resp.ConnectCommands.AgentIdentity

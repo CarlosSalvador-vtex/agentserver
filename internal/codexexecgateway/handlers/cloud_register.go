@@ -96,7 +96,13 @@ func (v *AgentserverValidator) Validate(ctx context.Context, req map[string]stri
 // dev / direct in-cluster use.
 func CloudRegister(store CloudRegisterStore, publicWSBaseURL string, validator AgentserverValidator, wsTicketSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// codex 0.132 path: /cloud/executor/{exe_id}/register
+		// codex 0.133+ path: /cloud/environment/{env_id}/register
+		// Same handler, same id semantics — just two URL shapes.
 		exeID := chi.URLParam(r, "exe_id")
+		if exeID == "" {
+			exeID = chi.URLParam(r, "env_id")
+		}
 		if exeID == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exe_id required"})
 			return
