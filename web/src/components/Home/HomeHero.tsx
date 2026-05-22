@@ -1,29 +1,15 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useT } from '../../lib/i18n'
 import { homeStrings } from './strings'
 
 export function HomeHero() {
   const t = useT(homeStrings)
-  // Hero is always above the fold on page load, so no IntersectionObserver —
-  // just kick off the animation after mount. Reduced-motion users get the
-  // final state immediately on the very first render via the lazy initializer
-  // below (no flash of empty content).
-  const [started, setStarted] = useState(() => {
-    if (typeof window === 'undefined') return true
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  })
-
-  useEffect(() => {
-    if (started) return
-    // Defer one frame so the initial opacity:0 paint registers before we
-    // flip data-started, otherwise some browsers skip the animation.
-    const raf = requestAnimationFrame(() => setStarted(true))
-    return () => cancelAnimationFrame(raf)
-  }, [started])
-
+  // Animation is pure CSS, auto-starts at page load. No JS gating — the hero
+  // is always above the fold, and the prior IntersectionObserver / state-flip
+  // approach silently failed in some production builds (data-started never
+  // flipped, every .ln / .bubble stayed opacity:0 → invisible).
   return (
-    <section className="pt-12 pb-20" data-started={started ? 'true' : 'false'}>
+    <section className="pt-12 pb-20">
       <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-10 items-start">
         {/* Left: heading + CTAs */}
         <div>
@@ -88,15 +74,14 @@ export function HomeHero() {
       </div>
 
       <style>{`
-        .hero-demo .ln,
+        .hero-demo .ln {
+          opacity: 0;
+          transform: translateY(4px);
+          animation: heroFadeIn 280ms ease-out forwards;
+        }
         .hero-demo .bubble {
           opacity: 0;
           transform: translateY(4px);
-        }
-        .hero-demo[data-started="true"] .ln {
-          animation: heroFadeIn 280ms ease-out forwards;
-        }
-        .hero-demo[data-started="true"] .bubble {
           animation: heroBubble 220ms ease-out forwards;
         }
         @keyframes heroFadeIn {
@@ -108,9 +93,9 @@ export function HomeHero() {
         @media (prefers-reduced-motion: reduce) {
           .hero-demo .ln,
           .hero-demo .bubble {
-            opacity: 1 !important;
-            transform: none !important;
-            animation: none !important;
+            opacity: 1;
+            transform: none;
+            animation: none;
           }
         }
       `}</style>
