@@ -1,37 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useT } from '../../lib/i18n'
 import { homeStrings } from './strings'
 
 export function HomeHero() {
   const t = useT(homeStrings)
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [started, setStarted] = useState(false)
+  // Hero is always above the fold on page load, so no IntersectionObserver —
+  // just kick off the animation after mount. Reduced-motion users get the
+  // final state immediately on the very first render via the lazy initializer
+  // below (no flash of empty content).
+  const [started, setStarted] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  })
 
   useEffect(() => {
     if (started) return
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduce) {
-      setStarted(true) // eslint-disable-line react-hooks/set-state-in-effect
-      return
-    }
-    const node = ref.current
-    if (!node) return
-    const obs = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          setStarted(true)
-          obs.disconnect()
-          break
-        }
-      }
-    }, { threshold: 0.25 })
-    obs.observe(node)
-    return () => obs.disconnect()
+    // Defer one frame so the initial opacity:0 paint registers before we
+    // flip data-started, otherwise some browsers skip the animation.
+    const raf = requestAnimationFrame(() => setStarted(true))
+    return () => cancelAnimationFrame(raf)
   }, [started])
 
   return (
-    <section ref={ref} className="pt-12 pb-20" data-started={started ? 'true' : 'false'}>
+    <section className="pt-12 pb-20" data-started={started ? 'true' : 'false'}>
       <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-10 items-start">
         {/* Left: heading + CTAs */}
         <div>
@@ -73,19 +65,19 @@ export function HomeHero() {
             <Term
               title={t('hero.term.macbook')}
               lines={[
-                { delay: 400,  text: '$ codex relay "把 experiment_0521.csv', kind: 'cmd' },
-                { delay: 700,  text: '   在沙箱里画成图发我"',                kind: 'cmd' },
-                { delay: 1100, text: '▸ found experiment_0521.csv (124MB)',  kind: 'dim' },
-                { delay: 1500, text: '▸ relaying to cloud-sandbox-7…',       kind: 'dim' },
+                { delay: 200,  text: '$ codex relay "把 experiment_0521.csv', kind: 'cmd' },
+                { delay: 400,  text: '   在沙箱里画成图发我"',                kind: 'cmd' },
+                { delay: 600,  text: '▸ found experiment_0521.csv (124MB)',  kind: 'dim' },
+                { delay: 800,  text: '▸ relaying to cloud-sandbox-7…',       kind: 'dim' },
               ]}
             />
             <Term
               title={t('hero.term.sandbox')}
               lines={[
-                { delay: 3000, text: '▸ pandas: 5 conditions × 12 trials',  kind: 'dim' },
-                { delay: 3400, text: '▸ matplotlib: boxplot + error bars',  kind: 'dim' },
-                { delay: 4400, text: '✓ saved plot.png (412KB)',            kind: 'ok'  },
-                { delay: 4900, text: '▸ uploading via imbridge…',           kind: 'dim' },
+                { delay: 1200, text: '▸ pandas: 5 conditions × 12 trials',  kind: 'dim' },
+                { delay: 1400, text: '▸ matplotlib: boxplot + error bars',  kind: 'dim' },
+                { delay: 1800, text: '✓ saved plot.png (412KB)',            kind: 'ok'  },
+                { delay: 2000, text: '▸ uploading via imbridge…',           kind: 'dim' },
               ]}
             />
           </div>
@@ -158,10 +150,10 @@ function Term({ title, lines }: { title: string; lines: TermLine[] }) {
 function ChatPane({ t }: { t: (k: string) => string }) {
   type Bubble = { delay: number; who: 'me' | 'bot'; text: string; thumb?: boolean }
   const bubbles: Bubble[] = [
-    { delay: 5500, who: 'me',  text: t('hero.chat.user') },
-    { delay: 6000, who: 'bot', text: t('hero.chat.bot1') },
-    { delay: 7000, who: 'bot', text: t('hero.chat.bot2') },
-    { delay: 8500, who: 'bot', text: t('hero.chat.bot3'), thumb: true },
+    { delay: 600,  who: 'me',  text: t('hero.chat.user') },
+    { delay: 1000, who: 'bot', text: t('hero.chat.bot1') },
+    { delay: 2200, who: 'bot', text: t('hero.chat.bot2') },
+    { delay: 3200, who: 'bot', text: t('hero.chat.bot3'), thumb: true },
   ]
   return (
     <div className="rounded-md border border-[var(--home-term-border)] bg-[#ededed] dark:bg-[#1a1a1a] overflow-hidden">
