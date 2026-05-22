@@ -126,3 +126,49 @@ type LLMConfigUpsertRequest struct {
 type LLMConfigUpsertResponse struct {
 	OK bool `json:"ok" validate:"required"`
 } // @name LLMConfigUpsertResponse
+
+// --- Sandboxes ---
+
+// SandboxCreateRequest is the body for POST /api/workspaces/{wid}/sandboxes.
+// All fields except name are optional and fall back to workspace/server defaults.
+type SandboxCreateRequest struct {
+	Name        string                 `json:"name" validate:"required" example:"my-sandbox"`
+	Type        string                 `json:"type" example:"opencode"`    // optional; default "opencode"
+	CPU         *int                   `json:"cpu"`                        // optional; millicores, e.g. 500 or 2000
+	Memory      *int64                 `json:"memory"`                     // optional; bytes, e.g. 536870912 (512Mi)
+	IdleTimeout *int                   `json:"idle_timeout"`               // optional; seconds
+	Metadata    map[string]interface{} `json:"metadata"`                   // optional; arbitrary key-value metadata
+} // @name SandboxCreateRequest
+
+// SandboxRenameRequest is the body for PATCH /api/sandboxes/{id}.
+type SandboxRenameRequest struct {
+	Name string `json:"name" validate:"required" example:"renamed-sandbox"`
+} // @name SandboxRenameRequest
+
+// SandboxLifecycleStatusResponse is the {"status": "pausing"} envelope returned
+// by POST /api/sandboxes/{id}/pause and /resume. The status reflects the
+// transition initiated, not the final state (those are async).
+type SandboxLifecycleStatusResponse struct {
+	Status string `json:"status" validate:"required" example:"pausing"`
+} // @name SandboxLifecycleStatusResponse
+
+// SandboxUsageSummary is one row in the per-provider/model breakdown returned
+// by GET /api/sandboxes/{id}/usage. It mirrors llmproxy.UsageSummary.
+type SandboxUsageSummary struct {
+	Provider                 string `json:"provider" validate:"required" example:"anthropic"`
+	Model                    string `json:"model" validate:"required" example:"claude-sonnet-4-6"`
+	InputTokens              int64  `json:"input_tokens" validate:"required"`
+	OutputTokens             int64  `json:"output_tokens" validate:"required"`
+	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens" validate:"required"`
+	CacheReadInputTokens     int64  `json:"cache_read_input_tokens" validate:"required"`
+	RequestCount             int64  `json:"request_count" validate:"required"`
+} // @name SandboxUsageSummary
+
+// SandboxUsageResponse mirrors the body the LLM proxy returns from its
+// /internal/usage?sandbox_id={id} endpoint, forwarded verbatim by
+// GET /api/sandboxes/{id}/usage. usage is the per-provider/model breakdown;
+// since is set only when the caller supplied a ?since= query param.
+type SandboxUsageResponse struct {
+	Usage []SandboxUsageSummary `json:"usage" validate:"required"`
+	Since *string               `json:"since,omitempty" extensions:"x-nullable=true" example:"2026-01-01T00:00:00Z"`
+} // @name SandboxUsage

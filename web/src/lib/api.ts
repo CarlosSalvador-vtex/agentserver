@@ -9,18 +9,9 @@ export type WorkspaceMember = components['schemas']['WorkspaceMember']
 export type LLMModel = components['schemas']['LLMModel']
 export type WorkspaceLLMConfig = components['schemas']['LLMConfigResponse']
 
-export interface WeixinBinding {
-  bot_id: string
-  user_id: string
-  bound_at: string
-}
+export type WeixinBinding = components['schemas']['IMBinding']
 
-export interface IMBinding {
-  provider: string
-  bot_id: string
-  user_id?: string
-  bound_at: string
-}
+export type IMBinding = components['schemas']['IMBinding']
 
 export interface TelegramConfigureResult {
   connected: boolean
@@ -34,46 +25,12 @@ export interface MatrixConfigureResult {
   user_id: string
 }
 
-export interface Sandbox {
-  id: string
-  workspace_id: string
-  name: string
-  type: string
-  status: SandboxStatus
-  opencode_url?: string
-  openclaw_url?: string
-  claudecode_url?: string
-  jupyter_url?: string
-  custom_url?: string
-  created_at: string
-  last_activity_at: string | null
-  paused_at: string | null
-  is_local: boolean
-  last_heartbeat_at?: string | null
-  cpu?: number
-  memory?: number
-  idle_timeout?: number
-  agent_info?: AgentInfo
-  weixin_bindings?: WeixinBinding[]
-  im_bindings?: IMBinding[]
-}
+export type Sandbox = components['schemas']['Sandbox']
+export type SandboxCreateRequest = components['schemas']['SandboxCreateRequest']
+export type SandboxUsage = components['schemas']['SandboxUsage']
+export type SandboxUsageSummary = components['schemas']['SandboxUsageSummary']
 
-export interface AgentInfo {
-  hostname: string
-  os: string
-  platform: string
-  platform_version: string
-  kernel_arch: string
-  cpu_model_name: string
-  cpu_count_logical: number
-  memory_total: number
-  disk_total: number
-  disk_free: number
-  agent_version: string
-  opencode_version: string
-  workdir: string
-  updated_at: string
-}
+export type AgentInfo = components['schemas']['AgentInfo']
 
 export async function login(email: string, password: string): Promise<boolean> {
   try {
@@ -299,25 +256,12 @@ export async function disconnectModelserver(workspaceId: string): Promise<void> 
   if (!res.ok) throw new Error('Failed to disconnect')
 }
 
-// checkQuotaError parses a 403 response body and returns a structured
-// quota error if present, so non-apiFetch callers (e.g. createSandbox)
-// can rethrow structured errors for UI inspection.
-async function checkQuotaError(res: Response): Promise<QuotaExceededError | ResourceBudgetExceededError | null> {
-  if (res.status !== 403) return null
-  try {
-    const body = await res.json()
-    if (body.error === 'quota_exceeded') return body as QuotaExceededError
-    if (body.error === 'resource_budget_exceeded') return body as ResourceBudgetExceededError
-  } catch {
-    // not a quota error
-  }
-  return null
-}
 
 export async function listSandboxes(workspaceId: string): Promise<Sandbox[]> {
-  const res = await fetch(`/api/workspaces/${workspaceId}/sandboxes`)
-  if (!res.ok) throw new Error('Failed to list sandboxes')
-  return res.json()
+  return apiFetch<Sandbox[]>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/sandboxes`,
+  })
 }
 
 export async function createSandbox(
@@ -329,56 +273,64 @@ export async function createSandbox(
   idleTimeout?: number,
   metadata?: Record<string, unknown>,
 ): Promise<Sandbox> {
-  const body: Record<string, unknown> = {
+  const body: SandboxCreateRequest = {
     name: name || 'New Sandbox',
     type: type || 'opencode',
+    ...(cpu !== undefined && { cpu }),
+    ...(memory !== undefined && { memory }),
+    ...(idleTimeout !== undefined && { idle_timeout: idleTimeout }),
+    ...(metadata !== undefined && { metadata }),
   }
-  if (cpu !== undefined) body.cpu = cpu
-  if (memory !== undefined) body.memory = memory
-  if (idleTimeout !== undefined) body.idle_timeout = idleTimeout
-  if (metadata !== undefined) body.metadata = metadata
-  const res = await fetch(`/api/workspaces/${workspaceId}/sandboxes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await checkQuotaError(res)
-    if (err) throw err
-    throw new Error('Failed to create sandbox')
+  try {
+    return await apiFetch<Sandbox>({
+      method: 'POST',
+      path: `/api/workspaces/${encodeURIComponent(workspaceId)}/sandboxes`,
+      body,
+    })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      const errBody = err.body as Record<string, unknown> | null
+      if (errBody?.error === 'quota_exceeded') throw errBody as unknown as QuotaExceededError
+      if (errBody?.error === 'resource_budget_exceeded') throw errBody as unknown as ResourceBudgetExceededError
+    }
+    throw err
   }
-  return res.json()
 }
 
 export async function getSandbox(id: string): Promise<Sandbox> {
-  const res = await fetch(`/api/sandboxes/${id}`)
-  if (!res.ok) throw new Error('Failed to get sandbox')
-  return res.json()
+  return apiFetch<Sandbox>({
+    method: 'GET',
+    path: `/api/sandboxes/${encodeURIComponent(id)}`,
+  })
 }
 
 export async function deleteSandbox(id: string): Promise<void> {
-  const res = await fetch(`/api/sandboxes/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to delete sandbox')
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/sandboxes/${encodeURIComponent(id)}`,
+  })
 }
 
 export async function renameSandbox(id: string, name: string): Promise<Sandbox> {
-  const res = await fetch(`/api/sandboxes/${id}`, {
+  return apiFetch<Sandbox>({
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    path: `/api/sandboxes/${encodeURIComponent(id)}`,
+    body: { name } satisfies components['schemas']['SandboxRenameRequest'],
   })
-  if (!res.ok) throw new Error('Failed to rename sandbox')
-  return res.json()
 }
 
-export async function pauseSandbox(id: string): Promise<void> {
-  const res = await fetch(`/api/sandboxes/${id}/pause`, { method: 'POST' })
-  if (!res.ok) throw new Error('Failed to pause sandbox')
+export async function pauseSandbox(id: string): Promise<components['schemas']['SandboxLifecycleStatusResponse']> {
+  return apiFetch<components['schemas']['SandboxLifecycleStatusResponse']>({
+    method: 'POST',
+    path: `/api/sandboxes/${encodeURIComponent(id)}/pause`,
+  })
 }
 
-export async function resumeSandbox(id: string): Promise<void> {
-  const res = await fetch(`/api/sandboxes/${id}/resume`, { method: 'POST' })
-  if (!res.ok) throw new Error('Failed to resume sandbox')
+export async function resumeSandbox(id: string): Promise<components['schemas']['SandboxLifecycleStatusResponse']> {
+  return apiFetch<components['schemas']['SandboxLifecycleStatusResponse']>({
+    method: 'POST',
+    path: `/api/sandboxes/${encodeURIComponent(id)}/resume`,
+  })
 }
 
 // WeChat QR Login API
@@ -638,15 +590,8 @@ export async function unbindSandboxFromChannel(sandboxId: string): Promise<void>
 
 // Usage & Traces API
 
-export interface UsageSummary {
-  provider: string
-  model: string
-  input_tokens: number
-  output_tokens: number
-  cache_creation_input_tokens: number
-  cache_read_input_tokens: number
-  request_count: number
-}
+/** @deprecated use SandboxUsageSummary (generated alias) */
+export type UsageSummary = SandboxUsageSummary
 
 export interface TraceItem {
   id: string
@@ -663,19 +608,19 @@ export interface TraceItem {
   models: string
 }
 
-export interface UsageResponse {
-  usage: UsageSummary[]
-}
+/** @deprecated use SandboxUsage (generated alias) */
+export type UsageResponse = SandboxUsage
 
 export interface TracesResponse {
   traces: TraceItem[]
   total: number
 }
 
-export async function getSandboxUsage(id: string): Promise<UsageResponse> {
-  const res = await fetch(`/api/sandboxes/${id}/usage`)
-  if (!res.ok) throw new Error('Failed to get sandbox usage')
-  return res.json()
+export async function getSandboxUsage(id: string): Promise<SandboxUsage> {
+  return apiFetch<SandboxUsage>({
+    method: 'GET',
+    path: `/api/sandboxes/${encodeURIComponent(id)}/usage`,
+  })
 }
 
 export async function getSandboxTraces(id: string, limit: number, offset: number): Promise<TracesResponse> {

@@ -195,6 +195,454 @@
         }
       }
     },
+    "/api/sandboxes/{id}": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Get a sandbox by id",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sandbox"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Delete a sandbox",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Rename a sandbox",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxRenameRequest"
+              }
+            }
+          },
+          "description": "New name",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sandbox"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "name required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandboxes/{id}/pause": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Initiates pause transition; returns {\"status\":\"pausing\"}. Final state lands asynchronously.",
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Pause a sandbox (cloud sandboxes only)",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxLifecycleStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "local sandbox cannot be paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "invalid state for pause",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandboxes/{id}/resume": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Initiates resume transition; returns {\"status\":\"resuming\"}. Final state lands asynchronously.",
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Resume a paused sandbox (cloud sandboxes only)",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxLifecycleStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "local sandbox cannot be resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "invalid state for resume",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandboxes/{id}/usage": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Get sandbox usage stats",
+        "parameters": [
+          {
+            "description": "Sandbox id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxUsage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "sandbox not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces": {
       "get": {
         "security": [
@@ -1036,6 +1484,141 @@
           }
         }
       }
+    },
+    "/api/workspaces/{wid}/sandboxes": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "List sandboxes in a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Sandbox"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Validates type / CPU / memory / idle_timeout / quota / budget. Returns 201 immediately with status=\"provisioning\"; container starts asynchronously.",
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Create a sandbox in a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxCreateRequest"
+              }
+            }
+          },
+          "description": "Create payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sandbox"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation error (type/cpu/memory/idle_timeout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient role / quota / budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "servers": [
@@ -1066,6 +1649,69 @@
       }
     },
     "schemas": {
+      "AgentInfo": {
+        "type": "object",
+        "required": [
+          "agent_version",
+          "cpu_count_logical",
+          "cpu_model_name",
+          "disk_free",
+          "disk_total",
+          "hostname",
+          "kernel_arch",
+          "memory_total",
+          "opencode_version",
+          "os",
+          "platform",
+          "platform_version",
+          "updated_at",
+          "workdir"
+        ],
+        "properties": {
+          "agent_version": {
+            "type": "string"
+          },
+          "cpu_count_logical": {
+            "type": "integer"
+          },
+          "cpu_model_name": {
+            "type": "string"
+          },
+          "disk_free": {
+            "type": "integer"
+          },
+          "disk_total": {
+            "type": "integer"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "kernel_arch": {
+            "type": "string"
+          },
+          "memory_total": {
+            "type": "integer"
+          },
+          "opencode_version": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "platform_version": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          }
+        }
+      },
       "AuthCredentials": {
         "type": "object",
         "required": [
@@ -1137,6 +1783,28 @@
           "status": {
             "type": "string",
             "example": "ok"
+          }
+        }
+      },
+      "IMBinding": {
+        "type": "object",
+        "required": [
+          "bot_id",
+          "bound_at",
+          "provider"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string"
+          },
+          "bound_at": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
           }
         }
       },
@@ -1287,6 +1955,212 @@
           "role": {
             "type": "string",
             "example": "maintainer"
+          }
+        }
+      },
+      "Sandbox": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "id",
+          "is_local",
+          "name",
+          "status",
+          "type",
+          "workspace_id"
+        ],
+        "properties": {
+          "agent_info": {
+            "$ref": "#/components/schemas/AgentInfo"
+          },
+          "claudecode_url": {
+            "type": "string"
+          },
+          "cpu": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "custom_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "idle_timeout": {
+            "type": "integer"
+          },
+          "im_bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IMBinding"
+            }
+          },
+          "is_local": {
+            "type": "boolean"
+          },
+          "jupyter_url": {
+            "type": "string"
+          },
+          "last_activity_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_heartbeat_at": {
+            "type": "string"
+          },
+          "memory": {
+            "type": "integer"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "openclaw_url": {
+            "type": "string"
+          },
+          "opencode_url": {
+            "type": "string"
+          },
+          "paused_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "short_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "weixin_bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IMBinding"
+            }
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SandboxCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "cpu": {
+            "description": "optional; millicores, e.g. 500 or 2000",
+            "type": "integer"
+          },
+          "idle_timeout": {
+            "description": "optional; seconds",
+            "type": "integer"
+          },
+          "memory": {
+            "description": "optional; bytes, e.g. 536870912 (512Mi)",
+            "type": "integer"
+          },
+          "metadata": {
+            "description": "optional; arbitrary key-value metadata",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "name": {
+            "type": "string",
+            "example": "my-sandbox"
+          },
+          "type": {
+            "description": "optional; default \"opencode\"",
+            "type": "string",
+            "example": "opencode"
+          }
+        }
+      },
+      "SandboxLifecycleStatusResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "pausing"
+          }
+        }
+      },
+      "SandboxRenameRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "renamed-sandbox"
+          }
+        }
+      },
+      "SandboxUsage": {
+        "type": "object",
+        "required": [
+          "usage"
+        ],
+        "properties": {
+          "since": {
+            "type": "string",
+            "example": "2026-01-01T00:00:00Z",
+            "nullable": true
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SandboxUsageSummary"
+            }
+          }
+        }
+      },
+      "SandboxUsageSummary": {
+        "type": "object",
+        "required": [
+          "cache_creation_input_tokens",
+          "cache_read_input_tokens",
+          "input_tokens",
+          "model",
+          "output_tokens",
+          "provider",
+          "request_count"
+        ],
+        "properties": {
+          "cache_creation_input_tokens": {
+            "type": "integer"
+          },
+          "cache_read_input_tokens": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string",
+            "example": "claude-sonnet-4-6"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string",
+            "example": "anthropic"
+          },
+          "request_count": {
+            "type": "integer"
           }
         }
       },

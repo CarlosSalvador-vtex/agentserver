@@ -773,45 +773,45 @@ type workspaceMemberResponse struct {
 } // @name WorkspaceMember
 
 type agentInfoResponse struct {
-	Hostname        string `json:"hostname"`
-	OS              string `json:"os"`
-	Platform        string `json:"platform"`
-	PlatformVersion string `json:"platform_version"`
-	KernelArch      string `json:"kernel_arch"`
-	CPUModelName    string `json:"cpu_model_name"`
-	CPUCountLogical int    `json:"cpu_count_logical"`
-	MemoryTotal     int64  `json:"memory_total"`
-	DiskTotal       int64  `json:"disk_total"`
-	DiskFree        int64  `json:"disk_free"`
-	AgentVersion    string `json:"agent_version"`
-	OpencodeVersion string `json:"opencode_version"`
-	Workdir         string `json:"workdir"`
-	UpdatedAt       string `json:"updated_at"`
-}
+	Hostname        string `json:"hostname" validate:"required"`
+	OS              string `json:"os" validate:"required"`
+	Platform        string `json:"platform" validate:"required"`
+	PlatformVersion string `json:"platform_version" validate:"required"`
+	KernelArch      string `json:"kernel_arch" validate:"required"`
+	CPUModelName    string `json:"cpu_model_name" validate:"required"`
+	CPUCountLogical int    `json:"cpu_count_logical" validate:"required"`
+	MemoryTotal     int64  `json:"memory_total" validate:"required"`
+	DiskTotal       int64  `json:"disk_total" validate:"required"`
+	DiskFree        int64  `json:"disk_free" validate:"required"`
+	AgentVersion    string `json:"agent_version" validate:"required"`
+	OpencodeVersion string `json:"opencode_version" validate:"required"`
+	Workdir         string `json:"workdir" validate:"required"`
+	UpdatedAt       string `json:"updated_at" validate:"required"`
+} // @name AgentInfo
 
 type imBindingResponse struct {
-	Provider string `json:"provider"`
-	BotID    string `json:"bot_id"`
+	Provider string `json:"provider" validate:"required"`
+	BotID    string `json:"bot_id" validate:"required"`
 	UserID   string `json:"user_id,omitempty"`
-	BoundAt  string `json:"bound_at"`
-}
+	BoundAt  string `json:"bound_at" validate:"required"`
+} // @name IMBinding
 
 type sandboxResponse struct {
-	ID              string  `json:"id"`
+	ID              string  `json:"id" validate:"required"`
 	ShortID         string  `json:"short_id,omitempty"`
-	WorkspaceID     string  `json:"workspace_id"`
-	Name            string  `json:"name"`
-	Type            string  `json:"type"`
-	Status          string  `json:"status"`
+	WorkspaceID     string  `json:"workspace_id" validate:"required"`
+	Name            string  `json:"name" validate:"required"`
+	Type            string  `json:"type" validate:"required"`
+	Status          string  `json:"status" validate:"required"`
 	OpencodeURL     string  `json:"opencode_url,omitempty"`
 	OpenclawURL     string  `json:"openclaw_url,omitempty"`
 	ClaudeCodeURL   string  `json:"claudecode_url,omitempty"`
 	JupyterURL      string  `json:"jupyter_url,omitempty"`
 	CustomURL       string  `json:"custom_url,omitempty"`
-	CreatedAt       string  `json:"created_at"`
-	LastActivityAt  *string `json:"last_activity_at"`
-	PausedAt        *string `json:"paused_at"`
-	IsLocal         bool    `json:"is_local"`
+	CreatedAt       string  `json:"created_at" validate:"required"`
+	LastActivityAt  *string `json:"last_activity_at" extensions:"x-nullable=true"`
+	PausedAt        *string `json:"paused_at" extensions:"x-nullable=true"`
+	IsLocal         bool    `json:"is_local" validate:"required"`
 	LastHeartbeatAt *string `json:"last_heartbeat_at,omitempty"`
 	CPU             int     `json:"cpu,omitempty"`
 	Memory          int64   `json:"memory,omitempty"`
@@ -820,7 +820,7 @@ type sandboxResponse struct {
 	WeixinBindings  []imBindingResponse    `json:"weixin_bindings,omitempty"`
 	IMBindings      []imBindingResponse    `json:"im_bindings,omitempty"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
-}
+} // @name Sandbox
 
 func (s *Server) toWorkspaceResponse(ws *db.Workspace) workspaceResponse {
 	return workspaceResponse{
@@ -1596,6 +1596,15 @@ func (s *Server) handleGetWorkspaceDefaults(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+//	@Summary   List sandboxes in a workspace
+//	@Tags      Sandboxes
+//	@Produce   json
+//	@Param     wid  path  string  true  "Workspace id"
+//	@Success   200  {array}   Sandbox
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/workspaces/{wid}/sandboxes [get]
 func (s *Server) handleListSandboxes(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "wid")
 	if _, ok := s.requireWorkspaceMember(w, r, wsID); !ok {
@@ -1613,6 +1622,19 @@ func (s *Server) handleListSandboxes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//	@Summary     Create a sandbox in a workspace
+//	@Description Validates type / CPU / memory / idle_timeout / quota / budget. Returns 201 immediately with status="provisioning"; container starts asynchronously.
+//	@Tags        Sandboxes
+//	@Accept      json
+//	@Produce     json
+//	@Param       wid   path      string                true  "Workspace id"
+//	@Param       body  body      SandboxCreateRequest  true  "Create payload"
+//	@Success     201   {object}  Sandbox
+//	@Failure     400   {string}  string  "validation error (type/cpu/memory/idle_timeout)"
+//	@Failure     403   {string}  string  "insufficient role / quota / budget"
+//	@Failure     500   {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/workspaces/{wid}/sandboxes [post]
 func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "wid")
 	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer", "developer") {
@@ -1648,14 +1670,7 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	cpuMillis := wd.MaxSandboxCPU   // already int millicores
 	memBytes := wd.MaxSandboxMemory // already int64 bytes
 
-	var req struct {
-		Name          string                 `json:"name"`
-		Type          string                 `json:"type"`
-		CPU           *int                   `json:"cpu"`
-		Memory        *int64                 `json:"memory"`
-		IdleTimeout   *int                   `json:"idle_timeout"`
-		Metadata      map[string]interface{} `json:"metadata"`
-	}
+	var req SandboxCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req.Name = "New Sandbox"
 	}
@@ -1867,6 +1882,16 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toSandboxResponse(r, sbx, authTokenFromRequest(r)))
 }
 
+//	@Summary   Get a sandbox by id
+//	@Tags      Sandboxes
+//	@Produce   json
+//	@Param     id  path  string  true  "Sandbox id"
+//	@Success   200  {object}  Sandbox
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   404  {string}  string  "sandbox not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id} [get]
 func (s *Server) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -1883,6 +1908,19 @@ func (s *Server) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//	@Summary   Rename a sandbox
+//	@Tags      Sandboxes
+//	@Accept    json
+//	@Produce   json
+//	@Param     id    path      string                true  "Sandbox id"
+//	@Param     body  body      SandboxRenameRequest  true  "New name"
+//	@Success   200   {object}  Sandbox
+//	@Failure   400   {string}  string  "name required"
+//	@Failure   403   {string}  string  "not a member"
+//	@Failure   404   {string}  string  "sandbox not found"
+//	@Failure   500   {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id} [patch]
 func (s *Server) handleRenameSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -1893,9 +1931,7 @@ func (s *Server) handleRenameSandbox(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireWorkspaceMember(w, r, sbx.WorkspaceID); !ok {
 		return
 	}
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req SandboxRenameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
@@ -1910,6 +1946,15 @@ func (s *Server) handleRenameSandbox(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toSandboxResponse(r, sbx, authTokenFromRequest(r)))
 }
 
+//	@Summary   Delete a sandbox
+//	@Tags      Sandboxes
+//	@Param     id  path  string  true  "Sandbox id"
+//	@Success   204
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   404  {string}  string  "sandbox not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id} [delete]
 func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -1964,6 +2009,19 @@ func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+//	@Summary     Pause a sandbox (cloud sandboxes only)
+//	@Description Initiates pause transition; returns {"status":"pausing"}. Final state lands asynchronously.
+//	@Tags        Sandboxes
+//	@Produce     json
+//	@Param       id  path  string  true  "Sandbox id"
+//	@Success     200  {object}  SandboxLifecycleStatusResponse
+//	@Failure     400  {string}  string  "local sandbox cannot be paused"
+//	@Failure     403  {string}  string  "not a member"
+//	@Failure     404  {string}  string  "sandbox not found"
+//	@Failure     409  {string}  string  "invalid state for pause"
+//	@Failure     500  {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/sandboxes/{id}/pause [post]
 func (s *Server) handlePauseSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -2010,9 +2068,22 @@ func (s *Server) handlePauseSandbox(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "pausing"})
+	json.NewEncoder(w).Encode(SandboxLifecycleStatusResponse{Status: "pausing"})
 }
 
+//	@Summary     Resume a paused sandbox (cloud sandboxes only)
+//	@Description Initiates resume transition; returns {"status":"resuming"}. Final state lands asynchronously.
+//	@Tags        Sandboxes
+//	@Produce     json
+//	@Param       id  path  string  true  "Sandbox id"
+//	@Success     200  {object}  SandboxLifecycleStatusResponse
+//	@Failure     400  {string}  string  "local sandbox cannot be resumed"
+//	@Failure     403  {string}  string  "not a member"
+//	@Failure     404  {string}  string  "sandbox not found"
+//	@Failure     409  {string}  string  "invalid state for resume"
+//	@Failure     500  {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/sandboxes/{id}/resume [post]
 func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)
@@ -2080,9 +2151,19 @@ func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "resuming"})
+	json.NewEncoder(w).Encode(SandboxLifecycleStatusResponse{Status: "resuming"})
 }
 
+//	@Summary   Get sandbox usage stats
+//	@Tags      Sandboxes
+//	@Produce   json
+//	@Param     id  path  string  true  "Sandbox id"
+//	@Success   200  {object}  SandboxUsage
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   404  {string}  string  "sandbox not found"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/sandboxes/{id}/usage [get]
 func (s *Server) handleSandboxUsage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sbx, ok := s.Sandboxes.Get(id)

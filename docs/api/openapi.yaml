@@ -122,6 +122,275 @@ paths:
       summary: Register a new user
       tags:
         - Auth
+  "/api/sandboxes/{id}":
+    delete:
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: not a member
+          content:
+            "*/*":
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Delete a sandbox
+      tags:
+        - Sandboxes
+    get:
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sandbox"
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get a sandbox by id
+      tags:
+        - Sandboxes
+    patch:
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SandboxRenameRequest"
+        description: New name
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sandbox"
+        "400":
+          description: name required
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Rename a sandbox
+      tags:
+        - Sandboxes
+  "/api/sandboxes/{id}/pause":
+    post:
+      description: Initiates pause transition; returns {"status":"pausing"}. Final
+        state lands asynchronously.
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxLifecycleStatusResponse"
+        "400":
+          description: local sandbox cannot be paused
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: invalid state for pause
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Pause a sandbox (cloud sandboxes only)
+      tags:
+        - Sandboxes
+  "/api/sandboxes/{id}/resume":
+    post:
+      description: Initiates resume transition; returns {"status":"resuming"}. Final
+        state lands asynchronously.
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxLifecycleStatusResponse"
+        "400":
+          description: local sandbox cannot be resumed
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: invalid state for resume
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Resume a paused sandbox (cloud sandboxes only)
+      tags:
+        - Sandboxes
+  "/api/sandboxes/{id}/usage":
+    get:
+      parameters:
+        - description: Sandbox id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxUsage"
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: sandbox not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get sandbox usage stats
+      tags:
+        - Sandboxes
   /api/workspaces:
     get:
       responses:
@@ -607,6 +876,89 @@ paths:
       summary: Change a member's role (owner only)
       tags:
         - Workspaces
+  "/api/workspaces/{wid}/sandboxes":
+    get:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Sandbox"
+                type: array
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List sandboxes in a workspace
+      tags:
+        - Sandboxes
+    post:
+      description: Validates type / CPU / memory / idle_timeout / quota / budget.
+        Returns 201 immediately with status="provisioning"; container starts
+        asynchronously.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SandboxCreateRequest"
+        description: Create payload
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sandbox"
+        "400":
+          description: validation error (type/cpu/memory/idle_timeout)
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: insufficient role / quota / budget
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Create a sandbox in a workspace
+      tags:
+        - Sandboxes
   /api/workspaces/quota:
     get:
       responses:
@@ -646,6 +998,52 @@ components:
       name: agentserver-token
       type: apiKey
   schemas:
+    AgentInfo:
+      properties:
+        agent_version:
+          type: string
+        cpu_count_logical:
+          type: integer
+        cpu_model_name:
+          type: string
+        disk_free:
+          type: integer
+        disk_total:
+          type: integer
+        hostname:
+          type: string
+        kernel_arch:
+          type: string
+        memory_total:
+          type: integer
+        opencode_version:
+          type: string
+        os:
+          type: string
+        platform:
+          type: string
+        platform_version:
+          type: string
+        updated_at:
+          type: string
+        workdir:
+          type: string
+      required:
+        - agent_version
+        - cpu_count_logical
+        - cpu_model_name
+        - disk_free
+        - disk_total
+        - hostname
+        - kernel_arch
+        - memory_total
+        - opencode_version
+        - os
+        - platform
+        - platform_version
+        - updated_at
+        - workdir
+      type: object
     AuthCredentials:
       properties:
         email:
@@ -697,6 +1095,21 @@ components:
           type: string
       required:
         - status
+      type: object
+    IMBinding:
+      properties:
+        bot_id:
+          type: string
+        bound_at:
+          type: string
+        provider:
+          type: string
+        user_id:
+          type: string
+      required:
+        - bot_id
+        - bound_at
+        - provider
       type: object
     LLMConfigResponse:
       properties:
@@ -798,6 +1211,151 @@ components:
           type: string
       required:
         - role
+      type: object
+    Sandbox:
+      properties:
+        agent_info:
+          $ref: "#/components/schemas/AgentInfo"
+        claudecode_url:
+          type: string
+        cpu:
+          type: integer
+        created_at:
+          type: string
+        custom_url:
+          type: string
+        id:
+          type: string
+        idle_timeout:
+          type: integer
+        im_bindings:
+          items:
+            $ref: "#/components/schemas/IMBinding"
+          type: array
+        is_local:
+          type: boolean
+        jupyter_url:
+          type: string
+        last_activity_at:
+          type: string
+          nullable: true
+        last_heartbeat_at:
+          type: string
+        memory:
+          type: integer
+        metadata:
+          additionalProperties: true
+          type: object
+        name:
+          type: string
+        openclaw_url:
+          type: string
+        opencode_url:
+          type: string
+        paused_at:
+          type: string
+          nullable: true
+        short_id:
+          type: string
+        status:
+          type: string
+        type:
+          type: string
+        weixin_bindings:
+          items:
+            $ref: "#/components/schemas/IMBinding"
+          type: array
+        workspace_id:
+          type: string
+      required:
+        - created_at
+        - id
+        - is_local
+        - name
+        - status
+        - type
+        - workspace_id
+      type: object
+    SandboxCreateRequest:
+      properties:
+        cpu:
+          description: optional; millicores, e.g. 500 or 2000
+          type: integer
+        idle_timeout:
+          description: optional; seconds
+          type: integer
+        memory:
+          description: optional; bytes, e.g. 536870912 (512Mi)
+          type: integer
+        metadata:
+          additionalProperties: true
+          description: optional; arbitrary key-value metadata
+          type: object
+        name:
+          example: my-sandbox
+          type: string
+        type:
+          description: optional; default "opencode"
+          example: opencode
+          type: string
+      required:
+        - name
+      type: object
+    SandboxLifecycleStatusResponse:
+      properties:
+        status:
+          example: pausing
+          type: string
+      required:
+        - status
+      type: object
+    SandboxRenameRequest:
+      properties:
+        name:
+          example: renamed-sandbox
+          type: string
+      required:
+        - name
+      type: object
+    SandboxUsage:
+      properties:
+        since:
+          example: 2026-01-01T00:00:00Z
+          type: string
+          nullable: true
+        usage:
+          items:
+            $ref: "#/components/schemas/SandboxUsageSummary"
+          type: array
+      required:
+        - usage
+      type: object
+    SandboxUsageSummary:
+      properties:
+        cache_creation_input_tokens:
+          type: integer
+        cache_read_input_tokens:
+          type: integer
+        input_tokens:
+          type: integer
+        model:
+          example: claude-sonnet-4-6
+          type: string
+        output_tokens:
+          type: integer
+        provider:
+          example: anthropic
+          type: string
+        request_count:
+          type: integer
+      required:
+        - cache_creation_input_tokens
+        - cache_read_input_tokens
+        - input_tokens
+        - model
+        - output_tokens
+        - provider
+        - request_count
       type: object
     Workspace:
       properties:
