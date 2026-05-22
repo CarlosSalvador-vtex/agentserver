@@ -122,6 +122,143 @@ paths:
       summary: Register a new user
       tags:
         - Auth
+  /api/codex/tokens:
+    get:
+      parameters:
+        - description: Workspace id
+          in: query
+          name: workspace_id
+          required: true
+          schema:
+            type: string
+        - description: Include revoked tokens (default false)
+          in: query
+          name: include_revoked
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/CodexTokenListItem"
+                type: array
+        "400":
+          description: workspace_id required
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List Codex tokens for a workspace
+      tags:
+        - Codex Tokens
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CodexTokenMintRequest"
+        description: Token parameters
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexTokenMintResponse"
+        "400":
+          description: invalid JSON
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member of this workspace
+          content:
+            application/json:
+              schema:
+                type: string
+        "422":
+          description: workspace_id and name are required / ttl_days out of range
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Mint a Codex access token
+      tags:
+        - Codex Tokens
+  "/api/codex/tokens/{id}":
+    delete:
+      parameters:
+        - description: Token id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: unauthorized
+          content:
+            "*/*":
+              schema:
+                type: string
+        "403":
+          description: forbidden
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Revoke a Codex token
+      tags:
+        - Codex Tokens
   "/api/sandboxes/{id}":
     delete:
       parameters:
@@ -1485,6 +1622,69 @@ components:
           type: string
       required:
         - status
+      type: object
+    CodexTokenListItem:
+      properties:
+        created_at:
+          type: string
+        expires_at:
+          type: string
+        id:
+          type: string
+        last_used_at:
+          type: string
+          nullable: true
+        name:
+          type: string
+        revoked:
+          type: boolean
+        revoked_at:
+          type: string
+          nullable: true
+        workspace_id:
+          type: string
+      required:
+        - created_at
+        - expires_at
+        - id
+        - name
+        - workspace_id
+      type: object
+    CodexTokenMintRequest:
+      properties:
+        name:
+          example: my mac
+          type: string
+        ttl_days:
+          example: 90
+          type: integer
+        workspace_id:
+          type: string
+      required:
+        - name
+        - workspace_id
+      type: object
+    CodexTokenMintResponse:
+      properties:
+        created_at:
+          type: string
+        expires_at:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        token:
+          type: string
+        workspace_id:
+          type: string
+      required:
+        - created_at
+        - expires_at
+        - id
+        - name
+        - token
+        - workspace_id
       type: object
     IMBinding:
       properties:

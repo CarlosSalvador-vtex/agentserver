@@ -18,39 +18,28 @@ const (
 	codexTokenMaxTTLDays     = 365
 )
 
-type mintCodexTokenReq struct {
-	WorkspaceID string `json:"workspace_id"`
-	Name        string `json:"name"`
-	TTLDays     int    `json:"ttl_days,omitempty"`
-}
-
-type mintCodexTokenResp struct {
-	ID          string    `json:"id"`
-	Token       string    `json:"token"`
-	Name        string    `json:"name"`
-	WorkspaceID string    `json:"workspace_id"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-type listCodexTokenItem struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	WorkspaceID string     `json:"workspace_id"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	Revoked     bool       `json:"revoked"`
-	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
-}
-
+// handleMintCodexToken issues a new long-lived bearer token for codex CLI access.
+//
+//	@Summary   Mint a Codex access token
+//	@Tags      Codex Tokens
+//	@Accept    json
+//	@Produce   json
+//	@Param     body  body  CodexTokenMintRequest  true  "Token parameters"
+//	@Success   201  {object}  CodexTokenMintResponse
+//	@Failure   400  {string}  string  "invalid JSON"
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   403  {string}  string  "not a member of this workspace"
+//	@Failure   422  {string}  string  "workspace_id and name are required / ttl_days out of range"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/codex/tokens [post]
 func (s *Server) handleMintCodexToken(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	if userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var req mintCodexTokenReq
+	var req CodexTokenMintRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
@@ -98,12 +87,26 @@ func (s *Server) handleMintCodexToken(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(mintCodexTokenResp{
+	_ = json.NewEncoder(w).Encode(CodexTokenMintResponse{
 		ID: id, Token: full, Name: req.Name, WorkspaceID: req.WorkspaceID,
 		ExpiresAt: exp, CreatedAt: time.Now().UTC(),
 	})
 }
 
+// handleListCodexTokens returns all codex tokens for a workspace.
+//
+//	@Summary   List Codex tokens for a workspace
+//	@Tags      Codex Tokens
+//	@Produce   json
+//	@Param     workspace_id     query  string  true   "Workspace id"
+//	@Param     include_revoked  query  bool    false  "Include revoked tokens (default false)"
+//	@Success   200  {array}   CodexTokenListItem
+//	@Failure   400  {string}  string  "workspace_id required"
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/codex/tokens [get]
 func (s *Server) handleListCodexTokens(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	if userID == "" {
@@ -130,9 +133,9 @@ func (s *Server) handleListCodexTokens(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	out := make([]listCodexTokenItem, 0, len(rows))
+	out := make([]CodexTokenListItem, 0, len(rows))
 	for _, t := range rows {
-		out = append(out, listCodexTokenItem{
+		out = append(out, CodexTokenListItem{
 			ID: t.ID, Name: t.Name, WorkspaceID: t.WorkspaceID,
 			CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt,
 			LastUsedAt: t.LastUsedAt, Revoked: t.RevokedAt != nil, RevokedAt: t.RevokedAt,
@@ -142,6 +145,17 @@ func (s *Server) handleListCodexTokens(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// handleRevokeCodexToken revokes an existing codex token by id.
+//
+//	@Summary   Revoke a Codex token
+//	@Tags      Codex Tokens
+//	@Param     id  path  string  true  "Token id"
+//	@Success   204
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   403  {string}  string  "forbidden"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/codex/tokens/{id} [delete]
 func (s *Server) handleRevokeCodexToken(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	if userID == "" {

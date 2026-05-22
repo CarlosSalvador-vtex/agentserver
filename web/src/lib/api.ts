@@ -25,6 +25,11 @@ export type IMMatrixConfigureRequest = components['schemas']['IMMatrixConfigureR
 export type IMMatrixConfigureResponse = components['schemas']['IMMatrixConfigureResponse']
 export type IMSandboxBindRequest = components['schemas']['IMSandboxBindRequest']
 
+// Codex Tokens — generated types from OpenAPI spec
+export type CodexToken = components['schemas']['CodexTokenListItem']
+export type MintCodexTokenRequest = components['schemas']['CodexTokenMintRequest']
+export type MintCodexTokenResponse = components['schemas']['CodexTokenMintResponse']
+
 export interface TelegramConfigureResult {
   connected: boolean
   bot_id: string
@@ -916,55 +921,28 @@ export async function submitOAuthConsent(
 }
 
 // Codex Token API
-
-export interface CodexToken {
-  id: string
-  name: string
-  workspace_id: string
-  created_at: string
-  expires_at: string
-  last_used_at?: string
-  revoked: boolean
-  revoked_at?: string
-}
-
-export interface MintCodexTokenRequest {
-  workspace_id: string
-  name: string
-  ttl_days?: number
-}
-
-export interface MintCodexTokenResponse {
-  id: string
-  token: string
-  name: string
-  workspace_id: string
-  expires_at: string
-  created_at: string
-}
+// Types are exported at the top of this file as generated aliases.
 
 export async function listCodexTokens(workspaceId: string): Promise<CodexToken[]> {
-  const res = await fetch(`/api/codex/tokens?workspace_id=${encodeURIComponent(workspaceId)}`)
-  if (!res.ok) throw new Error('Failed to list codex tokens')
-  return res.json()
+  return apiFetch<CodexToken[]>({
+    method: 'GET',
+    path: `/api/codex/tokens?workspace_id=${encodeURIComponent(workspaceId)}`,
+  })
 }
 
 export async function mintCodexToken(req: MintCodexTokenRequest): Promise<MintCodexTokenResponse> {
-  const res = await fetch('/api/codex/tokens', {
+  return apiFetch<MintCodexTokenResponse>({
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    path: '/api/codex/tokens',
+    body: req satisfies components['schemas']['CodexTokenMintRequest'],
   })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Failed to mint codex token')
-  }
-  return res.json()
 }
 
 export async function revokeCodexToken(id: string): Promise<void> {
-  const res = await fetch(`/api/codex/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to revoke codex token')
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/codex/tokens/${encodeURIComponent(id)}`,
+  })
 }
 
 // Remote Executor API
