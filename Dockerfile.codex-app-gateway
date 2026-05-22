@@ -29,8 +29,14 @@ RUN set -eux; \
     rm -rf /tmp/codex.tgz /tmp/codex-${arch_tag}
 
 FROM debian:trixie-slim
+# bubblewrap (bwrap) is codex's default Linux sandbox helper. The exec
+# path today goes through env-mcp into the workspace pod, so the codex
+# subprocess in this container doesn't call bwrap in the steady state.
+# Install it anyway so (a) codex's startup sandbox probe finds it
+# instead of warning, and (b) any fallback that ends up using codex's
+# built-in local-shell tool can actually sandbox the command.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
 COPY --from=build /out/codex-app-gateway /usr/local/bin/codex-app-gateway
