@@ -1,3 +1,4 @@
+import { HomeHero } from './HomeHero'
 import { HomeNav } from './HomeNav'
 import { HomeHero } from './HomeHero'
 import { HomeQuote } from './HomeQuote'
