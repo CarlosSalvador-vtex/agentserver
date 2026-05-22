@@ -32,6 +32,19 @@ type connectedClient interface {
 	Connected(ctx context.Context, workspaceID string) ([]execmodel.ConnectedExecutor, error)
 }
 
+// ctxKey is the unexported type for context values stashed by
+// requireInternalOrAPIKey so there are no collisions with other packages.
+type ctxKey int
+
+const (
+	// ctxKeyAuthorizedWorkspace holds the workspace_id the bearer key is
+	// scoped to. Set only on the bearer path; absent on X-Internal-Secret path.
+	ctxKeyAuthorizedWorkspace ctxKey = iota
+	// ctxKeyAuthorizedScopes holds the []string scopes granted by the bearer
+	// key. Set only on the bearer path; absent on X-Internal-Secret path.
+	ctxKeyAuthorizedScopes
+)
+
 // Server is the codex-app-gateway HTTP/WS server.
 type Server struct {
 	cfg  ServeConfig
@@ -39,6 +52,12 @@ type Server struct {
 	sup  *supervisor.Supervisor
 	homeMgr      *codexhome.Manager
 	logger       *slog.Logger
+
+	// apiKeyValidator validates Bearer wak_<...> tokens against agentserver's
+	// /internal/workspace-api-keys/validate RPC. May be nil in dev/test
+	// configurations that don't have agentserver wired up; when nil, bearer
+	// auth returns 401 (X-Internal-Secret still works).
+	apiKeyValidator *auth.APIKeyValidator
 
 	// buildConfig produces the per-spawn config + env vars (e.g. a
 	// workspace-scoped LLM API key). Receives the per-spawn loopback
@@ -94,13 +113,18 @@ func NewServer(cfg ServeConfig, codexBin, selfBin string, logger *slog.Logger) (
 	})
 	execClient := NewExecGatewayClient(cfg.ExecGatewayInternalURL, cfg.ExecGatewayInternalSecret)
 	wsTokenClient := NewWorkspaceTokenClient(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret)
+	var apiKeyVal *auth.APIKeyValidator
+	if cfg.AgentserverInternalURL != "" && cfg.AgentserverInternalSecret != "" {
+		apiKeyVal = auth.NewAPIKeyValidator(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret)
+	}
 	s := &Server{
-		cfg:  cfg,
-		auth: auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
-		sup:  sup,
-		homeMgr:      mgr,
-		logger:       logger,
-		execClient:   execClient,
+		cfg:             cfg,
+		auth:            auth.NewRemoteVerifier(cfg.AgentserverInternalURL, cfg.AgentserverInternalSecret),
+		sup:             sup,
+		homeMgr:         mgr,
+		logger:          logger,
+		execClient:      execClient,
+		apiKeyValidator: apiKeyVal,
 	}
 	s.buildConfig = makeBuildConfig(cfg, execClient, wsTokenClient, selfBin, logger)
 	s.brokerPool = broker.NewPool(
@@ -257,7 +281,7 @@ func (s *Server) Routes() http.Handler {
 	turnHandler := &turnAPIHandler{
 		runner: newPoolRunner(s.brokerPool),
 	}
-	r.With(s.requireInternalSecret).Post("/api/turns", turnHandler.ServeHTTP)
+	r.With(s.requireInternalOrAPIKey).Post("/api/turns", turnHandler.ServeHTTP)
 	return r
 }
 
@@ -275,6 +299,72 @@ func (s *Server) requireInternalSecret(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requireInternalOrAPIKey accepts EITHER X-Internal-Secret (legacy
+// in-cluster path; trusts body.workspaceId as-is, scope check bypassed)
+// OR Authorization: Bearer wak_<...> (public path; stashes the validated
+// workspace_id and scopes into the request context so the handler can
+// enforce consistency with the request body AND scope presence).
+//
+// X-Internal-Secret is checked first because it's a cheap constant
+// compare; Bearer adds an in-cluster HTTP roundtrip to agentserver.
+func (s *Server) requireInternalOrAPIKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path A: trusted in-cluster caller (imbridge). Cheap compare first.
+		if s.cfg.AgentserverInternalSecret != "" &&
+			r.Header.Get("X-Internal-Secret") == s.cfg.AgentserverInternalSecret {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Path B: public Bearer wak_ token.
+		authz := r.Header.Get("Authorization")
+		if strings.HasPrefix(authz, "Bearer wak_") {
+			if s.apiKeyValidator == nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			secret := strings.TrimPrefix(authz, "Bearer ")
+			key, err := s.apiKeyValidator.Validate(r.Context(), secret)
+			if err != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), ctxKeyAuthorizedWorkspace, key.WorkspaceID)
+			ctx = context.WithValue(ctx, ctxKeyAuthorizedScopes, key.Scopes)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	})
+}
+
+// scopesFromContext returns the scopes the bearer key authorized, or nil
+// when the caller authenticated via X-Internal-Secret (scope check bypassed).
+func scopesFromContext(r *http.Request) []string {
+	v := r.Context().Value(ctxKeyAuthorizedScopes)
+	if v == nil {
+		return nil
+	}
+	scopes, _ := v.([]string)
+	return scopes
+}
+
+// requireBearerScope returns an error when the request was bearer-authenticated
+// and the scope list does not include `required`. Internal-secret callers
+// bypass (scopesFromContext returns nil → no enforcement).
+func requireBearerScope(r *http.Request, required string) error {
+	v := r.Context().Value(ctxKeyAuthorizedScopes)
+	if v == nil {
+		return nil // internal secret path — bypass scope enforcement
+	}
+	scopes, _ := v.([]string)
+	for _, s := range scopes {
+		if s == required {
+			return nil
+		}
+	}
+	return errors.New("missing scope: " + required)
 }
 
 // Close releases per-server resources. Must be called on shutdown.

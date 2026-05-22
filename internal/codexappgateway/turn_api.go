@@ -47,6 +47,12 @@ type turnAPIHandler struct {
 
 const defaultTurnTimeout = 60 * time.Minute
 
+// turnsSubmitScope is the API-key scope required to call POST /api/turns.
+// Mirrored from agentserver's internal/server/api_key_scopes.go — kept as
+// a local constant to avoid coupling codex-app-gateway to agentserver's
+// package layout. Keep in sync if the scope string ever changes.
+const turnsSubmitScope = "turns:submit"
+
 func (h *turnAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req turnAPIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -61,6 +67,23 @@ func (h *turnAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "params required", http.StatusBadRequest)
 		return
 	}
+
+	// Bearer-path: enforce that the API key's workspace matches the request body.
+	// X-Internal-Secret callers don't have ctxKeyAuthorizedWorkspace set; the
+	// check is a no-op for them (v is nil).
+	if v := r.Context().Value(ctxKeyAuthorizedWorkspace); v != nil {
+		authorizedWS, _ := v.(string)
+		if authorizedWS != "" && authorizedWS != req.WorkspaceID {
+			http.Error(w, "api key not authorized for workspace "+req.WorkspaceID, http.StatusForbidden)
+			return
+		}
+	}
+	// Bearer-path: enforce scope presence. Internal-secret callers bypass.
+	if err := requireBearerScope(r, turnsSubmitScope); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
 	timeout := defaultTurnTimeout
 	if req.TimeoutMs > 0 {
 		timeout = time.Duration(req.TimeoutMs) * time.Millisecond
