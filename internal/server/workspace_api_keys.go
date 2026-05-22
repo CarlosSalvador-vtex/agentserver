@@ -105,7 +105,7 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 		WorkspaceID: wid,
 		UserID:      userID,
 		Name:        req.Name,
-		Prefix:      tok.ID, // prefix == ID for wak_ tokens (both = "wak_<8chars>")
+		Prefix:      tok.ID, // prefix == ID for ask_ tokens (both = "ask_<16chars>")
 		SecretHash:  tok.Hash,
 		Scopes:      req.Scopes,
 	}

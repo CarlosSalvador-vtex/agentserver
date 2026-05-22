@@ -26,7 +26,7 @@ type WorkspaceAPIKey struct {
 }
 
 // CreateWorkspaceAPIKey inserts a new key row. Caller is responsible for
-// generating id (= "wak_<prefix>"), prefix, secret_hash, and validating
+// generating id (= "ask_<id>"), prefix, secret_hash, and validating
 // the scopes against the catalog (see internal/server/api_key_scopes.go).
 func (db *DB) CreateWorkspaceAPIKey(ctx context.Context, k WorkspaceAPIKey) error {
 	scopes := k.Scopes

@@ -5,8 +5,8 @@
 // proxy_tokens, and a few smaller call sites.
 //
 // Format on the wire: <prefix>_<id>_<secret><crc32>
-//   - prefix is a short ASCII tag (e.g. "wak", "ast") with a trailing _
-//     in the Spec (so the full wire token reads "wak_...").
+//   - prefix is a short ASCII tag (e.g. "ask", "ast") with a trailing _
+//     in the Spec (so the full wire token reads "ask_...").
 //   - id is a public, indexable handle (DB primary key); base62 encoded
 //   - secret is the high-entropy payload; base62 encoded
 //   - crc32 is a 6-char base62-encoded CRC32/IEEE checksum of the preceding
@@ -46,7 +46,8 @@ const crc32Len = 6
 // Spec defines the shape of a credential type. One Spec per kind.
 type Spec struct {
 	// Prefix is the human-readable type tag. MUST end in "_".
-	// Examples: "wak_" (workspace api key), "ast_" (agent session token).
+	// Examples: "ask_" (workspace API secret key), "ast_" (agentserver
+	// remote token used as AGENTSERVER_TOKEN by the codex CLI).
 	Prefix string
 	// IDLen is the number of base62 chars in the public id segment.
 	// 8 is the project default; gives 47 bits of entropy in the id alone,
@@ -283,12 +284,21 @@ func crc32Base62(s string) string {
 // Define its Spec here so the catalog of token formats is greppable.
 
 // APIKeySpec is the format for per-workspace developer API keys
-// (POST /api/workspaces/{wid}/api-keys → returns Token.Full once).
+// ("Agentserver Secret Key" — `ask_` prefix). Minted via POST
+// /api/workspaces/{wid}/api-keys; returned to the user as Token.Full once.
 //
-// Sizing rationale:
+// AgentserverTokenSpec is the format for the workspace-scoped codex remote
+// token ("Agentserver Token" — `ast_` prefix) that users export as
+// AGENTSERVER_TOKEN and pass to `codex --remote --remote-auth-token-env`.
+// Same algorithm, different prefix so leaked-token scanners can distinguish.
+//
+// Sizing rationale (shared by both):
 //   - IDLen=16 chars of base62 = ~95 bits. Globally collision-free for any
 //     plausible total key count (birthday bound ~ 2^47 keys for 50% odds).
 //   - SecretLen=48 chars of base62 = ~286 bits. Well past any cryptographic
 //     threshold; oversized vs strictly necessary to leave headroom.
 //   - Total wire length: 4 + 16 + 1 + 48 + 6 = 75 chars including CRC32.
-var APIKeySpec = Spec{Prefix: "wak_", IDLen: 16, SecretLen: 48}
+var (
+	APIKeySpec          = Spec{Prefix: "ask_", IDLen: 16, SecretLen: 48}
+	AgentserverTokenSpec = Spec{Prefix: "ast_", IDLen: 16, SecretLen: 48}
+)

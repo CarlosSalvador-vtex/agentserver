@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/agentserver/agentserver/internal/secrets"
 )
 
 type verifyReq struct {
@@ -25,7 +25,7 @@ func (s *Server) handleVerifyCodexToken(w http.ResponseWriter, r *http.Request) 
 		writeVerifyUnauthorized(w)
 		return
 	}
-	id, secret, err := parseCodexToken(req.Token)
+	id, _, err := secrets.Parse(secrets.AgentserverTokenSpec, req.Token)
 	if err != nil {
 		writeVerifyUnauthorized(w)
 		return
@@ -40,7 +40,7 @@ func (s *Server) handleVerifyCodexToken(w http.ResponseWriter, r *http.Request) 
 		writeVerifyUnauthorized(w)
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(row.TokenHash), []byte(secret)); err != nil {
+	if !secrets.ConstantTimeMatch(req.Token, row.TokenHash) {
 		writeVerifyUnauthorized(w)
 		return
 	}

@@ -857,10 +857,10 @@ type WorkspaceAPIKeyMintRequest struct {
 // IMMEDIATELY after creation. The secret field is returned ONCE here and
 // never appears in any subsequent API response.
 type WorkspaceAPIKeyMintResponse struct {
-	ID        string   `json:"id" validate:"required" example:"wak_a1b2c3d4e5f6g7h8"`
+	ID        string   `json:"id" validate:"required" example:"ask_a1b2c3d4e5f6g7h8"`
 	Name      string   `json:"name" validate:"required"`
-	Prefix    string   `json:"prefix" validate:"required" example:"wak_a1b2c3d4e5f6g7h8"`
-	Secret    string   `json:"secret" validate:"required" example:"wak_a1b2c3d4e5f6g7h8_X9y8Z7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4AbCdEf"`
+	Prefix    string   `json:"prefix" validate:"required" example:"ask_a1b2c3d4e5f6g7h8"`
+	Secret    string   `json:"secret" validate:"required" example:"ask_a1b2c3d4e5f6g7h8_X9y8Z7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4AbCdEf"`
 	Scopes    []string `json:"scopes" validate:"required"`
 	CreatedAt string   `json:"created_at" validate:"required"`
 } // @name WorkspaceAPIKeyMintResponse
@@ -868,9 +868,9 @@ type WorkspaceAPIKeyMintResponse struct {
 // WorkspaceAPIKey is one row in the list response. Secret is NEVER
 // included here — only the prefix for display.
 type WorkspaceAPIKey struct {
-	ID         string   `json:"id" validate:"required" example:"wak_a1b2c3d4e5f6g7h8"`
+	ID         string   `json:"id" validate:"required" example:"ask_a1b2c3d4e5f6g7h8"`
 	Name       string   `json:"name" validate:"required"`
-	Prefix     string   `json:"prefix" validate:"required" example:"wak_a1b2c3d4e5f6g7h8"`
+	Prefix     string   `json:"prefix" validate:"required" example:"ask_a1b2c3d4e5f6g7h8"`
 	Scopes     []string `json:"scopes" validate:"required"`
 	CreatedAt  string   `json:"created_at" validate:"required"`
 	LastUsedAt *string  `json:"last_used_at" extensions:"x-nullable=true"`

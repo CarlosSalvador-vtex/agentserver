@@ -23,7 +23,7 @@ type internalValidateAPIKeyResponse struct {
 	Scopes      []string `json:"scopes"`
 }
 
-// handleInternalValidateAPIKey accepts {"secret": "wak_<prefix>_<rest>"} and
+// handleInternalValidateAPIKey accepts {"secret": "ask_<id>_<rest>"} and
 // returns the workspace_id + key_id on a successful constant-time hash
 // compare. Always returns 401 on any mismatch (no information leak about
 // whether the prefix existed).

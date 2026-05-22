@@ -10,7 +10,7 @@ import (
 
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/db"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/agentserver/agentserver/internal/secrets"
 )
 
 func newCodexTokensTestServer(t *testing.T) (*Server, *db.DB) {
@@ -46,7 +46,7 @@ func TestHandleMintCodexToken_HappyPath(t *testing.T) {
 	if resp.ID == "" || len(resp.Token) < 30 {
 		t.Fatalf("missing fields: %+v", resp)
 	}
-	id, secret, err := parseCodexToken(resp.Token)
+	id, _, err := secrets.Parse(secrets.AgentserverTokenSpec, resp.Token)
 	if err != nil || id != resp.ID {
 		t.Fatalf("token shape: %v id=%q resp.ID=%q", err, id, resp.ID)
 	}
@@ -54,8 +54,8 @@ func TestHandleMintCodexToken_HappyPath(t *testing.T) {
 	if row == nil {
 		t.Fatal("row missing")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(row.TokenHash), []byte(secret)); err != nil {
-		t.Fatalf("hash verify: %v", err)
+	if !secrets.ConstantTimeMatch(resp.Token, row.TokenHash) {
+		t.Fatalf("hash verify: stored=%q presented=%q", row.TokenHash, resp.Token)
 	}
 }
 
