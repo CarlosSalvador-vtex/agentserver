@@ -101,7 +101,7 @@ export const homeStrings: Dicts = {
     'hero.term.macbook': 'office-macbook · codex',
     'hero.term.sandbox': 'cloud-sandbox-7 · codex',
     'hero.chat.title': 'me',
-    'hero.chat.user': "Plot last week's experiment data and send it to me",
+    'hero.chat.user': 'Plot last week’s experiment data and send it to me',
     'hero.chat.bot1': '📂 pulled experiment_0521.csv from office-macbook',
     'hero.chat.bot2': '🔨 analyzing + plotting in sandbox…',
     'hero.chat.bot3': '✓ done',
