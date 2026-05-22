@@ -263,6 +263,19 @@ func (s *Server) Router() http.Handler {
 	// Internal API for ModelServer token retrieval (no cookie auth).
 	r.Get("/internal/workspaces/{id}/modelserver-token", s.handleInternalModelserverToken)
 
+	// Internal API for codex-app-gateway to validate a workspace API key secret.
+	// Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
+	r.Post("/internal/workspace-api-keys/validate", func(w http.ResponseWriter, r *http.Request) {
+		secret := os.Getenv("INTERNAL_API_SECRET")
+		if secret != "" {
+			if r.Header.Get("X-Internal-Secret") != secret {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		s.handleInternalValidateAPIKey(w, r)
+	})
+
 	// Internal operation-log endpoints — POST from gateways (fire-and-forget),
 	// GET for SDK retrieval. Auth: X-Internal-Secret matching INTERNAL_API_SECRET.
 	r.Post("/internal/operations", func(w http.ResponseWriter, r *http.Request) {
