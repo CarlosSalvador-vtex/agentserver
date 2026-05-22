@@ -8,6 +8,397 @@ info:
   title: agentserver API
   version: 0.1.0
 paths:
+  /api/agent/discovery/agents:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/AgentCardItem"
+                type: array
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Discover agents in the calling agent's workspace (proxy_token auth)
+      tags:
+        - Agent
+  /api/agent/discovery/cards:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCardRegisterRequest"
+        description: Agent card info
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCardRegisterResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Register or update an agent capability card
+      tags:
+        - Agent
+  /api/agent/mailbox/inbox:
+    get:
+      parameters:
+        - description: Max messages to return (default 10)
+          in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/AgentMailboxMessage"
+                type: array
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Read messages from the calling agent's inbox
+      tags:
+        - Agent
+  /api/agent/mailbox/send:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentMailboxSendRequest"
+        description: Message payload
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentMailboxSendResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: target not in same workspace
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: target agent not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Send a message to another agent's mailbox
+      tags:
+        - Agent
+  /api/agent/register:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRegisterRequest"
+        description: Agent registration info
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRegisterResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: no permission
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Register an agent (obtain sandbox credentials)
+      tags:
+        - Agent
+  /api/agent/tasks:
+    post:
+      requestBody:
+        $ref: "#/components/requestBodies/AgentTaskCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTaskCreateResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: forbidden
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: target agent not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Create a delegated task (proxy_token auth)
+      tags:
+        - Agent
+  "/api/agent/tasks/{id}":
+    get:
+      parameters:
+        - description: Task ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTaskDetail"
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Get a task by ID (proxy_token auth)
+      tags:
+        - Agent
+  "/api/agent/tasks/{id}/status":
+    put:
+      parameters:
+        - description: Task ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentTaskStatusRequest"
+        description: Status update
+        required: true
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: bad request
+          content:
+            "*/*":
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      summary: Update task status (proxy_token auth)
+      tags:
+        - Agent
+  /api/agent/tasks/poll:
+    get:
+      parameters:
+        - description: Sandbox ID (defaults to token's sandbox)
+          in: query
+          name: sandbox_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/AgentTaskPollItem"
+                type: array
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: forbidden
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Poll for pending tasks (proxy_token auth)
+      tags:
+        - Agent
+  "/api/agents/{sandboxId}":
+    get:
+      parameters:
+        - description: Sandbox ID
+          in: path
+          name: sandboxId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCardItem"
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get a single agent card by sandbox ID
+      tags:
+        - Agent
   /api/auth/check:
     get:
       responses:
@@ -618,6 +1009,95 @@ paths:
       summary: Get sandbox usage stats
       tags:
         - Sandboxes
+  "/api/tasks/{id}":
+    get:
+      parameters:
+        - description: Task ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Include output events
+          in: query
+          name: include_output
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTaskDetail"
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Get a task by ID
+      tags:
+        - Agent
+  "/api/tasks/{id}/cancel":
+    post:
+      parameters:
+        - description: Task ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTaskCancelResponse"
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: task already finished
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Cancel a task
+      tags:
+        - Agent
   /api/workspaces:
     get:
       responses:
@@ -1403,6 +1883,47 @@ paths:
       summary: Change a member's role (owner only)
       tags:
         - Workspaces
+  "/api/workspaces/{wid}/agents":
+    get:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/AgentCardItem"
+                type: array
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List agent cards in a workspace
+      tags:
+        - Agent
   "/api/workspaces/{wid}/browsers":
     get:
       parameters:
@@ -1527,6 +2048,99 @@ paths:
       summary: Create a sandbox in a workspace
       tags:
         - Sandboxes
+  "/api/workspaces/{wid}/tasks":
+    get:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/AgentTaskItem"
+                type: array
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List delegated tasks for a workspace
+      tags:
+        - Agent
+    post:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/AgentTaskCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTaskCreateResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: forbidden
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: target agent not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Create a delegated task in a workspace
+      tags:
+        - Agent
   /api/workspaces/quota:
     get:
       responses:
@@ -1558,6 +2172,13 @@ components:
             $ref: "#/components/schemas/AuthCredentials"
       description: Email and password
       required: true
+    AgentTaskCreateRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AgentTaskCreateRequest"
+      description: Task details
+      required: true
   securitySchemes:
     CookieAuth:
       description: Session cookie set by POST /api/auth/login. All non-auth endpoints
@@ -1566,6 +2187,54 @@ components:
       name: agentserver-token
       type: apiKey
   schemas:
+    AgentCardItem:
+      properties:
+        agent_id:
+          type: string
+        agent_type:
+          example: claudecode
+          type: string
+        card: {}
+        description:
+          type: string
+        display_name:
+          type: string
+        status:
+          example: available
+          type: string
+        version:
+          type: integer
+      required:
+        - agent_id
+        - agent_type
+        - card
+        - display_name
+        - status
+        - version
+      type: object
+    AgentCardRegisterRequest:
+      properties:
+        agent_type:
+          description: optional; defaults to "claudecode"
+          example: claudecode
+          type: string
+        card:
+          description: optional; arbitrary JSON
+        description:
+          example: A helpful coding agent
+          type: string
+        display_name:
+          example: My Agent
+          type: string
+      type: object
+    AgentCardRegisterResponse:
+      properties:
+        status:
+          example: ok
+          type: string
+      required:
+        - status
+      type: object
     AgentInfo:
       properties:
         agent_version:
@@ -1611,6 +2280,244 @@ components:
         - platform_version
         - updated_at
         - workdir
+      type: object
+    AgentMailboxMessage:
+      properties:
+        created_at:
+          type: string
+        from:
+          type: string
+        id:
+          type: string
+        msg_type:
+          example: text
+          type: string
+        text:
+          type: string
+      required:
+        - created_at
+        - from
+        - id
+        - msg_type
+        - text
+      type: object
+    AgentMailboxSendRequest:
+      properties:
+        msg_type:
+          example: text
+          type: string
+        text:
+          example: Hello from another agent
+          type: string
+        to:
+          example: sandbox-uuid-of-target
+          type: string
+      required:
+        - text
+        - to
+      type: object
+    AgentMailboxSendResponse:
+      properties:
+        message_id:
+          type: string
+        status:
+          example: sent
+          type: string
+      required:
+        - message_id
+        - status
+      type: object
+    AgentRegisterRequest:
+      properties:
+        name:
+          example: Local Agent
+          type: string
+        type:
+          description: optional; defaults to "opencode"
+          example: opencode
+          type: string
+      type: object
+    AgentRegisterResponse:
+      properties:
+        proxy_token:
+          type: string
+        sandbox_id:
+          type: string
+        short_id:
+          type: string
+        tunnel_token:
+          type: string
+        workspace_id:
+          type: string
+      required:
+        - proxy_token
+        - sandbox_id
+        - short_id
+        - tunnel_token
+        - workspace_id
+      type: object
+    AgentTaskCancelResponse:
+      properties:
+        status:
+          example: cancelled
+          type: string
+      required:
+        - status
+      type: object
+    AgentTaskCreateRequest:
+      properties:
+        delegation_chain:
+          items:
+            type: string
+          type: array
+        max_budget_usd:
+          example: 1
+          type: number
+        max_turns:
+          example: 50
+          type: integer
+        prompt:
+          example: Run the test suite
+          type: string
+        requester_id:
+          type: string
+        skill:
+          example: testing
+          type: string
+        system_context:
+          type: string
+        target_id:
+          example: sandbox-uuid
+          type: string
+        timeout_seconds:
+          example: 300
+          type: integer
+      required:
+        - prompt
+        - target_id
+      type: object
+    AgentTaskCreateResponse:
+      properties:
+        session_id:
+          type: string
+        status:
+          example: pending
+          type: string
+        task_id:
+          type: string
+      required:
+        - status
+        - task_id
+      type: object
+    AgentTaskDetail:
+      properties:
+        completed_at:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+        failure_reason:
+          type: string
+          nullable: true
+        num_turns:
+          type: integer
+        prompt:
+          type: string
+        requester_id:
+          type: string
+        result:
+          nullable: true
+        session_id:
+          type: string
+          nullable: true
+        skill:
+          type: string
+          nullable: true
+        status:
+          example: pending
+          type: string
+        target_id:
+          type: string
+        task_id:
+          type: string
+        total_cost_usd:
+          type: number
+          nullable: true
+        workspace_id:
+          type: string
+      required:
+        - created_at
+        - prompt
+        - status
+        - target_id
+        - task_id
+        - workspace_id
+      type: object
+    AgentTaskItem:
+      properties:
+        completed_at:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+        num_turns:
+          type: integer
+        prompt:
+          type: string
+        requester_id:
+          type: string
+        skill:
+          type: string
+        status:
+          example: pending
+          type: string
+        target_id:
+          type: string
+        task_id:
+          type: string
+        total_cost_usd:
+          type: number
+          nullable: true
+      required:
+        - created_at
+        - prompt
+        - status
+        - target_id
+        - task_id
+      type: object
+    AgentTaskPollItem:
+      properties:
+        max_budget_usd:
+          type: number
+        max_turns:
+          type: integer
+        prompt:
+          type: string
+        session_id:
+          type: string
+        system_context:
+          type: string
+        task_id:
+          type: string
+      required:
+        - prompt
+        - task_id
+      type: object
+    AgentTaskStatusRequest:
+      properties:
+        failure_reason:
+          type: string
+        num_turns:
+          type: integer
+        result: {}
+        status:
+          example: completed
+          type: string
+        total_cost_usd:
+          type: number
+          nullable: true
+      required:
+        - status
       type: object
     AuthCredentials:
       properties:

@@ -11,6 +11,17 @@ import (
 
 // handleListAgentCards returns all agent cards in a workspace.
 // GET /api/workspaces/{wid}/agents
+//
+//	@Summary   List agent cards in a workspace
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     wid  path      string  true  "Workspace ID"
+//	@Success   200  {array}   AgentCardItem
+//	@Failure   401  {string}  string  "unauthorized"
+//	@Failure   403  {string}  string  "not a member"
+//	@Failure   500  {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/workspaces/{wid}/agents [get]
 func (s *Server) handleListAgentCards(w http.ResponseWriter, r *http.Request) {
 	wid := chi.URLParam(r, "wid")
 	cards, err := s.DB.ListAgentCardsByWorkspace(wid)
@@ -52,6 +63,18 @@ func (s *Server) handleListAgentCards(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAgentCard returns a single agent card.
 // GET /api/agents/{sandboxId}
+//
+//	@Summary   Get a single agent card by sandbox ID
+//	@Tags      Agent
+//	@Produce   json
+//	@Param     sandboxId  path      string  true  "Sandbox ID"
+//	@Success   200        {object}  AgentCardItem
+//	@Failure   401        {string}  string  "unauthorized"
+//	@Failure   403        {string}  string  "not a member"
+//	@Failure   404        {string}  string  "not found"
+//	@Failure   500        {string}  string  "internal error"
+//	@Security  CookieAuth
+//	@Router    /api/agents/{sandboxId} [get]
 func (s *Server) handleGetAgentCard(w http.ResponseWriter, r *http.Request) {
 	sandboxID := chi.URLParam(r, "sandboxId")
 	card, err := s.DB.GetAgentCard(sandboxID)
@@ -80,6 +103,17 @@ func (s *Server) handleGetAgentCard(w http.ResponseWriter, r *http.Request) {
 // handleRegisterAgentCard registers or updates an agent card.
 // POST /api/agent/discovery/cards
 // Auth: proxy_token (agent self-registration)
+//
+//	@Summary   Register or update an agent capability card
+//	@Tags      Agent
+//	@Accept    json
+//	@Produce   json
+//	@Param     body  body      AgentCardRegisterRequest   true  "Agent card info"
+//	@Success   200   {object}  AgentCardRegisterResponse
+//	@Failure   400   {string}  string  "bad request"
+//	@Failure   401   {string}  string  "unauthorized"
+//	@Failure   500   {string}  string  "internal error"
+//	@Router    /api/agent/discovery/cards [post]
 func (s *Server) handleRegisterAgentCard(w http.ResponseWriter, r *http.Request) {
 	// Authenticate via proxy_token.
 	token := r.Header.Get("Authorization")
