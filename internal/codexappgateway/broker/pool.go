@@ -13,8 +13,14 @@ import (
 // reuse the codex subprocess; tests inject a fixed URL.
 type WSURLResolver func(ctx context.Context, workspaceID string) (wsURL string, err error)
 
-// Pool caches one *Conn per workspace id. Connections idle for longer
-// than idleTTL are reaped and closed. Safe for concurrent use.
+// Pool caches one *Conn per workspace id. Connections whose ws has been
+// silent (no frames in either direction) for longer than idleTTL are
+// reaped and closed. Safe for concurrent use.
+//
+// Idleness is measured from Conn.lastActiveAt, which the conn itself
+// updates on every successful ws read/write. This means a long-running
+// Turn that keeps streaming item/completed frames stays alive past
+// idleTTL — the reaper only kills conns that are actually silent.
 type Pool struct {
 	resolver WSURLResolver
 	idleTTL  time.Duration
@@ -26,9 +32,8 @@ type Pool struct {
 }
 
 type poolEntry struct {
-	mu         sync.Mutex // single-flight Dial per workspace
-	conn       *Conn
-	lastUsedAt time.Time
+	mu   sync.Mutex // single-flight Dial per workspace
+	conn *Conn
 }
 
 // NewPool starts a background reaper goroutine. Caller must Close().
@@ -61,7 +66,13 @@ func (p *Pool) Get(ctx context.Context, workspaceID string) (*Conn, error) {
 	defer e.mu.Unlock()
 
 	if e.conn != nil && !e.connClosed() {
-		e.lastUsedAt = time.Now()
+		// Bump activity on Get so a conn that's been idle ≥ idleTTL but not
+		// yet swept by the reaper isn't reaped in the microsecond window
+		// between Get returning and the caller's first frame. The first
+		// frame would bump it anyway, but the window is enough for the
+		// reaper tick to land in between and surface the exact bug this
+		// file fixes.
+		e.conn.lastActiveAt.Store(time.Now().UnixNano())
 		return e.conn, nil
 	}
 	// (Re)dial.
@@ -74,7 +85,6 @@ func (p *Pool) Get(ctx context.Context, workspaceID string) (*Conn, error) {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	e.conn = conn
-	e.lastUsedAt = time.Now()
 	return conn, nil
 }
 
@@ -89,23 +99,6 @@ func (e *poolEntry) connClosed() bool {
 		}
 	}
 	return false
-}
-
-// Touch bumps lastUsedAt for workspaceID, extending the idle-reap
-// deadline. Call after long-running operations (Turn, StartThread) so the
-// 5-minute reaper does not kill a connection that is still in use.
-func (p *Pool) Touch(workspaceID string) {
-	p.mu.Lock()
-	e, ok := p.entries[workspaceID]
-	p.mu.Unlock()
-	if !ok {
-		return
-	}
-	e.mu.Lock()
-	if e.conn != nil {
-		e.lastUsedAt = time.Now()
-	}
-	e.mu.Unlock()
 }
 
 // Close stops the reaper and closes all live connections.
@@ -145,7 +138,7 @@ func (p *Pool) reaper() {
 }
 
 func (p *Pool) reapOnce() {
-	cutoff := time.Now().Add(-p.idleTTL)
+	cutoffNanos := time.Now().Add(-p.idleTTL).UnixNano()
 	p.mu.Lock()
 	keys := make([]string, 0, len(p.entries))
 	for k := range p.entries {
@@ -160,7 +153,7 @@ func (p *Pool) reapOnce() {
 			continue
 		}
 		e.mu.Lock()
-		stale := e.conn != nil && e.lastUsedAt.Before(cutoff)
+		stale := e.conn != nil && e.conn.lastActiveAt.Load() < cutoffNanos
 		if stale {
 			e.conn.Close()
 			e.conn = nil

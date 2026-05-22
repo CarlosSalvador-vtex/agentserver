@@ -37,6 +37,29 @@
   --radius: 0.5rem;
 }
 
+[data-theme="home"] {
+  --home-accent: #18181b;
+  --home-accent-fg: #fafafa;
+  --home-grid: rgba(0, 0, 0, 0.06);
+  --home-term-bg: #f4f4f5;
+  --home-term-border: #d4d4d8;
+  --home-term-fg: #18181b;
+  --home-term-dim: #71717a;
+}
+
+.dark[data-theme="home"],
+[data-theme="home"].dark,
+[data-theme="home"] .dark,
+.dark [data-theme="home"] {
+  --home-accent: #7fff7f;
+  --home-accent-fg: #000000;
+  --home-grid: rgba(127, 255, 127, 0.04);
+  --home-term-bg: #000000;
+  --home-term-border: #2a2a2a;
+  --home-term-fg: #e6e6e6;
+  --home-term-dim: #888888;
+}
+
 * {
   border-color: var(--border);
 }

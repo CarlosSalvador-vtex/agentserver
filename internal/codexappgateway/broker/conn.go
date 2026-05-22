@@ -23,6 +23,15 @@ type Conn struct {
 	writeMu sync.Mutex
 	nextID  atomic.Int64
 
+	// lastActiveAt is the unix-nano timestamp of the most recent successful
+	// ws read or write. The pool reaper reads this directly to decide
+	// staleness — frames flowing in either direction (turn items, heartbeats,
+	// approval round-trips) keep the conn alive even when no outer Get()
+	// call has touched it. Previously the pool inferred idleness from
+	// caller-side Get/Touch timestamps, which killed long-running turns
+	// because Turn() didn't refresh that signal mid-flight.
+	lastActiveAt atomic.Int64
+
 	mu              sync.Mutex
 	pendingResp     map[int64]chan rpcResponse   // request id → 1-buffered chan
 	pendingTurns    map[string]chan turnPayload  // turn id → 1-buffered chan
@@ -116,6 +125,7 @@ func (c *Conn) readLoop() {
 			c.closeErr.CompareAndSwap(nil, &errHolder{err})
 			return
 		}
+		c.lastActiveAt.Store(time.Now().UnixNano())
 		c.dispatchFrame(data)
 	}
 }
@@ -581,5 +591,9 @@ func (c *Conn) writeJSON(ctx context.Context, v any) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	return c.ws.Write(ctx, websocket.MessageText, b)
+	if err := c.ws.Write(ctx, websocket.MessageText, b); err != nil {
+		return err
+	}
+	c.lastActiveAt.Store(time.Now().UnixNano())
+	return nil
 }

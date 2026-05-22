@@ -13,6 +13,7 @@ import {
   type Sandbox,
 } from './lib/api'
 import { Login } from './components/Login'
+import { Home } from './components/Home/Home'
 import { OAuthConsent } from './components/OAuthConsent'
 import { OAuthDevice } from './components/OAuthDevice'
 import { OAuthLogin, PENDING_LOGIN_CHALLENGE_KEY } from './components/OAuthLogin'
@@ -303,8 +304,6 @@ export default function App() {
   }
 
   if (!authed) {
-    // If landing on protected OAuth pages without auth, save params
-    // so they survive OIDC redirects.
     if (location.pathname === '/oauth2/consent') {
       const params = new URLSearchParams(location.search)
       const challenge = params.get('consent_challenge')
@@ -315,29 +314,28 @@ export default function App() {
     if (location.pathname === '/oauth2/device') {
       sessionStorage.setItem(PENDING_DEVICE_PARAMS_KEY, location.search)
     }
+
+    const onLoginSuccess = () => {
+      const params = new URLSearchParams(location.search)
+      const next = params.get('next')
+      if (next) {
+        window.location.href = next
+        return
+      }
+      setAuthed(true)
+      listWorkspaces().then((ws) => {
+        setWorkspaces(ws)
+        if (ws.length > 0) setSelectedWorkspaceId(ws[0].id)
+      }).catch(() => {})
+      getMe().then(setUser).catch(() => {})
+    }
+
     return (
-      <Login
-        onSuccess={() => {
-          // ?next= is set by codex-auth's PKCE / device-flow redirect
-          // when the user must log in to complete a codex login. After
-          // login succeeds, bounce back to the codex-auth URL so the
-          // PKCE handler can mint a code with the now-valid session.
-          // Use window.location.href (not setAuthed) because next is
-          // typically a different subdomain that SPA routing can't reach.
-          const params = new URLSearchParams(location.search)
-          const next = params.get('next')
-          if (next) {
-            window.location.href = next
-            return
-          }
-          setAuthed(true)
-          listWorkspaces().then((ws) => {
-            setWorkspaces(ws)
-            if (ws.length > 0) setSelectedWorkspaceId(ws[0].id)
-          }).catch(() => {})
-          getMe().then(setUser).catch(() => {})
-        }}
-      />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login onSuccess={onLoginSuccess} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     )
   }
 
