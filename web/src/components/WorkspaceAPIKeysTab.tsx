@@ -33,7 +33,10 @@ export function WorkspaceAPIKeysTab({ workspaceId }: WorkspaceAPIKeysTabProps) {
   const loadKeys = useCallback(() => {
     setLoading(true)
     listWorkspaceAPIKeys(workspaceId)
-      .then(setKeys)
+      // Revoked keys are dead weight — hide them from the list. The DB row
+      // stays (audit trail / soft-delete semantics); the UI just doesn't
+      // surface them. To resurrect a key, the user mints a new one.
+      .then((all) => setKeys(all.filter((k) => !k.revoked_at)))
       .catch(() => setKeys([]))
       .finally(() => setLoading(false))
   }, [workspaceId])
@@ -83,7 +86,6 @@ export function WorkspaceAPIKeysTab({ workspaceId }: WorkspaceAPIKeysTabProps) {
                 <thead className="bg-[var(--secondary)] text-[var(--muted-foreground)]">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">Name</th>
-                    <th className="px-3 py-2 text-left font-medium">Prefix</th>
                     <th className="px-3 py-2 text-left font-medium">Scopes</th>
                     <th className="w-36 px-3 py-2 text-left font-medium">Created</th>
                     <th className="w-36 px-3 py-2 text-left font-medium">Expires</th>
@@ -101,11 +103,6 @@ export function WorkspaceAPIKeysTab({ workspaceId }: WorkspaceAPIKeysTabProps) {
                         className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--background)]/40' : ''} ${isRevoked ? 'opacity-60' : ''}`}
                       >
                         <td className="px-3 py-2 text-[var(--foreground)]">{k.name}</td>
-                        <td className="px-3 py-2">
-                          <code className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[11px] font-mono text-[var(--foreground)]">
-                            {k.prefix}
-                          </code>
-                        </td>
                         <td className="px-3 py-2">
                           {k.scopes && k.scopes.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
