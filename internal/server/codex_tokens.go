@@ -12,12 +12,6 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const (
-	codexTokenDefaultTTLDays = 90
-	codexTokenMinTTLDays     = 1
-	codexTokenMaxTTLDays     = 365
-)
-
 // handleMintCodexToken issues a new long-lived bearer token for codex CLI access.
 //
 //	@Summary   Mint a Codex access token
@@ -29,7 +23,7 @@ const (
 //	@Failure   400  {string}  string  "invalid JSON"
 //	@Failure   401  {string}  string  "unauthorized"
 //	@Failure   403  {string}  string  "not a member of this workspace"
-//	@Failure   422  {string}  string  "workspace_id and name are required / ttl_days out of range"
+//	@Failure   422  {string}  string  "workspace_id and name are required / expires_at invalid"
 //	@Failure   500  {string}  string  "internal error"
 //	@Security  CookieAuth
 //	@Router    /api/codex/tokens [post]
@@ -48,11 +42,9 @@ func (s *Server) handleMintCodexToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "workspace_id and name are required", http.StatusUnprocessableEntity)
 		return
 	}
-	if req.TTLDays == 0 {
-		req.TTLDays = codexTokenDefaultTTLDays
-	}
-	if req.TTLDays < codexTokenMinTTLDays || req.TTLDays > codexTokenMaxTTLDays {
-		http.Error(w, "ttl_days out of range [1, 365]", http.StatusUnprocessableEntity)
+	exp, err := resolveExpiresAt(req.ExpiresAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -71,7 +63,6 @@ func (s *Server) handleMintCodexToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	exp := time.Now().Add(time.Duration(req.TTLDays) * 24 * time.Hour).UTC()
 	if err := s.DB.CreateCodexToken(r.Context(), db.CodexToken{
 		ID: tok.ID, UserID: userID, WorkspaceID: req.WorkspaceID, Name: req.Name,
 		TokenHash: tok.Hash, ExpiresAt: exp,

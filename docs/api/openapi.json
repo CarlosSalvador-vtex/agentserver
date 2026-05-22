@@ -1986,7 +1986,7 @@
             }
           },
           "422": {
-            "description": "workspace_id and name are required / ttl_days out of range",
+            "description": "workspace_id and name are required / expires_at invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5465,6 +5465,16 @@
               }
             }
           },
+          "422": {
+            "description": "expires_at invalid (bad RFC3339 / in past / >365d in future)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "500": {
             "description": "internal error",
             "content": {
@@ -7549,13 +7559,13 @@
           "workspace_id"
         ],
         "properties": {
+          "expires_at": {
+            "type": "string",
+            "example": "2026-08-20T08:30:00Z"
+          },
           "name": {
             "type": "string",
             "example": "my mac"
-          },
-          "ttl_days": {
-            "type": "integer",
-            "example": 90
           },
           "workspace_id": {
             "type": "string"
@@ -8660,6 +8670,7 @@
         "type": "object",
         "required": [
           "created_at",
+          "expires_at",
           "id",
           "name",
           "prefix",
@@ -8668,6 +8679,10 @@
         "properties": {
           "created_at": {
             "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "example": "2026-08-20T08:30:00Z"
           },
           "id": {
             "type": "string",
@@ -8703,6 +8718,10 @@
           "scopes"
         ],
         "properties": {
+          "expires_at": {
+            "type": "string",
+            "example": "2026-08-20T08:30:00Z"
+          },
           "name": {
             "type": "string",
             "example": "my-bot-integration"
@@ -8722,6 +8741,7 @@
         "type": "object",
         "required": [
           "created_at",
+          "expires_at",
           "id",
           "name",
           "prefix",
@@ -8731,6 +8751,10 @@
         "properties": {
           "created_at": {
             "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "example": "2026-08-20T08:30:00Z"
           },
           "id": {
             "type": "string",

@@ -11,7 +11,13 @@ interface Props {
   workspaceId: string
 }
 
-const TTL_OPTIONS = [1, 7, 30, 90, 180, 365] as const
+const EXPIRY_OPTIONS = [
+  { label: '7 days',   days: 7   },
+  { label: '30 days',  days: 30  },
+  { label: '90 days',  days: 90  },
+  { label: '180 days', days: 180 },
+  { label: '365 days', days: 365 },
+] as const
 
 export default function CodexTokensPanel({ workspaceId }: Props) {
   const [browsers, setBrowsers] = useState<CodexBrowser[]>([])
@@ -19,7 +25,7 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [showMint, setShowMint] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newTTL, setNewTTL] = useState<number>(90)
+  const [expiryDays, setExpiryDays] = useState<number>(90)
   const [generated, setGenerated] = useState<MintCodexTokenResponse | null>(null)
   const [copied, setCopied] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<CodexBrowser | null>(null)
@@ -47,15 +53,16 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
   const onMint = async () => {
     if (!newName.trim()) return
     try {
+      const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString()
       const resp = await mintCodexToken({
         workspace_id: workspaceId,
         name: newName.trim(),
-        ttl_days: newTTL,
+        expires_at: expiresAt,
       })
       setGenerated(resp)
       setShowMint(false)
       setNewName('')
-      setNewTTL(90)
+      setExpiryDays(90)
       void refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -162,11 +169,13 @@ export default function CodexTokensPanel({ workspaceId }: Props) {
               <div>
                 <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Expires in</label>
                 <select
-                  value={newTTL}
-                  onChange={(e) => setNewTTL(parseInt(e.target.value, 10))}
+                  value={expiryDays}
+                  onChange={(e) => setExpiryDays(parseInt(e.target.value, 10))}
                   className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
                 >
-                  {TTL_OPTIONS.map(d => <option key={d} value={d}>{d} day{d === 1 ? '' : 's'}</option>)}
+                  {EXPIRY_OPTIONS.map((opt) => (
+                    <option key={opt.days} value={opt.days}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="flex justify-end gap-2">

@@ -47,6 +47,7 @@ func (s *Server) handleListWorkspaceAPIKeys(w http.ResponseWriter, r *http.Reque
 			Prefix:     k.Prefix,
 			Scopes:     scopes,
 			CreatedAt:  k.CreatedAt.UTC().Format(time.RFC3339),
+			ExpiresAt:  k.ExpiresAt.UTC().Format(time.RFC3339),
 			LastUsedAt: rfc3339Ptr(k.LastUsedAt),
 			RevokedAt:  rfc3339Ptr(k.RevokedAt),
 		})
@@ -70,6 +71,7 @@ func (s *Server) handleListWorkspaceAPIKeys(w http.ResponseWriter, r *http.Reque
 //	@Param       body  body  WorkspaceAPIKeyMintRequest  true  "Key metadata"
 //	@Success     201   {object}  WorkspaceAPIKeyMintResponse
 //	@Failure     400   {string}  string  "name required / scope not available / at least one scope required"
+//	@Failure     422   {string}  string  "expires_at invalid (bad RFC3339 / in past / >365d in future)"
 //	@Failure     403   {string}  string  "owner or maintainer required"
 //	@Failure     500   {string}  string  "internal error"
 //	@Security    CookieAuth
@@ -92,6 +94,11 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	exp, err := resolveExpiresAt(req.ExpiresAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	tok, err := secrets.Mint(secrets.APIKeySpec)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -108,6 +115,7 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 		Prefix:      tok.ID, // prefix == ID for ask_ tokens (both = "ask_<16chars>")
 		SecretHash:  tok.Hash,
 		Scopes:      req.Scopes,
+		ExpiresAt:   exp,
 	}
 	if err := s.DB.CreateWorkspaceAPIKey(r.Context(), row); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -122,6 +130,7 @@ func (s *Server) handleMintWorkspaceAPIKey(w http.ResponseWriter, r *http.Reques
 		Secret:    tok.Full, // full wire-format token returned once to the user
 		Scopes:    req.Scopes,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ExpiresAt: exp.Format(time.RFC3339),
 	})
 }
 

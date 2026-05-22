@@ -942,11 +942,12 @@ export async function mintWorkspaceAPIKey(
   workspaceId: string,
   name: string,
   scopes: string[],
+  expiresAt?: string,
 ): Promise<WorkspaceAPIKeyMintResponse> {
   return apiFetch<WorkspaceAPIKeyMintResponse>({
     method: 'POST',
     path: `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`,
-    body: { name, scopes } satisfies components['schemas']['WorkspaceAPIKeyMintRequest'],
+    body: { name, scopes, expires_at: expiresAt } satisfies components['schemas']['WorkspaceAPIKeyMintRequest'],
   })
 }
 

@@ -1190,7 +1190,7 @@ paths:
               schema:
                 type: string
         "422":
-          description: workspace_id and name are required / ttl_days out of range
+          description: workspace_id and name are required / expires_at invalid
           content:
             application/json:
               schema:
@@ -3267,6 +3267,12 @@ paths:
             application/json:
               schema:
                 type: string
+        "422":
+          description: expires_at invalid (bad RFC3339 / in past / >365d in future)
+          content:
+            application/json:
+              schema:
+                type: string
         "500":
           description: internal error
           content:
@@ -4650,12 +4656,12 @@ components:
       type: object
     CodexTokenMintRequest:
       properties:
+        expires_at:
+          example: 2026-08-20T08:30:00Z
+          type: string
         name:
           example: my mac
           type: string
-        ttl_days:
-          example: 90
-          type: integer
         workspace_id:
           type: string
       required:
@@ -5425,6 +5431,9 @@ components:
       properties:
         created_at:
           type: string
+        expires_at:
+          example: 2026-08-20T08:30:00Z
+          type: string
         id:
           example: ask_a1b2c3d4e5f6g7h8
           type: string
@@ -5445,6 +5454,7 @@ components:
           type: array
       required:
         - created_at
+        - expires_at
         - id
         - name
         - prefix
@@ -5452,6 +5462,9 @@ components:
       type: object
     WorkspaceAPIKeyMintRequest:
       properties:
+        expires_at:
+          example: 2026-08-20T08:30:00Z
+          type: string
         name:
           example: my-bot-integration
           type: string
@@ -5468,6 +5481,9 @@ components:
     WorkspaceAPIKeyMintResponse:
       properties:
         created_at:
+          type: string
+        expires_at:
+          example: 2026-08-20T08:30:00Z
           type: string
         id:
           example: ask_a1b2c3d4e5f6g7h8
@@ -5486,6 +5502,7 @@ components:
           type: string
       required:
         - created_at
+        - expires_at
         - id
         - name
         - prefix
