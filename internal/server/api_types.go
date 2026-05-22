@@ -860,7 +860,7 @@ type WorkspaceAPIKeyMintResponse struct {
 	ID        string   `json:"id" validate:"required" example:"wak_a1b2c3d4"`
 	Name      string   `json:"name" validate:"required"`
 	Prefix    string   `json:"prefix" validate:"required" example:"wak_a1b2c3d4"`
-	Secret    string   `json:"secret" validate:"required" example:"wak_a3b4c5d6_x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0"`
+	Secret    string   `json:"secret" validate:"required" example:"wak_a3b4c5d6_x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0AbCdEf"`
 	Scopes    []string `json:"scopes" validate:"required"`
 	CreatedAt string   `json:"created_at" validate:"required"`
 } // @name WorkspaceAPIKeyMintResponse

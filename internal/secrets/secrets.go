@@ -4,33 +4,44 @@
 // duplicated across workspace_api_keys, codex_token_format,
 // proxy_tokens, and a few smaller call sites.
 //
-// Format on the wire: <prefix>_<id>_<secret>
+// Format on the wire: <prefix>_<id>_<secret><crc32>
 //   - prefix is a short ASCII tag (e.g. "wak", "ast") with a trailing _
 //     in the Spec (so the full wire token reads "wak_...").
 //   - id is a public, indexable handle (DB primary key); base62 encoded
 //   - secret is the high-entropy payload; base62 encoded
-//   - hash = hex(sha256(<full token>)) — the value persisted
+//   - crc32 is a 6-char base62-encoded CRC32/IEEE checksum of the preceding
+//     <prefix>_<id>_<secret> portion (no separator). Same scheme as GitHub.
+//   - hash = HMAC-SHA256(pepper, <full token>) or SHA-256 if no pepper —
+//     the value persisted in the database.
 //
 // Encoding is base62 (0-9, a-z, A-Z) for ~5.95 bits/character.
-// SHA-256 is used because secrets are CSPRNG-generated (>= ~140 bits
-// of entropy at SecretLen=24+); bcrypt's KDF overhead adds nothing
-// against random secrets and just slows down validation.
+// CRC32/IEEE (32-bit) encodes to ceil(32/log2(62)) = 6 chars with leading-
+// zero padding. SHA-256 is used for hashing because secrets are CSPRNG-
+// generated (>= ~140 bits of entropy at SecretLen=24+); bcrypt's KDF
+// overhead adds nothing against random secrets and just slows validation.
 package secrets
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"hash/crc32"
 	"math/big"
 	"strings"
+	"sync"
 )
 
 // base62Alphabet is the canonical ordering for base62-encoded credentials.
 // Order: digits first (0-9), then lowercase (a-z), then uppercase (A-Z).
 // Matches the de-facto convention used by Stripe / OpenAI tokens.
 const base62Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+// crc32Len is the fixed number of base62 chars used to encode a CRC32
+// checksum. 4 bytes (32 bits) in base62: ceil(32 / log2(62)) = 6 chars.
+const crc32Len = 6
 
 // Spec defines the shape of a credential type. One Spec per kind.
 type Spec struct {
@@ -47,21 +58,51 @@ type Spec struct {
 	SecretLen int
 }
 
+// bodyLen returns the length of the token body (everything before the CRC32
+// suffix): len(Prefix) + IDLen + 1 (separator "_") + SecretLen.
+func (s Spec) bodyLen() int {
+	return len(s.Prefix) + s.IDLen + 1 + s.SecretLen
+}
+
 // Token is a freshly minted credential. Only `Full` ever leaves the
 // server (returned to the user once, never stored). `Hash` is what gets
 // persisted; presented secrets are compared via ConstantTimeMatch.
 type Token struct {
-	// Full is what the user receives: "<prefix>_<id>_<secret>".
+	// Full is what the user receives: "<prefix>_<id>_<secret><crc32>".
 	// Caller MUST present this back as `Authorization: Bearer <Full>`.
 	Full string
 	// ID is "<prefix>_<id>" — the public, indexable handle.
 	// Use as DB primary key for the row.
 	ID string
-	// Secret is the bare secret segment (no prefix, no id).
+	// Secret is the bare secret segment (no prefix, no id, no crc32).
 	// Most callers don't need to store this directly — store Hash instead.
 	Secret string
-	// Hash is hex(sha256(Full)). Persist this; never persist Full or Secret.
+	// Hash is the storage hash of Full (HMAC-SHA256 with pepper if set,
+	// otherwise plain SHA-256). Persist this; never persist Full or Secret.
 	Hash string
+}
+
+// pepper is the server-side HMAC key used by Hash. Set once at process
+// startup via SetPepper. When unset (typical in dev), Hash falls back
+// to plain SHA-256 so unit tests + local development don't require the
+// env var. Production deployments MUST set this; the value is rotated
+// once-and-never (rotating invalidates all existing hashes).
+var (
+	pepperMu sync.RWMutex
+	pepper   []byte
+)
+
+// SetPepper installs the server-side HMAC key. Call once at startup;
+// safe to call concurrently with Hash() but the typical flow is
+// startup-only. Idempotent — same value reset is a no-op; a different
+// value panics (we'd rather crash than silently break all stored hashes).
+func SetPepper(b []byte) {
+	pepperMu.Lock()
+	defer pepperMu.Unlock()
+	if pepper != nil && subtle.ConstantTimeCompare(pepper, b) != 1 {
+		panic("secrets: SetPepper called twice with different values — rotating the pepper invalidates all stored hashes")
+	}
+	pepper = append([]byte(nil), b...)
 }
 
 // Mint generates a new credential matching spec. Reads from crypto/rand
@@ -80,7 +121,9 @@ func Mint(spec Spec) (Token, error) {
 		return Token{}, fmt.Errorf("secrets: gen secret: %w", err)
 	}
 	id := spec.Prefix + idPart
-	full := id + "_" + secret
+	body := id + "_" + secret
+	crc := crc32Base62(body)
+	full := body + crc
 	return Token{
 		Full:   full,
 		ID:     id,
@@ -90,9 +133,10 @@ func Mint(spec Spec) (Token, error) {
 }
 
 // Parse validates wire shape and splits a presented full token into
-// (id, secret) without doing any crypto. Returns ErrInvalidFormat on
-// any structural mismatch (wrong prefix, wrong segment lengths,
-// missing underscore separator, non-base62 character).
+// (id, secret) without doing any crypto beyond the CRC32 integrity check.
+// Returns ErrInvalidFormat on any structural mismatch (wrong prefix, wrong
+// segment lengths, missing underscore separator, non-base62 character, or
+// CRC32 mismatch).
 //
 // Used by middleware to extract the indexable id before the DB lookup,
 // so a malformed token never hits the DB.
@@ -100,10 +144,25 @@ func Parse(spec Spec, full string) (id, secret string, err error) {
 	if err := validateSpec(spec); err != nil {
 		return "", "", err
 	}
-	if !strings.HasPrefix(full, spec.Prefix) {
+	bodyLen := spec.bodyLen()
+	wantLen := bodyLen + crc32Len
+	if len(full) != wantLen {
 		return "", "", ErrInvalidFormat
 	}
-	rest := full[len(spec.Prefix):]
+	body := full[:bodyLen]
+	presentedCRC := full[bodyLen:]
+
+	// Validate CRC32 with constant-time compare to avoid timing leak on CRC.
+	expectedCRC := crc32Base62(body)
+	if subtle.ConstantTimeCompare([]byte(presentedCRC), []byte(expectedCRC)) != 1 {
+		return "", "", ErrInvalidFormat
+	}
+
+	// Parse the body: <prefix><idPart>_<secretPart>
+	if !strings.HasPrefix(body, spec.Prefix) {
+		return "", "", ErrInvalidFormat
+	}
+	rest := body[len(spec.Prefix):]
 	sep := strings.IndexByte(rest, '_')
 	if sep != spec.IDLen {
 		return "", "", ErrInvalidFormat
@@ -119,12 +178,20 @@ func Parse(spec Spec, full string) (id, secret string, err error) {
 	return spec.Prefix + idPart, secretPart, nil
 }
 
-// Hash returns hex(sha256(full)). Stable across the lifetime of a
-// credential — the hash a freshly minted token produces is the same
-// hash the next presentation of that token produces.
+// Hash returns the storage hash for full. When a pepper is configured
+// (production), it's HMAC-SHA256(pepper, full); otherwise plain SHA-256.
+// Both produce 64-char lowercase hex.
 func Hash(full string) string {
-	sum := sha256.Sum256([]byte(full))
-	return hex.EncodeToString(sum[:])
+	pepperMu.RLock()
+	p := pepper
+	pepperMu.RUnlock()
+	if p == nil {
+		sum := sha256.Sum256([]byte(full))
+		return hex.EncodeToString(sum[:])
+	}
+	mac := hmac.New(sha256.New, p)
+	mac.Write([]byte(full))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // ConstantTimeMatch hashes presented and constant-time compares to
@@ -194,6 +261,22 @@ func isBase62(s string) bool {
 		}
 	}
 	return true
+}
+
+// crc32Base62 computes CRC32/IEEE of s and returns it as exactly crc32Len
+// (6) base62 characters, left-padded with '0' if the value is small.
+// No separator between the token body and the CRC suffix — same as GitHub.
+func crc32Base62(s string) string {
+	sum := crc32.ChecksumIEEE([]byte(s))
+	// Encode the 32-bit value as base62 with fixed width crc32Len.
+	out := make([]byte, crc32Len)
+	v := uint64(sum)
+	base := uint64(len(base62Alphabet))
+	for i := crc32Len - 1; i >= 0; i-- {
+		out[i] = base62Alphabet[v%base]
+		v /= base
+	}
+	return string(out)
 }
 
 // Pre-defined specs used by callers. Adding a new credential kind?
