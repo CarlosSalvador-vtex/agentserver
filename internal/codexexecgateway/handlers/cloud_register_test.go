@@ -167,6 +167,72 @@ func TestCloudRegister_AcceptsEnvIDParam(t *testing.T) {
 	}
 }
 
+// Validator returning 502 (e.g. agentserver pod restarting) twice
+// before serving 200 — classifyAndValidate should retry and succeed
+// without surfacing the transient failure. Critical: codex
+// register-loop `?` would exit on any non-2xx from us, so dropping
+// every client every deploy is what we're preventing here.
+func TestCloudRegister_RetriesTransientValidatorErrors(t *testing.T) {
+	var attempts int
+	agentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"user_id": "u-1"})
+	}))
+	defer agentSrv.Close()
+
+	store := newStoreWithExecutor(t, "exe_x", "u-1")
+	h := CloudRegister(store, "wss://test", AgentserverValidator{
+		BaseURL: agentSrv.URL, InternalSecret: "shh",
+	}, testTicketSecret)
+	req := httptest.NewRequest(http.MethodPost, "/cloud/executor/exe_x/register", nil)
+	req.Header.Set("Authorization", "Bearer valid-bearer")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("exe_id", "exe_x")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 after retries, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if attempts != 3 {
+		t.Errorf("validator called %d times, want 3 (two failures + one success)", attempts)
+	}
+}
+
+// Validator returns 401 — that's a hard auth failure, no retries.
+// Caller still gets 401 immediately (no extra wait).
+func TestCloudRegister_HardAuthFailureSkipsRetries(t *testing.T) {
+	var attempts int
+	agentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "bad token"})
+	}))
+	defer agentSrv.Close()
+
+	store := newStoreWithExecutor(t, "exe_x", "u-1")
+	h := CloudRegister(store, "wss://test", AgentserverValidator{
+		BaseURL: agentSrv.URL, InternalSecret: "shh",
+	}, testTicketSecret)
+	req := httptest.NewRequest(http.MethodPost, "/cloud/executor/exe_x/register", nil)
+	req.Header.Set("Authorization", "Bearer bad-token")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("exe_id", "exe_x")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if attempts != 1 {
+		t.Errorf("validator called %d times, want 1 (no retries on hard failure)", attempts)
+	}
+}
+
 // Both legacy `exe_id` and new `env_id` chi params resolve to the same
 // id when both happen to be set (defensive — production routes never
 // set both, but document the precedence).

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -48,8 +49,18 @@ type AgentserverValidator struct {
 	HTTPClient     *http.Client // optional; nil → default with 5s timeout
 }
 
+// ErrValidatorUnavailable is returned by Validate when the validator
+// itself is unreachable (network error, 5xx, or 408/429 transient
+// status). Callers should treat this as retryable — surface as 503 to
+// the codex client so it loops register-retry instead of bailing with
+// an auth error.
+var ErrValidatorUnavailable = fmt.Errorf("validator unavailable")
+
 // Validate POSTs the request body to agentserver and returns the
-// resolved user_id, or an error if validation fails.
+// resolved user_id, or an error if validation fails. Returns
+// ErrValidatorUnavailable (wrapped) for transient transport / 5xx
+// failures so callers can distinguish "auth said no" (401) from
+// "couldn't ask" (503 — retryable during rolling deploys).
 func (v *AgentserverValidator) Validate(ctx context.Context, req map[string]string) (userID string, err error) {
 	if v.BaseURL == "" {
 		return "", fmt.Errorf("validator not configured")
@@ -65,7 +76,9 @@ func (v *AgentserverValidator) Validate(ctx context.Context, req map[string]stri
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("validate: %w", err)
+		// Network error: connection refused, DNS failure, timeout, etc.
+		// Treat as transient — the agentserver pod may be mid-restart.
+		return "", fmt.Errorf("%w: %v", ErrValidatorUnavailable, err)
 	}
 	defer resp.Body.Close()
 	var rb struct {
@@ -73,6 +86,9 @@ func (v *AgentserverValidator) Validate(ctx context.Context, req map[string]stri
 		Error  string `json:"error"`
 	}
 	json.NewDecoder(resp.Body).Decode(&rb)
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests {
+		return "", fmt.Errorf("%w: status=%d body=%q", ErrValidatorUnavailable, resp.StatusCode, rb.Error)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("validate: %s (status %d)", rb.Error, resp.StatusCode)
 	}
@@ -109,9 +125,22 @@ func CloudRegister(store CloudRegisterStore, publicWSBaseURL string, validator A
 		}
 
 		authHeader := r.Header.Get("Authorization")
-		userID, ok := classifyAndValidate(r.Context(), validator,
+		userID, vErr := classifyAndValidate(r.Context(), validator,
 			authHeader, r.Header.Get("ChatGPT-Account-ID"))
-		if !ok {
+		if vErr != nil {
+			// 503 for transient validator unavailability so codex keeps
+			// the register-retry loop alive across agentserver rolling
+			// restarts. 401/403 would make codex exit the loop with an
+			// auth error and drop the long-lived ws — every client
+			// connector would disconnect on every deploy.
+			if errors.Is(vErr, ErrValidatorUnavailable) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "validator unavailable, retry"})
+				return
+			}
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if userID == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
@@ -137,36 +166,58 @@ func CloudRegister(store CloudRegisterStore, publicWSBaseURL string, validator A
 }
 
 // classifyAndValidate inspects the auth header and calls agentserver
-// with the appropriate scheme. Returns userID + ok=true on match.
-// Returns ok=false on any failure (legacy bcrypt path will then be tried).
-func classifyAndValidate(ctx context.Context, v AgentserverValidator, authHeader, accountID string) (string, bool) {
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		// ChatGPT-mode bearer requests always come with the
-		// ChatGPT-Account-ID header (codex's BearerAuthProvider always
-		// adds it). Forward it so agentserver can cross-check the
-		// header against the token's owner.
-		// Legacy bcrypt tokens have similar shape; we always try
-		// delegating first and fall back to the bcrypt path on 401.
-		uid, err := v.Validate(ctx, map[string]string{
-			"scheme": "bearer", "token": token, "account_id": accountID,
-		})
-		if err == nil && uid != "" {
-			return uid, true
-		}
-		return "", false
+// with the appropriate scheme. Returns (userID, nil) on success,
+// (_, ErrValidatorUnavailable) when every retry to the validator was
+// unreachable, and (_, non-nil) for other auth failures (treat as 401).
+// An empty/unrecognized authHeader returns ("", nil) — caller treats
+// that as 401 too.
+//
+// Codex `register_environment(...).await?` exits run_remote_environment
+// on ANY non-2xx, so a 5xx during agentserver rolling restart would
+// disconnect every codex client. To hide the brief restart window we
+// retry transient validator failures here in-process; total wait stays
+// under ~3s so the codex client side doesn't time out.
+func classifyAndValidate(ctx context.Context, v AgentserverValidator, authHeader, accountID string) (string, error) {
+	var scheme, credKey, cred string
+	switch {
+	case strings.HasPrefix(authHeader, "Bearer "):
+		scheme = "bearer"
+		credKey = "token"
+		cred = strings.TrimPrefix(authHeader, "Bearer ")
+	case strings.HasPrefix(authHeader, "AgentAssertion "):
+		scheme = "agent_assertion"
+		credKey = "assertion"
+		cred = strings.TrimPrefix(authHeader, "AgentAssertion ")
+	default:
+		return "", nil
 	}
-	if strings.HasPrefix(authHeader, "AgentAssertion ") {
-		assertion := strings.TrimPrefix(authHeader, "AgentAssertion ")
-		uid, err := v.Validate(ctx, map[string]string{
-			"scheme": "agent_assertion", "assertion": assertion, "account_id": accountID,
-		})
-		if err == nil && uid != "" {
-			return uid, true
-		}
-		return "", false
+	body := map[string]string{
+		"scheme": scheme, credKey: cred, "account_id": accountID,
 	}
-	return "", false
+	// 5 attempts: 0ms, 300ms, 600ms, 1200ms, 2400ms — total ~4.5s, well
+	// over the kubelet rolling-restart RTT for an agentserver pod (1-2s).
+	var lastErr error
+	backoff := 300 * time.Millisecond
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+		uid, err := v.Validate(ctx, body)
+		if err == nil {
+			return uid, nil
+		}
+		lastErr = err
+		if !errors.Is(err, ErrValidatorUnavailable) {
+			// Hard auth failure — no point retrying.
+			return "", err
+		}
+	}
+	return "", lastErr
 }
 
 func assertExeOwnedByUser(ctx context.Context, store CloudRegisterStore, exeID, userID string) error {
