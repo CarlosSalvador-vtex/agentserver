@@ -66,6 +66,13 @@ func (p *Pool) Get(ctx context.Context, workspaceID string) (*Conn, error) {
 	defer e.mu.Unlock()
 
 	if e.conn != nil && !e.connClosed() {
+		// Bump activity on Get so a conn that's been idle ≥ idleTTL but not
+		// yet swept by the reaper isn't reaped in the microsecond window
+		// between Get returning and the caller's first frame. The first
+		// frame would bump it anyway, but the window is enough for the
+		// reaper tick to land in between and surface the exact bug this
+		// file fixes.
+		e.conn.lastActiveAt.Store(time.Now().UnixNano())
 		return e.conn, nil
 	}
 	// (Re)dial.
