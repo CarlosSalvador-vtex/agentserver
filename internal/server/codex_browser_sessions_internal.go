@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -12,6 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/agentserver/agentserver/internal/db"
+	"github.com/agentserver/agentserver/internal/secrets"
 )
 
 // sessionOpenReq is what CXG POSTs to /api/internal/codex/tokens/session-open
@@ -145,10 +144,12 @@ func (s *Server) handleCodexSessionClose(w http.ResponseWriter, r *http.Request)
 
 // newSessionID returns an unguessable 128-bit hex id, prefixed so a leak
 // can't be mistaken for a codex token (which start with "cxt_").
+// cbs_ IDs are session identifiers, not authoritative credentials — they
+// don't need the prefix-id-secret structure from internal/secrets.
 func newSessionID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	hexPart, err := secrets.RandomHex(16)
+	if err != nil {
 		return "", err
 	}
-	return "cbs_" + hex.EncodeToString(b[:]), nil
+	return "cbs_" + hexPart, nil
 }

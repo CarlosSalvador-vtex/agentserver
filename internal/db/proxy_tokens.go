@@ -1,10 +1,10 @@
 package db
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
+
+	"github.com/agentserver/agentserver/internal/secrets"
 )
 
 // ProxyTokenType discriminates the two kinds of tokens stored in
@@ -111,9 +111,9 @@ func (db *DB) GetOrCreateWorkspaceToken(workspaceID string) (string, error) {
 // newProxyToken generates a 32-byte random token, hex-encoded. 64 hex chars,
 // 256 bits of entropy — well above the bar for opaque API keys.
 func newProxyToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	tok, err := secrets.RandomHex(32)
+	if err != nil {
 		return "", fmt.Errorf("read random bytes: %w", err)
 	}
-	return hex.EncodeToString(b), nil
+	return tok, nil
 }
