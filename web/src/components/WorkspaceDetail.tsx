@@ -44,6 +44,7 @@ import {
   setDefaultCredentialBinding,
   pollDeviceCodeComplete,
   listSandboxes,
+  getMe,
   type CredentialBinding,
   type DeviceCodeResponse,
   type Workspace,
@@ -58,6 +59,7 @@ import {
   type Sandbox,
 } from '../lib/api'
 import { ConfirmModal } from './Modals'
+import { WorkspaceAPIKeysTab } from './WorkspaceAPIKeysTab'
 import { TracesTab, TRACES_PER_PAGE } from './SandboxDetail'
 import { WeixinLoginModal } from './WeixinLoginModal'
 import { TelegramConfigModal } from './TelegramConfigModal'
@@ -78,6 +80,7 @@ export type Tab =
   | 'operations'
   | 'credentials'
   | 'members'
+  | 'api-keys'
   | 'settings'
 
 interface WorkspaceDetailProps {
@@ -108,6 +111,7 @@ const TAB_TO_SLUG: Record<Tab, string> = {
   operations: 'operations',
   credentials: 'credentials',
   members: 'members',
+  'api-keys': 'api-keys',
   settings: 'settings',
 }
 
@@ -144,6 +148,7 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
     }
   }
   const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [myUserId, setMyUserId] = useState<string | null>(null)
   const [sbxQuota, setSbxQuota] = useState<{ current: number; max: number } | null>(null)
   const [defaults, setDefaults] = useState<WorkspaceSandboxDefaults | null>(null)
   const [llmQuota, setLlmQuota] = useState<WorkspaceLLMQuota | null>(null)
@@ -163,6 +168,7 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
     setTracesPage(0)
 
     listMembers(workspace.id).then(setMembers).catch(() => {})
+    getMe().then((u) => setMyUserId(u.id)).catch(() => {})
     getWorkspaceDefaults(workspace.id).then((d) => {
       setDefaults(d)
       setSbxQuota({ current: d.current_sandboxes, max: d.max_sandboxes })
@@ -185,6 +191,10 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
   const totalPages = Math.ceil(tracesTotal / TRACES_PER_PAGE)
   const fetchDetail = useCallback((traceId: string) => getWorkspaceTraceDetail(workspace.id, traceId), [workspace.id])
 
+  // Compute the current user's role in this workspace from the members list.
+  // Used to gate owner/maintainer-only tabs in the sidebar.
+  const myRole = members.find((m) => m.user_id === myUserId)?.role ?? null
+
   const sidebarItems: { key: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { key: 'overview', label: 'Overview', icon: <LayoutDashboard size={16} /> },
     { key: 'browsers', label: 'Browsers', icon: <Globe size={16} /> },
@@ -196,6 +206,9 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
     { key: 'operations', label: 'Operations', icon: <Activity size={16} /> },
     { key: 'credentials', label: 'Credentials', icon: <Key size={16} /> },
     { key: 'members', label: 'Members', icon: <Users size={16} />, badge: members.length > 0 ? members.length : undefined },
+    ...(myRole === 'owner' || myRole === 'maintainer'
+      ? [{ key: 'api-keys' as Tab, label: 'API Keys', icon: <Key size={16} /> }]
+      : []),
     { key: 'settings', label: 'Settings', icon: <Settings size={16} /> },
   ]
 
@@ -284,6 +297,9 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
               members={members}
               setMembers={setMembers}
             />
+          )}
+          {tab === 'api-keys' && (
+            <WorkspaceAPIKeysTab workspaceId={workspace.id} />
           )}
           {tab === 'settings' && (
             <SettingsTab workspace={workspace} />

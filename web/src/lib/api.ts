@@ -918,6 +918,51 @@ export async function unbindRemoteExecutor(workspaceId: string, exeId: string): 
   if (!res.ok) throw new Error('Failed to unbind executor')
 }
 
+// --- Workspace API Keys ---
+
+export type WorkspaceAPIKey = components['schemas']['WorkspaceAPIKey']
+export type WorkspaceAPIKeyMintResponse = components['schemas']['WorkspaceAPIKeyMintResponse']
+export type APIKeyScopeDescriptor = components['schemas']['APIKeyScopeDescriptor']
+
+export async function listWorkspaceAPIKeys(workspaceId: string): Promise<WorkspaceAPIKey[]> {
+  return apiFetch<WorkspaceAPIKey[]>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`,
+  })
+}
+
+export async function listWorkspaceAPIKeyScopes(workspaceId: string): Promise<APIKeyScopeDescriptor[]> {
+  return apiFetch<APIKeyScopeDescriptor[]>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys/scopes`,
+  })
+}
+
+export async function mintWorkspaceAPIKey(
+  workspaceId: string,
+  name: string,
+  scopes: string[],
+): Promise<WorkspaceAPIKeyMintResponse> {
+  return apiFetch<WorkspaceAPIKeyMintResponse>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`,
+    body: { name, scopes } satisfies components['schemas']['WorkspaceAPIKeyMintRequest'],
+  })
+}
+
+export async function revokeWorkspaceAPIKey(workspaceId: string, keyId: string): Promise<boolean> {
+  try {
+    await apiFetch<void>({
+      method: 'DELETE',
+      path: `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys/${encodeURIComponent(keyId)}`,
+    })
+    return true
+  } catch (err) {
+    if (err instanceof ApiError) return false
+    throw err
+  }
+}
+
 // === Operations (Plan 3c) ===
 
 export interface ListOperationsFilters {

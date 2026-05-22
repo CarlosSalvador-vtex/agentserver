@@ -833,3 +833,46 @@ type AdminSetWorkspaceQuotaRequest struct {
 	MaxTotalMemory   *int64 `json:"max_total_memory,omitempty" extensions:"x-nullable=true"`
 	MaxDriveSize     *int64 `json:"max_drive_size,omitempty" extensions:"x-nullable=true"`
 } // @name AdminSetWorkspaceQuotaRequest
+
+// --- Workspace API Keys ---
+
+// APIKeyScopeDescriptor is one entry in the scope catalog returned by
+// GET /api/workspaces/{wid}/api-keys/scopes. The SPA renders these as
+// checkboxes in the mint modal.
+type APIKeyScopeDescriptor struct {
+	Name        string `json:"name" validate:"required" example:"turns:submit"`
+	Description string `json:"description" validate:"required"`
+	Available   bool   `json:"available" validate:"required"`
+} // @name APIKeyScopeDescriptor
+
+// WorkspaceAPIKeyMintRequest is the body for POST /api/workspaces/{wid}/api-keys.
+// Scopes must be non-empty and every entry must reference an Available
+// scope in the catalog (see GET .../api-keys/scopes).
+type WorkspaceAPIKeyMintRequest struct {
+	Name   string   `json:"name" validate:"required" example:"my-bot-integration"`
+	Scopes []string `json:"scopes" validate:"required" example:"[\"turns:submit\"]"`
+} // @name WorkspaceAPIKeyMintRequest
+
+// WorkspaceAPIKeyMintResponse is the body returned by the mint endpoint
+// IMMEDIATELY after creation. The secret field is returned ONCE here and
+// never appears in any subsequent API response.
+type WorkspaceAPIKeyMintResponse struct {
+	ID        string   `json:"id" validate:"required" example:"wak_a1b2c3d4"`
+	Name      string   `json:"name" validate:"required"`
+	Prefix    string   `json:"prefix" validate:"required" example:"wak_a1b2c3d4"`
+	Secret    string   `json:"secret" validate:"required" example:"wak_a1b2c3d4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`
+	Scopes    []string `json:"scopes" validate:"required"`
+	CreatedAt string   `json:"created_at" validate:"required"`
+} // @name WorkspaceAPIKeyMintResponse
+
+// WorkspaceAPIKey is one row in the list response. Secret is NEVER
+// included here — only the prefix for display.
+type WorkspaceAPIKey struct {
+	ID         string   `json:"id" validate:"required" example:"wak_a1b2c3d4"`
+	Name       string   `json:"name" validate:"required"`
+	Prefix     string   `json:"prefix" validate:"required" example:"wak_a1b2c3d4"`
+	Scopes     []string `json:"scopes" validate:"required"`
+	CreatedAt  string   `json:"created_at" validate:"required"`
+	LastUsedAt *string  `json:"last_used_at" extensions:"x-nullable=true"`
+	RevokedAt  *string  `json:"revoked_at" extensions:"x-nullable=true"`
+} // @name WorkspaceAPIKey
