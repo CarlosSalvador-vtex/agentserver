@@ -3195,6 +3195,155 @@ paths:
       summary: List agent cards in a workspace
       tags:
         - Agent
+  "/api/workspaces/{wid}/api-keys":
+    get:
+      description: Returns prefix-only metadata. Secrets are never included.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/WorkspaceAPIKey"
+                type: array
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List workspace API keys
+      tags:
+        - Workspace API Keys
+    post:
+      description: Returns the secret ONCE in the response body. At least one
+        Available scope must be provided.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceAPIKeyMintRequest"
+        description: Key metadata
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceAPIKeyMintResponse"
+        "400":
+          description: name required / scope not available / at least one scope required
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: owner or maintainer required
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Mint a workspace API key
+      tags:
+        - Workspace API Keys
+  "/api/workspaces/{wid}/api-keys/{id}":
+    delete:
+      parameters:
+        - description: Workspace id
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+        - description: Key id (= prefix)
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: owner or maintainer required
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Revoke a workspace API key
+      tags:
+        - Workspace API Keys
+  "/api/workspaces/{wid}/api-keys/scopes":
+    get:
+      description: Returns the catalog of scope names + descriptions. Available=false
+        entries are placeholders shown greyed-out in the UI.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: wid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/APIKeyScopeDescriptor"
+                type: array
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: List available API key scopes
+      tags:
+        - Workspace API Keys
   "/api/workspaces/{wid}/browsers":
     get:
       parameters:
@@ -3742,6 +3891,20 @@ components:
       name: agentserver-token
       type: apiKey
   schemas:
+    APIKeyScopeDescriptor:
+      properties:
+        available:
+          type: boolean
+        description:
+          type: string
+        name:
+          example: turns:submit
+          type: string
+      required:
+        - available
+        - description
+        - name
+      type: object
     AdminOwnerInfo:
       properties:
         email:
@@ -5257,6 +5420,77 @@ components:
         - id
         - name
         - updated_at
+      type: object
+    WorkspaceAPIKey:
+      properties:
+        created_at:
+          type: string
+        id:
+          example: wak_a1b2c3d4
+          type: string
+        last_used_at:
+          type: string
+          nullable: true
+        name:
+          type: string
+        prefix:
+          example: wak_a1b2c3d4
+          type: string
+        revoked_at:
+          type: string
+          nullable: true
+        scopes:
+          items:
+            type: string
+          type: array
+      required:
+        - created_at
+        - id
+        - name
+        - prefix
+        - scopes
+      type: object
+    WorkspaceAPIKeyMintRequest:
+      properties:
+        name:
+          example: my-bot-integration
+          type: string
+        scopes:
+          example:
+            - '["turns:submit"]'
+          items:
+            type: string
+          type: array
+      required:
+        - name
+        - scopes
+      type: object
+    WorkspaceAPIKeyMintResponse:
+      properties:
+        created_at:
+          type: string
+        id:
+          example: wak_a1b2c3d4
+          type: string
+        name:
+          type: string
+        prefix:
+          example: wak_a1b2c3d4
+          type: string
+        scopes:
+          items:
+            type: string
+          type: array
+        secret:
+          example: wak_a1b2c3d4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          type: string
+      required:
+        - created_at
+        - id
+        - name
+        - prefix
+        - scopes
+        - secret
       type: object
     WorkspaceCreateRequest:
       properties:

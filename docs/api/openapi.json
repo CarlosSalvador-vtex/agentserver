@@ -5342,6 +5342,250 @@
         }
       }
     },
+    "/api/workspaces/{wid}/api-keys": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Returns prefix-only metadata. Secrets are never included.",
+        "tags": [
+          "Workspace API Keys"
+        ],
+        "summary": "List workspace API keys",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceAPIKey"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Returns the secret ONCE in the response body. At least one Available scope must be provided.",
+        "tags": [
+          "Workspace API Keys"
+        ],
+        "summary": "Mint a workspace API key",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceAPIKeyMintRequest"
+              }
+            }
+          },
+          "description": "Key metadata",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceAPIKeyMintResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "name required / scope not available / at least one scope required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "owner or maintainer required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{wid}/api-keys/scopes": {
+      "get": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Returns the catalog of scope names + descriptions. Available=false entries are placeholders shown greyed-out in the UI.",
+        "tags": [
+          "Workspace API Keys"
+        ],
+        "summary": "List available API key scopes",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/APIKeyScopeDescriptor"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{wid}/api-keys/{id}": {
+      "delete": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Workspace API Keys"
+        ],
+        "summary": "Revoke a workspace API key",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "wid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Key id (= prefix)",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "owner or maintainer required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{wid}/browsers": {
       "get": {
         "security": [
@@ -6217,6 +6461,26 @@
       }
     },
     "schemas": {
+      "APIKeyScopeDescriptor": {
+        "type": "object",
+        "required": [
+          "available",
+          "description",
+          "name"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "example": "turns:submit"
+          }
+        }
+      },
       "AdminOwnerInfo": {
         "type": "object",
         "required": [
@@ -8389,6 +8653,105 @@
           },
           "updated_at": {
             "type": "string"
+          }
+        }
+      },
+      "WorkspaceAPIKey": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "id",
+          "name",
+          "prefix",
+          "scopes"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "example": "wak_a1b2c3d4"
+          },
+          "last_used_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "example": "wak_a1b2c3d4"
+          },
+          "revoked_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "WorkspaceAPIKeyMintRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "my-bot-integration"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "[\"turns:submit\"]"
+            ]
+          }
+        }
+      },
+      "WorkspaceAPIKeyMintResponse": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "secret"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "example": "wak_a1b2c3d4"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "example": "wak_a1b2c3d4"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "secret": {
+            "type": "string",
+            "example": "wak_a1b2c3d4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
           }
         }
       },

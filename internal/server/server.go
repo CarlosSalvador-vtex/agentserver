@@ -528,6 +528,12 @@ func (s *Server) Router() http.Handler {
 		// can render with the same DeviceListPanel component.
 		r.Get("/api/workspaces/{wid}/browsers", s.handleListCodexBrowsers)
 
+		// Workspace API keys (developer keys for external integrators).
+		r.Get("/api/workspaces/{wid}/api-keys/scopes", s.handleListWorkspaceAPIKeyScopes)
+		r.Get("/api/workspaces/{wid}/api-keys", s.handleListWorkspaceAPIKeys)
+		r.Post("/api/workspaces/{wid}/api-keys", s.handleMintWorkspaceAPIKey)
+		r.Delete("/api/workspaces/{wid}/api-keys/{id}", s.handleRevokeWorkspaceAPIKey)
+
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)
