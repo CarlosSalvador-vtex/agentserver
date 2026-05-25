@@ -1,5 +1,7 @@
-# Stage 1: Build admin frontend
-FROM node:25-slim AS frontend
+# syntax=docker/dockerfile:1.4
+
+# Stage 1: Build admin frontend (native host arch — JS is portable)
+FROM --platform=$BUILDPLATFORM node:22-slim AS frontend
 RUN npm install -g pnpm
 WORKDIR /app/web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
@@ -13,8 +15,8 @@ COPY docs/api/openapi.yaml /app/docs/api/openapi.yaml
 RUN pnpm openapi:gen
 RUN pnpm build
 
-# Stage 2: Build opencode frontend from submodule
-FROM oven/bun:1 AS opencode-frontend
+# Stage 2: Build opencode frontend from submodule (native host arch)
+FROM --platform=$BUILDPLATFORM oven/bun:1 AS opencode-frontend
 WORKDIR /app
 # python3 + g++ + make are needed by node-gyp to build native addons pulled
 # by opencode (e.g. tree-sitter-powershell) during `bun install`.
@@ -25,15 +27,16 @@ COPY opencode/ ./
 RUN bun install --frozen-lockfile
 RUN bun run --filter=@opencode-ai/app build
 
-# Stage 3: Build Go backend
-FROM golang:1.26-trixie AS backend
+# Stage 3: Build Go backend (native host arch; cross-compile to TARGETARCH)
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS backend
+ARG TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
 COPY --from=opencode-frontend /app/packages/app/dist ./opencodeweb/dist
-RUN CGO_ENABLED=0 go build -tags goolm -o agentserver .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -tags goolm -o agentserver .
 
 # Stage 4: Runtime image with Docker CLI (claude-code runs in agent containers)
 FROM debian:trixie-slim

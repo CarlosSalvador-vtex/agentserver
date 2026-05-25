@@ -1,6 +1,11 @@
 # Dev EKS overrides — dev-ti-eks-analytics-platform
 # Deploy: helm upgrade --install agentserver ./deploy/helm/agentserver -n agentserver --create-namespace -f values-dev-eks.yaml
 
+image:
+  repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
+  tag: openclaw-ui
+  pullPolicy: Always
+
 postgresql:
   image:
     # Override Chinese mirror with standard dockerhub image
@@ -45,6 +50,13 @@ sandbox:
   baseDomain: "agentserver.dev.vtex.io"
   openclaw:
     image: "ghcr.io/agentserver/openclaw-agent:latest"
+  # Applied to every sandbox pod template so they can schedule on tainted nodes
+  tolerations:
+    - key: "internal-workers"
+      value: "true"
+      effect: "NoSchedule"
+  # gp3/EBS only supports RWO; RWM (default) needs EFS which isn't deployed here.
+  workspaceDriveAccessModes: "ReadWriteOnce"
 
 # llmproxy → LiteLLM (Bedrock backend via IRSA)
 models:
