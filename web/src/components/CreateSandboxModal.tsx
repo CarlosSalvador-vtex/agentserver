@@ -5,13 +5,13 @@ import { getWorkspaceDefaults, type WorkspaceSandboxDefaults } from '../lib/api'
 interface CreateSandboxModalProps {
   workspaceId: string
   onClose: () => void
-  onCreate: (name: string, type: 'opencode' | 'nanoclaw' | 'claudecode' | 'jupyter', cpu?: number, memory?: number, idleTimeout?: number, metadata?: Record<string, unknown>) => void
+  onCreate: (name: string, type: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter', cpu?: number, memory?: number, idleTimeout?: number, metadata?: Record<string, unknown>) => void
   creating: boolean
 }
 
 export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }: CreateSandboxModalProps) {
   const [name, setName] = useState('New Sandbox')
-  const [sandboxType, setSandboxType] = useState<'opencode' | 'nanoclaw' | 'claudecode' | 'jupyter'>('opencode')
+  const [sandboxType, setSandboxType] = useState<'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter'>('opencode')
   const [defaults, setDefaults] = useState<WorkspaceSandboxDefaults | null>(null)
   const [loadingDefaults, setLoadingDefaults] = useState(true)
 
@@ -137,6 +137,17 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
                 }`}
               >
                 OpenCode
+              </button>
+              <button
+                type="button"
+                onClick={() => setSandboxType('openclaw')}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                  sandboxType === 'openclaw'
+                    ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]'
+                    : 'border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] hover:bg-[var(--secondary)]'
+                }`}
+              >
+                OpenClaw
               </button>
               <button
                 type="button"
