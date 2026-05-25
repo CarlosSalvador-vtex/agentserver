@@ -9,8 +9,14 @@ data:
     {{- range .Values.models }}
       - model_name: {{ .name }}
         litellm_params:
-          model: bedrock/{{ .bedrockModel }}
+          model: {{ .model }}
           aws_region_name: {{ $.Values.awsRegion }}
+          {{- if .inferenceProfileArn }}
+          aws_bedrock_model_id: {{ .inferenceProfileArn }}
+          {{- end }}
+        model_info:
+          mode: chat
     {{- end }}
     litellm_settings:
       drop_params: true
+      health_check_interval: 0

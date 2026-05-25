@@ -15,12 +15,17 @@ tolerations: []
 
 awsRegion: "us-east-1"
 
-# Models exposed by LiteLLM (Anthropic-compatible names → Bedrock model IDs)
+# Models exposed by LiteLLM
+# Inference profiles: use bedrock_converse/<ARN> format
+# Foundation models: use bedrock/<model-id> format
 models:
-  - name: claude-3-sonnet-20240229
-    bedrockModel: anthropic.claude-3-sonnet-20240229-v1:0
-  - name: claude-3-haiku-20240307
-    bedrockModel: anthropic.claude-3-haiku-20240307-v1:0
+  - name: bedrock/claude-sonnet-4-6
+    model: bedrock/anthropic.claude-sonnet-4-6
+    inferenceProfileArn: arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+  - name: bedrock/claude-3-sonnet
+    model: bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+  - name: bedrock/claude-3-haiku
+    model: bedrock/anthropic.claude-3-haiku-20240307-v1:0
 
 # Master key for LiteLLM API (llmproxy uses this as the "API key")
 masterKey: "litellm-dev-key"
