@@ -1,0 +1,8 @@
+serviceAccount:
+  name: litellm
+  irsaRoleArn: "arn:aws:iam::344729309528:role/dev-ti-eks-analytics-platform-litellm-bedrock-role"
+
+tolerations:
+  - key: "internal-workers"
+    value: "true"
+    effect: "NoSchedule"

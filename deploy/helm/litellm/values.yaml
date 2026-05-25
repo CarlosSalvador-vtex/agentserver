@@ -1,0 +1,26 @@
+image:
+  repository: ghcr.io/berriai/litellm
+  tag: main-latest
+  pullPolicy: Always
+
+replicaCount: 1
+
+port: 4000
+
+serviceAccount:
+  name: litellm
+  irsaRoleArn: ""
+
+tolerations: []
+
+awsRegion: "us-east-1"
+
+# Models exposed by LiteLLM (Anthropic-compatible names → Bedrock model IDs)
+models:
+  - name: claude-3-sonnet-20240229
+    bedrockModel: anthropic.claude-3-sonnet-20240229-v1:0
+  - name: claude-3-haiku-20240307
+    bedrockModel: anthropic.claude-3-haiku-20240307-v1:0
+
+# Master key for LiteLLM API (llmproxy uses this as the "API key")
+masterKey: "litellm-dev-key"

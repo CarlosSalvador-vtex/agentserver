@@ -22,6 +22,10 @@ spec:
         app: {{ .Release.Name }}-imbridge
     spec:
       terminationGracePeriodSeconds: 30
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.postgresql.enabled }}
       initContainers:
         - name: wait-for-postgresql

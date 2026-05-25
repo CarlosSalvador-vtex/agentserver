@@ -1,0 +1,57 @@
+# Dev EKS overrides — dev-ti-eks-analytics-platform
+# Deploy: helm upgrade --install agentserver ./deploy/helm/agentserver -n agentserver --create-namespace -f values-dev-eks.yaml
+
+postgresql:
+  image:
+    # Override Chinese mirror with standard dockerhub image
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  primary:
+    persistence:
+      storageClass: "gp3"
+
+platform:
+  domain: "agentserver.dev.vtex.io"
+  defaultQuotas:
+    userMaxWorkspaces: 5
+    workspaceMaxSandboxes: 5
+
+# Ingress disabled — use kubectl port-forward for dev access
+# After stable, create ALB Ingress separately
+ingress:
+  enabled: false
+
+sandbox:
+  # gp3 is cluster default, empty = use cluster default
+  sessionStorageClassName: ""
+  workspaceStorageClassName: ""
+  networkPolicy:
+    enabled: false
+  # Required by sandboxproxy for subdomain routing
+  baseDomain: "agentserver.dev.vtex.io"
+
+# llmproxy → LiteLLM (Bedrock backend via IRSA)
+models:
+  anthropicApiKey: "litellm-dev-key"
+  anthropicBaseUrl: "http://litellm.agentserver.svc.cluster.local:4000"
+
+llmproxy:
+  replicaCount: 1
+
+# Internal service-to-service auth secret
+internal:
+  apiSecret: "893b04759dd64c3b5fb515ad60cb8c639f9da0271201f1aad4eb7052f53379a5"
+
+# HMAC pepper for workspace API key hashes
+secretsPepper: "e40ad066b406d85f71cac82d89f48bc5393daf18e5507026161598953b4017f1"
+
+# Agent Sandbox CRD controller — install in cluster
+agentSandbox:
+  install: true
+
+# Tolerate internal-workers taint on all dev cluster nodes
+tolerations:
+  - key: "internal-workers"
+    value: "true"
+    effect: "NoSchedule"

@@ -16,6 +16,10 @@ spec:
       labels:
         app: {{ .Release.Name }}-llmproxy
     spec:
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.postgresql.enabled }}
       initContainers:
         - name: wait-for-postgresql
