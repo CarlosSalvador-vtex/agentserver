@@ -30,6 +30,8 @@ sandbox:
     enabled: false
   # Required by sandboxproxy for subdomain routing
   baseDomain: "agentserver.dev.vtex.io"
+  openclaw:
+    image: "ghcr.io/agentserver/openclaw-agent:latest"
 
 # llmproxy → LiteLLM (Bedrock backend via IRSA)
 models:

@@ -68,6 +68,10 @@ spec:
         app: agent-sandbox-controller
     spec:
       serviceAccountName: agent-sandbox-controller
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: agent-sandbox-controller
         image: {{ .Values.agentSandbox.controllerImage }}
