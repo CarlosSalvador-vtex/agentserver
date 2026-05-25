@@ -45,6 +45,7 @@ type Server struct {
 	OpenclawSubdomainPrefix    string // e.g. "claw" — subdomain: claw-{id}.{baseDomain}
 	ClaudeCodeSubdomainPrefix  string // e.g. "claude" — subdomain: claude-{id}.{baseDomain}
 	JupyterSubdomainPrefix     string // e.g. "jupyter" — subdomain: jupyter-{id}.{baseDomain}
+	HermesSubdomainPrefix      string // e.g. "hermes" — subdomain: hermes-{id}.{baseDomain}
 	PasswordAuthEnabled      bool   // when false, /api/auth/login and /api/auth/register are not registered
 	LLMProxyURL              string // base URL for the llmproxy service (e.g. "http://agentserver-llmproxy:8081")
 
@@ -132,6 +133,10 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 	if jupyterPrefix == "" {
 		jupyterPrefix = "jupyter"
 	}
+	hermesPrefix := os.Getenv("HERMES_SUBDOMAIN_PREFIX")
+	if hermesPrefix == "" {
+		hermesPrefix = "hermes"
+	}
 
 	s := &Server{
 		Auth:                      a,
@@ -148,6 +153,7 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		OpenclawSubdomainPrefix:   openclawPrefix,
 		ClaudeCodeSubdomainPrefix: claudecodePrefix,
 		JupyterSubdomainPrefix:    jupyterPrefix,
+		HermesSubdomainPrefix:     hermesPrefix,
 		PasswordAuthEnabled:       passwordAuthEnabled,
 		deviceFlows:               make(map[string]*pendingDeviceFlow),
 	}
@@ -837,6 +843,7 @@ type sandboxResponse struct {
 	OpenclawURL     string  `json:"openclaw_url,omitempty"`
 	ClaudeCodeURL   string  `json:"claudecode_url,omitempty"`
 	JupyterURL      string  `json:"jupyter_url,omitempty"`
+	HermesURL       string  `json:"hermes_url,omitempty"`
 	CustomURL       string  `json:"custom_url,omitempty"`
 	CreatedAt       string  `json:"created_at" validate:"required"`
 	LastActivityAt  *string `json:"last_activity_at" extensions:"x-nullable=true"`
@@ -908,6 +915,8 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 			resp.ClaudeCodeURL = "https://" + s.ClaudeCodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		case "jupyter":
 			resp.JupyterURL = "https://" + s.JupyterSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
+		case "hermes":
+			resp.HermesURL = "https://" + s.HermesSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		case "custom":
 			// Custom agents use the opencode subdomain prefix (code-{id}.domain)
 			// but skip SPA fallback in the proxy handler.
@@ -1721,8 +1730,8 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	if sandboxType == "" {
 		sandboxType = "opencode"
 	}
-	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" {
-		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, or jupyter", http.StatusBadRequest)
+	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" && sandboxType != "hermes" {
+		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, jupyter, or hermes", http.StatusBadRequest)
 		return
 	}
 	// Override resource values if user provided them, with validation.

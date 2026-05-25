@@ -15,6 +15,7 @@ type Config struct {
 	OpenclawSubdomainPrefix   string
 	ClaudeCodeSubdomainPrefix string
 	JupyterSubdomainPrefix    string
+	HermesSubdomainPrefix     string
 }
 
 // LoadConfigFromEnv reads configuration from environment variables.
@@ -29,6 +30,7 @@ func LoadConfigFromEnv() Config {
 		OpenclawSubdomainPrefix:   os.Getenv("OPENCLAW_SUBDOMAIN_PREFIX"),
 		ClaudeCodeSubdomainPrefix: os.Getenv("CLAUDECODE_SUBDOMAIN_PREFIX"),
 		JupyterSubdomainPrefix:    os.Getenv("JUPYTER_SUBDOMAIN_PREFIX"),
+		HermesSubdomainPrefix:     os.Getenv("HERMES_SUBDOMAIN_PREFIX"),
 	}
 
 	// Parse comma-separated base domains.
@@ -55,6 +57,9 @@ func LoadConfigFromEnv() Config {
 	}
 	if cfg.JupyterSubdomainPrefix == "" {
 		cfg.JupyterSubdomainPrefix = "jupyter"
+	}
+	if cfg.HermesSubdomainPrefix == "" {
+		cfg.HermesSubdomainPrefix = "hermes"
 	}
 	if cfg.OpencodeAssetDomain == "" && len(cfg.BaseDomains) > 0 {
 		cfg.OpencodeAssetDomain = "opencodeapp." + cfg.BaseDomains[0]

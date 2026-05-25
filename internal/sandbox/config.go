@@ -36,6 +36,21 @@ type Config struct {
 	JupyterImage               string
 	JupyterPort                int
 	JupyterRuntimeClassName    string
+	HermesImage                string
+	HermesPort                 int
+	HermesRuntimeClassName     string
+	// HermesConfigMapName, when non-empty, is mounted at
+	// /home/agent/.hermes/config.yaml inside hermes sandbox pods so the
+	// container starts non-interactively with a preconfigured provider.
+	HermesConfigMapName        string
+	// HermesGLMAPIKey is injected as the GLM_API_KEY env var so the
+	// zai/glm-5.1 fallback provider can authenticate.
+	HermesGLMAPIKey            string
+	// HermesServiceAccountRoleArn, when non-empty, makes the sandbox
+	// manager ensure a ServiceAccount named "hermes" exists in the
+	// workspace namespace, annotated with eks.amazonaws.com/role-arn
+	// so the pod assumes the role via IRSA (for Bedrock access).
+	HermesServiceAccountRoleArn string
 	// CodexExecGatewayURL is the HTTP base URL the agentserver Python SDK
 	// (installed in the jupyter image) dials for the REST exec-gateway.
 	// Example: "http://agentserver-codex-exec-gateway.agentserver.svc:6060".
@@ -76,6 +91,12 @@ func DefaultConfig() Config {
 		JupyterImage:               os.Getenv("JUPYTER_IMAGE"),
 		JupyterPort:                8888,
 		JupyterRuntimeClassName:    os.Getenv("JUPYTER_RUNTIME_CLASS"),
+		HermesImage:                 os.Getenv("HERMES_IMAGE"),
+		HermesPort:                  9119, // Hermes Web UI / dashboard (gateway is on 8642)
+		HermesRuntimeClassName:      os.Getenv("HERMES_RUNTIME_CLASS"),
+		HermesConfigMapName:         os.Getenv("HERMES_CONFIGMAP_NAME"),
+		HermesGLMAPIKey:             os.Getenv("HERMES_GLM_API_KEY"),
+		HermesServiceAccountRoleArn: os.Getenv("HERMES_SA_ROLE_ARN"),
 		CodexExecGatewayURL:        os.Getenv("CODEX_EXEC_GATEWAY_URL"),
 		AgentServerInternalURL:     os.Getenv("AGENTSERVER_INTERNAL_URL"),
 		CredproxyPublicURL:         os.Getenv("CREDPROXY_PUBLIC_URL"),

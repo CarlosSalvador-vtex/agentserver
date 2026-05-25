@@ -12,6 +12,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -354,6 +355,7 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 		containerPort = 4096
 	}
 	var containerCmd []string
+	var containerArgs []string
 
 	switch opts.SandboxType {
 	case "openclaw":
@@ -493,6 +495,32 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 				corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
 			)
 		}
+	case "hermes":
+		if m.cfg.HermesImage == "" {
+			return "", fmt.Errorf("HERMES_IMAGE not configured: set the environment variable to the hermes-agent container image (ghcr.io/nousresearch/hermes-agent)")
+		}
+		sandboxImage = m.cfg.HermesImage
+		containerPort = m.cfg.HermesPort
+
+		// Don't override Command — hermes-agent's image entrypoint is /init
+		// (s6 supervisor). Pass `gateway run` as Args so s6 routes it to the
+		// hermes CLI on $PATH (set up by the entrypoint). Direct Command
+		// override fails with `exec: "gateway": executable file not found`.
+		containerArgs = []string{"gateway", "run"}
+
+		containerEnv = append(containerEnv,
+			corev1.EnvVar{Name: "AWS_REGION", Value: "us-east-1"},
+			corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
+			corev1.EnvVar{Name: "HERMES_DASHBOARD", Value: "1"},
+		)
+		// GLM_API_KEY drives the zai/glm-5.1 fallback provider configured
+		// in config.yaml. Bedrock is primary (IRSA via ServiceAccount),
+		// GLM kicks in if Bedrock fails.
+		if m.cfg.HermesGLMAPIKey != "" {
+			containerEnv = append(containerEnv,
+				corev1.EnvVar{Name: "GLM_API_KEY", Value: m.cfg.HermesGLMAPIKey},
+			)
+		}
 	default: // "opencode"
 		if opts.OpencodeToken != "" {
 			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCODE_SERVER_PASSWORD", Value: opts.OpencodeToken})
@@ -507,9 +535,15 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCODE_CONFIG_CONTENT", Value: opcodeConfig})
 	}
 
-	// Volume mounts for the main container.
+	// Volume mounts for the main container. Hermes-agent expects its data
+	// directory at /opt/data (mirrors `-v ~/.hermes:/opt/data` from upstream
+	// docs); all other sandbox types use the user's home directory.
+	sessionMountPath := "/home/agent"
+	if opts.SandboxType == "hermes" {
+		sessionMountPath = "/opt/data"
+	}
 	volumeMounts := []corev1.VolumeMount{
-		{Name: "session-data", MountPath: "/home/agent"},
+		{Name: "session-data", MountPath: sessionMountPath},
 	}
 	// NanoClaw: persist store (SQLite DB) and data (IPC/sessions) on PVC
 	// so they survive pause/resume.
@@ -534,6 +568,33 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 					ClaimName: vol.PVCName,
 				},
 			},
+		})
+	}
+
+	// Hermes: mount the cluster-wide hermes-config ConfigMap into /opt/data,
+	// which is where the hermes-agent docker image expects its config dir
+	// (mirrors `-v ~/.hermes:/opt/data` from upstream docs). SubPath ensures
+	// only config.yaml is overlaid; runtime files (state.db, sessions/) stay
+	// writable on the session PVC.
+	if opts.SandboxType == "hermes" && m.cfg.HermesConfigMapName != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "hermes-config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: m.cfg.HermesConfigMapName,
+					},
+					Items: []corev1.KeyToPath{
+						{Key: "config.yaml", Path: "config.yaml"},
+					},
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "hermes-config",
+			MountPath: "/opt/data/config.yaml",
+			SubPath:   "config.yaml",
+			ReadOnly:  true,
 		})
 	}
 
@@ -680,6 +741,17 @@ chown -R 1000:1000 /mnt/session-data
 	if len(containerCmd) > 0 {
 		mainContainer.Command = containerCmd
 	}
+	if len(containerArgs) > 0 {
+		mainContainer.Args = containerArgs
+	}
+
+	var serviceAccountName string
+	if opts.SandboxType == "hermes" && m.cfg.HermesServiceAccountRoleArn != "" {
+		if err := m.ensureHermesServiceAccount(ctx, ns); err != nil {
+			return "", fmt.Errorf("ensure hermes ServiceAccount: %w", err)
+		}
+		serviceAccountName = "hermes"
+	}
 
 	sb := &sandboxv1alpha1.Sandbox{
 		ObjectMeta: metav1.ObjectMeta{
@@ -694,12 +766,13 @@ chown -R 1000:1000 /mnt/session-data
 					Labels: map[string]string{labelManagedBy: labelValue},
 				},
 				Spec: corev1.PodSpec{
-					InitContainers:   initContainers,
-					Containers:       []corev1.Container{mainContainer},
-					Volumes:          volumes,
-					RuntimeClassName: m.runtimeClassNameFor(opts.SandboxType),
-					RestartPolicy:    corev1.RestartPolicyNever,
-					Tolerations:      m.cfg.Tolerations,
+					ServiceAccountName: serviceAccountName,
+					InitContainers:     initContainers,
+					Containers:         []corev1.Container{mainContainer},
+					Volumes:            volumes,
+					RuntimeClassName:   m.runtimeClassNameFor(opts.SandboxType),
+					RestartPolicy:      corev1.RestartPolicyNever,
+					Tolerations:        m.cfg.Tolerations,
 				},
 			},
 		},
@@ -1188,4 +1261,67 @@ func (m *Manager) deleteCredentialSecret(ctx context.Context, namespace, sandbox
 		// Not found is fine — the secret may not have been created.
 		log.Printf("delete credential secret %s/%s: %v", namespace, secretName, err)
 	}
+}
+
+// ensureHermesServiceAccount creates the "hermes" ServiceAccount in the given
+// namespace with the IRSA role-arn annotation if it does not yet exist.
+// Idempotent — silently succeeds when the SA already exists. The role ARN
+// comes from Config.HermesServiceAccountRoleArn (env HERMES_SA_ROLE_ARN).
+func (m *Manager) ensureHermesServiceAccount(ctx context.Context, namespace string) error {
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "hermes",
+			Namespace: namespace,
+			Labels:    map[string]string{labelManagedBy: labelValue},
+			Annotations: map[string]string{
+				"eks.amazonaws.com/role-arn": m.cfg.HermesServiceAccountRoleArn,
+			},
+		},
+	}
+	_, err := m.clientset.CoreV1().ServiceAccounts(namespace).Create(ctx, sa, metav1.CreateOptions{})
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create hermes SA in %s: %w", namespace, err)
+	}
+	if m.cfg.HermesConfigMapName != "" {
+		if err := m.replicateHermesConfigMap(ctx, namespace); err != nil {
+			return fmt.Errorf("replicate hermes config map: %w", err)
+		}
+	}
+	return nil
+}
+
+// replicateHermesConfigMap copies the cluster-wide hermes config map from the
+// agentserver release namespace into the workspace namespace so the sandbox
+// pod can mount it. ConfigMaps are namespace-scoped, so without this every
+// workspace ns would need its own copy.
+func (m *Manager) replicateHermesConfigMap(ctx context.Context, targetNS string) error {
+	srcNS := m.cfg.AgentserverNamespace
+	if srcNS == "" {
+		srcNS = "default"
+	}
+	src, err := m.clientset.CoreV1().ConfigMaps(srcNS).Get(ctx, m.cfg.HermesConfigMapName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get source configmap %s/%s: %w", srcNS, m.cfg.HermesConfigMapName, err)
+	}
+	dst := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      m.cfg.HermesConfigMapName,
+			Namespace: targetNS,
+			Labels:    map[string]string{labelManagedBy: labelValue},
+		},
+		Data:       src.Data,
+		BinaryData: src.BinaryData,
+	}
+	existing, err := m.clientset.CoreV1().ConfigMaps(targetNS).Get(ctx, dst.Name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		_, err = m.clientset.CoreV1().ConfigMaps(targetNS).Create(ctx, dst, metav1.CreateOptions{})
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	existing.Data = dst.Data
+	existing.BinaryData = dst.BinaryData
+	_, err = m.clientset.CoreV1().ConfigMaps(targetNS).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
