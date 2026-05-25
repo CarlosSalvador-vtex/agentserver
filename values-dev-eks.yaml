@@ -3,8 +3,21 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: openclaw-ui
+  tag: hermes-bedrock
   pullPolicy: Always
+
+llmproxy:
+  replicaCount: 1
+  image:
+    repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-llmproxy
+    tag: zai-path-fix
+    pullPolicy: Always
+
+sandboxProxy:
+  image:
+    repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-sandboxproxy
+    tag: hermes
+    pullPolicy: Always
 
 postgresql:
   image:
@@ -49,7 +62,30 @@ sandbox:
   # Required by sandboxproxy for subdomain routing
   baseDomain: "agentserver.analytics.vtex.com"
   openclaw:
-    image: "ghcr.io/agentserver/openclaw-agent:latest"
+    # Pin by digest for reproducibility (current :latest = sha 1c03752...)
+    image: "ghcr.io/agentserver/openclaw-agent@sha256:1c03752715d7739093a764e5d4fea097f970ad315201ce6c9b4d7e903ada6a5d"
+  hermes:
+    # GHCR repo is gated (403); Docker Hub public mirror works
+    image: "docker.io/nousresearch/hermes-agent:main"
+    subdomainPrefix: "hermes"
+    # IRSA role with bedrock:InvokeModel on the Sonnet 4.6 inference profile.
+    # The agentserver auto-creates a "hermes" ServiceAccount in every workspace
+    # namespace annotated with this ARN.
+    serviceAccountRoleArn: "arn:aws:iam::344729309528:role/dev-ti-eks-analytics-platform-hermes-bedrock-role"
+    # GLM fallback (zai/glm-5.1) — same Z.AI key as models.anthropicApiKey above.
+    glmApiKey: "4fec1ef91c0243a3a6e5f06a44fd7ade.DQKemhLRJVz44yop"
+    # Inlined as a ConfigMap; the manager replicates it into each workspace ns.
+    # Bedrock primary via cross-region inference profile; GLM fallback.
+    config: |
+      model:
+        default: arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+        provider: bedrock
+      providers: {}
+      fallback_providers:
+        - model: zai/glm-5.1
+          provider: zai
+      agent:
+        max_turns: 80
   # Applied to every sandbox pod template so they can schedule on tainted nodes
   tolerations:
     - key: "internal-workers"
@@ -60,11 +96,8 @@ sandbox:
 
 # llmproxy → LiteLLM (Bedrock backend via IRSA)
 models:
-  anthropicApiKey: "litellm-dev-key"
-  anthropicBaseUrl: "http://litellm.agentserver.svc.cluster.local:4000"
-
-llmproxy:
-  replicaCount: 1
+  anthropicApiKey: "4fec1ef91c0243a3a6e5f06a44fd7ade.DQKemhLRJVz44yop"
+  anthropicBaseUrl: "https://api.z.ai/api/anthropic"
 
 # Internal service-to-service auth secret
 internal:

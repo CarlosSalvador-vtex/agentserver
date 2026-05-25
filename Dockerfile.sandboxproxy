@@ -1,5 +1,7 @@
+# syntax=docker/dockerfile:1.4
+
 # Stage 1: Build opencode frontend from submodule (needed for embedded static files)
-FROM oven/bun:1 AS opencode-frontend
+FROM --platform=$BUILDPLATFORM oven/bun:1 AS opencode-frontend
 WORKDIR /app
 # python3 + g++ + make are needed by node-gyp to build native addons pulled
 # by opencode (e.g. tree-sitter-powershell) during `bun install`.
@@ -10,14 +12,15 @@ COPY opencode/ ./
 RUN bun install --frozen-lockfile
 RUN bun run --filter=@opencode-ai/app build
 
-# Stage 2: Build Go binary
-FROM golang:1.26-trixie AS builder
+# Stage 2: Build Go binary (cross-compile to TARGETARCH)
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS builder
+ARG TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=opencode-frontend /app/packages/app/dist ./opencodeweb/dist
-RUN CGO_ENABLED=0 go build -o sandboxproxy ./cmd/sandboxproxy
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -o sandboxproxy ./cmd/sandboxproxy
 
 # Stage 3: Runtime image (minimal — no Docker CLI needed)
 FROM debian:trixie-slim
