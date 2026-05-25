@@ -289,7 +289,7 @@ export async function listSandboxes(workspaceId: string): Promise<Sandbox[]> {
 export async function createSandbox(
   workspaceId: string,
   name?: string,
-  type?: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter',
+  type?: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes',
   cpu?: number,
   memory?: number,
   idleTimeout?: number,
