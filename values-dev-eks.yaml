@@ -17,7 +17,7 @@ postgresql:
       storageClass: "gp3"
 
 platform:
-  domain: "agentserver.dev.vtex.io"
+  domain: "agentserver.analytics.vtex.com"
   defaultQuotas:
     userMaxWorkspaces: 5
     workspaceMaxSandboxes: 5
@@ -32,7 +32,7 @@ ingress:
     kubernetes.io/ingress.class: alb
     ingress.kubernetes.io/ssl-redirect: "true"
     alb.ingress.kubernetes.io/scheme: internal
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:344729309528:certificate/63d518d6-2b1d-4288-883a-b685d339fab6
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:344729309528:certificate/63d518d6-2b1d-4288-883a-b685d339fab6,arn:aws:acm:us-east-1:344729309528:certificate/5212b8d1-b5dd-4617-9a1b-c96a6f3dbb55
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
     alb.ingress.kubernetes.io/subnets: subnet-0a53f8474451c3b70, subnet-05731d48fa430d313, subnet-0b5819dd9b85fab28
     alb.ingress.kubernetes.io/target-type: ip
@@ -47,7 +47,7 @@ sandbox:
   networkPolicy:
     enabled: false
   # Required by sandboxproxy for subdomain routing
-  baseDomain: "agentserver.dev.vtex.io"
+  baseDomain: "agentserver.analytics.vtex.com"
   openclaw:
     image: "ghcr.io/agentserver/openclaw-agent:latest"
   # Applied to every sandbox pod template so they can schedule on tainted nodes

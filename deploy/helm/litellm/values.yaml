@@ -18,10 +18,23 @@ awsRegion: "us-east-1"
 # Models exposed by LiteLLM
 # Inference profiles: use bedrock_converse/<ARN> format
 # Foundation models: use bedrock/<model-id> format
+# OpenClaw sends the "claude-*-*" model names without the "bedrock/" prefix,
+# so we expose every Sonnet/Opus/Haiku variant the upstream OpenClaw config
+# lists and route them all through the Bedrock Sonnet 4.6 inference profile
+# (Opus / Haiku / 4-5 variants aren't on Bedrock yet).
 models:
   - name: bedrock/claude-sonnet-4-6
-    model: bedrock/anthropic.claude-sonnet-4-6
-    inferenceProfileArn: arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+    model: bedrock/converse/arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+  - name: claude-sonnet-4-6
+    model: bedrock/converse/arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+  - name: claude-sonnet-4-5
+    model: bedrock/converse/arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+  - name: claude-opus-4-6
+    model: bedrock/converse/arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+  - name: claude-opus-4-5
+    model: bedrock/converse/arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+  - name: claude-haiku-4-5
+    model: bedrock/anthropic.claude-3-haiku-20240307-v1:0
   - name: bedrock/claude-3-sonnet
     model: bedrock/anthropic.claude-3-sonnet-20240229-v1:0
   - name: bedrock/claude-3-haiku
