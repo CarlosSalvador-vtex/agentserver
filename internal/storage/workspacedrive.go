@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +18,27 @@ import (
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/process"
 )
+
+// parseAccessModes reads WORKSPACE_DRIVE_ACCESS_MODES (comma-separated, e.g.
+// "ReadWriteOnce" or "ReadWriteMany") and returns the parsed access modes.
+// Defaults to ReadWriteMany when unset to preserve original behaviour.
+func parseAccessModes(s string) []corev1.PersistentVolumeAccessMode {
+	if strings.TrimSpace(s) == "" {
+		return []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}
+	}
+	var out []corev1.PersistentVolumeAccessMode
+	for _, raw := range strings.Split(s, ",") {
+		m := strings.TrimSpace(raw)
+		if m == "" {
+			continue
+		}
+		out = append(out, corev1.PersistentVolumeAccessMode(m))
+	}
+	if len(out) == 0 {
+		return []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}
+	}
+	return out
+}
 
 // WorkspaceDriveManager handles workspace persistent volume creation.
 type WorkspaceDriveManager struct {
@@ -93,7 +116,7 @@ func (m *WorkspaceDriveManager) EnsurePVC(ctx context.Context, workspaceID, name
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			AccessModes: parseAccessModes(os.Getenv("WORKSPACE_DRIVE_ACCESS_MODES")),
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceStorage: storageQty},
 			},

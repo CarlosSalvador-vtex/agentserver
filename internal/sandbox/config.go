@@ -2,8 +2,11 @@ package sandbox
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/agentserver/agentserver/internal/process"
 )
@@ -41,6 +44,10 @@ type Config struct {
 	CodexExecGatewayURL string
 	AgentServerInternalURL     string // agentserver API URL for sandbox MCP bridge (e.g. "http://agentserver.agentserver.svc:8080")
 	CredproxyPublicURL         string // URL sandboxes use to reach credentialproxy (e.g. "http://credentialproxy.agentserver.svc:8083")
+	// Tolerations are applied to every sandbox pod template so they can schedule
+	// onto tainted nodes. Loaded from SANDBOX_TOLERATIONS (JSON-encoded
+	// []corev1.Toleration). Empty by default.
+	Tolerations []corev1.Toleration
 }
 
 // DefaultConfig returns a Config populated from environment variables with sensible defaults.
@@ -72,7 +79,20 @@ func DefaultConfig() Config {
 		CodexExecGatewayURL:        os.Getenv("CODEX_EXEC_GATEWAY_URL"),
 		AgentServerInternalURL:     os.Getenv("AGENTSERVER_INTERNAL_URL"),
 		CredproxyPublicURL:         os.Getenv("CREDPROXY_PUBLIC_URL"),
+		Tolerations:                parseTolerations(os.Getenv("SANDBOX_TOLERATIONS")),
 	}
+}
+
+func parseTolerations(s string) []corev1.Toleration {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var t []corev1.Toleration
+	if err := json.Unmarshal([]byte(s), &t); err != nil {
+		log.Printf("sandbox: invalid SANDBOX_TOLERATIONS json, ignoring: %v", err)
+		return nil
+	}
+	return t
 }
 
 func envOrDefault(key, def string) string {

@@ -116,6 +116,14 @@ spec:
               value: {{ $opcodeBase | toJson | quote }}
             - name: AGENT_IMAGE
               value: {{ .Values.sandbox.opencode.image | quote }}
+            {{- if .Values.sandbox.tolerations }}
+            - name: SANDBOX_TOLERATIONS
+              value: {{ .Values.sandbox.tolerations | toJson | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.workspaceDriveAccessModes }}
+            - name: WORKSPACE_DRIVE_ACCESS_MODES
+              value: {{ .Values.sandbox.workspaceDriveAccessModes | quote }}
+            {{- end }}
             {{- if .Values.sandbox.openclaw.image }}
             - name: OPENCLAW_IMAGE
               value: {{ .Values.sandbox.openclaw.image | quote }}
