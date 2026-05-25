@@ -512,6 +512,13 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			corev1.EnvVar{Name: "AWS_REGION", Value: "us-east-1"},
 			corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
 			corev1.EnvVar{Name: "HERMES_DASHBOARD", Value: "1"},
+			// Embedded chat tab in the dashboard (otherwise the only chat
+			// path is via Discord/Telegram). Requires the pty + web extras
+			// which are already in the upstream image.
+			corev1.EnvVar{Name: "HERMES_DASHBOARD_TUI", Value: "1"},
+			// Skip the per-user allowlist check so the embedded chat tab
+			// can hit the gateway without configuring a messaging platform.
+			corev1.EnvVar{Name: "GATEWAY_ALLOW_ALL_USERS", Value: "true"},
 		)
 		// GLM_API_KEY drives the zai/glm-5.1 fallback provider configured
 		// in config.yaml. Bedrock is primary (IRSA via ServiceAccount),
