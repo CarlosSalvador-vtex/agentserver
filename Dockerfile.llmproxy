@@ -1,10 +1,13 @@
-# Build Go binary
-FROM golang:1.26-trixie AS builder
+# syntax=docker/dockerfile:1.4
+
+# Build Go binary (cross-compile to TARGETARCH from BUILDPLATFORM host)
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS builder
+ARG TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o llmproxy ./cmd/llmproxy
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -o llmproxy ./cmd/llmproxy
 
 # Runtime image (minimal — no Docker CLI, no frontend)
 FROM debian:trixie-slim

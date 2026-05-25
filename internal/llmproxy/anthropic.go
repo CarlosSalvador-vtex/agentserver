@@ -126,7 +126,13 @@ func (s *Server) handleAnthropicProxy(w http.ResponseWriter, r *http.Request) {
 		Director: func(req *http.Request) {
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
-			req.URL.Path = r.URL.Path // /v1/* paths map directly
+			// Preserve any path prefix on the upstream base URL
+			// (e.g. https://api.z.ai/api/anthropic + /v1/messages →
+			// /api/anthropic/v1/messages). Without this, providers that
+			// mount their Anthropic-compatible API under a subpath return
+			// 404 from the upstream proxy.
+			basePath := strings.TrimSuffix(target.Path, "/")
+			req.URL.Path = basePath + r.URL.Path
 			req.URL.RawQuery = r.URL.RawQuery
 			req.Host = target.Host
 
