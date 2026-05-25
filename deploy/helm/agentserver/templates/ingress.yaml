@@ -18,6 +18,9 @@ metadata:
     {{- if .Values.ingress.tls }}
     cert-manager.io/cluster-issuer: letsencrypt-prod
     {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls }}
