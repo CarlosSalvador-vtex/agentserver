@@ -184,6 +184,30 @@ spec:
             - name: JUPYTER_RUNTIME_CLASS
               value: {{ .Values.sandbox.jupyter.runtimeClassName | quote }}
             {{- end }}
+            {{- if .Values.sandbox.hermes.image }}
+            - name: HERMES_IMAGE
+              value: {{ .Values.sandbox.hermes.image | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.hermes.runtimeClassName }}
+            - name: HERMES_RUNTIME_CLASS
+              value: {{ .Values.sandbox.hermes.runtimeClassName | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.hermes.subdomainPrefix }}
+            - name: HERMES_SUBDOMAIN_PREFIX
+              value: {{ .Values.sandbox.hermes.subdomainPrefix | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.hermes.config }}
+            - name: HERMES_CONFIGMAP_NAME
+              value: {{ printf "%s-hermes-config" .Release.Name | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.hermes.glmApiKey }}
+            - name: HERMES_GLM_API_KEY
+              value: {{ .Values.sandbox.hermes.glmApiKey | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.hermes.serviceAccountRoleArn }}
+            - name: HERMES_SA_ROLE_ARN
+              value: {{ .Values.sandbox.hermes.serviceAccountRoleArn | quote }}
+            {{- end }}
             {{- if .Values.codexExecGateway.enabled }}
             - name: CODEX_EXEC_GATEWAY_URL
               value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"

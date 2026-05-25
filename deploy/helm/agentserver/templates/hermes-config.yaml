@@ -1,0 +1,14 @@
+{{- if .Values.sandbox.hermes.config }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-hermes-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: agentserver
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: hermes-config
+data:
+  config.yaml: |
+{{ .Values.sandbox.hermes.config | indent 4 }}
+{{- end }}

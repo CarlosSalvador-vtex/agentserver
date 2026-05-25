@@ -64,6 +64,8 @@ spec:
               value: {{ .Values.sandbox.claudecode.subdomainPrefix | default "claude" | quote }}
             - name: JUPYTER_SUBDOMAIN_PREFIX
               value: {{ .Values.sandbox.jupyter.subdomainPrefix | default "jupyter" | quote }}
+            - name: HERMES_SUBDOMAIN_PREFIX
+              value: {{ .Values.sandbox.hermes.subdomainPrefix | default "hermes" | quote }}
           livenessProbe:
             httpGet:
               path: /healthz

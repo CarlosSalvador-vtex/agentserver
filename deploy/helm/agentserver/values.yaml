@@ -116,6 +116,21 @@ sandbox:
     weixinEnabled: false     # Enable WeChat channel via agentserver bridge
     bridgeBaseUrl: ""        # agentserver internal URL for NanoClaw pod callbacks (e.g. "http://agentserver.agentserver.svc:8080")
     model: ""                # Claude Code model override (e.g. "claude-opus-4-6")
+  hermes:
+    image: ""                # e.g. ghcr.io/nousresearch/hermes-agent:latest
+    runtimeClassName: ""
+    subdomainPrefix: "hermes" # subdomain: {prefix}-{sandboxID}.{baseDomain}
+    # IRSA role ARN to attach to the auto-created "hermes" ServiceAccount in
+    # each workspace namespace (gives the sandbox pod Bedrock access).
+    serviceAccountRoleArn: ""
+    # GLM_API_KEY env var (used by zai/glm-5.1 fallback provider when config.yaml
+    # configures it as a fallback). Optional.
+    glmApiKey: ""
+    # Inline hermes config.yaml content. When set, a ConfigMap is created in the
+    # release namespace and replicated into each workspace namespace, then mounted
+    # as /home/agent/.hermes/config.yaml inside the sandbox pod so the agent
+    # skips the interactive first-run wizard.
+    config: ""
   networkPolicy:
     enabled: false
     # CIDR ranges to deny egress to (internal/private networks).
