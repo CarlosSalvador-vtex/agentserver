@@ -1221,6 +1221,33 @@ func whatsappAppSecret() string {
 	return os.Getenv("WHATSAPP_APP_SECRET")
 }
 
+// whatsappHMACRequired reports whether the deployment refuses to
+// process any webhook delivery while WHATSAPP_APP_SECRET is empty.
+// Set via WHATSAPP_HMAC_REQUIRED=true in prod values; default false
+// preserves dev-mode opt-in HMAC behavior. improvements.md #13.
+func whatsappHMACRequired() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("WHATSAPP_HMAC_REQUIRED")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// LogWhatsAppHMACMode emits a single startup line describing the
+// current verification posture. Called from cmd/imbridge/main.go so
+// operators can grep boot logs for misconfig.
+func LogWhatsAppHMACMode() {
+	required := whatsappHMACRequired()
+	hasSecret := whatsappAppSecret() != ""
+	switch {
+	case required && hasSecret:
+		log.Printf("WhatsApp HMAC verification: REQUIRED (X-Hub-Signature-256 enforced; rejecting unsigned deliveries)")
+	case required && !hasSecret:
+		log.Printf("WhatsApp HMAC verification: REQUIRED but WHATSAPP_APP_SECRET is empty — webhook handler will return 503 until the secret is provided")
+	case !required && hasSecret:
+		log.Printf("WhatsApp HMAC verification: OPTIONAL with secret set (deliveries verified when X-Hub-Signature-256 header present)")
+	default:
+		log.Printf("WhatsApp HMAC verification: OPTIONAL (dev mode) — no signature verification")
+	}
+}
+
 // verifyWhatsAppSignature returns true when the X-Hub-Signature-256
 // header matches an HMAC-SHA256 of the raw body computed with the
 // configured app secret. Constant-time comparison; rejects malformed
@@ -1361,10 +1388,19 @@ func (s *Server) handleWhatsAppWebhookInbound(w http.ResponseWriter, r *http.Req
 	}
 	defer r.Body.Close()
 
-	// HMAC verification: when WHATSAPP_APP_SECRET is set, every delivery
-	// must carry a matching X-Hub-Signature-256. Mismatches return 401
-	// (not 200) so anyone tampering can be detected via dashboard alerts.
-	if appSecret := whatsappAppSecret(); appSecret != "" {
+	// HMAC verification:
+	// - When WHATSAPP_HMAC_REQUIRED=true and WHATSAPP_APP_SECRET is empty,
+	//   we refuse the delivery with 503. This prevents prod from silently
+	//   accepting unsigned webhooks if the secret env was forgotten.
+	// - When the app secret is set, every delivery must carry a matching
+	//   X-Hub-Signature-256 (mismatches return 401). improvements.md #13.
+	appSecret := whatsappAppSecret()
+	if whatsappHMACRequired() && appSecret == "" {
+		log.Printf("whatsapp webhook: WHATSAPP_HMAC_REQUIRED=true but WHATSAPP_APP_SECRET empty — rejecting delivery")
+		http.Error(w, "WhatsApp HMAC required but server secret not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if appSecret != "" {
 		if !verifyWhatsAppSignature(r.Header.Get("X-Hub-Signature-256"), body, appSecret) {
 			log.Printf("whatsapp webhook: invalid X-Hub-Signature-256 — possible spoofing")
 			http.Error(w, "invalid signature", http.StatusUnauthorized)

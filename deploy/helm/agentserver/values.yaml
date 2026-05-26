@@ -249,9 +249,14 @@ playground:
 # appSecret: Meta App Secret used to verify the X-Hub-Signature-256 header on
 #   every webhook POST. PRODUCTION MUST SET THIS — empty disables signature
 #   verification, which is dev-only behavior.
+# hmacRequired: when true, the imbridge webhook handler refuses to process any
+#   delivery while appSecret is empty (returns 503). Default false preserves
+#   dev-mode opt-in behavior. PRODUCTION SHOULD SET TO true. See
+#   improvements.md #13.
 whatsapp:
   webhookVerifyToken: ""
   appSecret: ""
+  hmacRequired: false
 
 # HMAC pepper for workspace API key storage hashes (SECRETS_PEPPER env var).
 # Set to a 32-byte random hex string; generate with: openssl rand -hex 32
