@@ -36,7 +36,24 @@ func Open(databaseURL string) (*DB, error) {
 	return db, nil
 }
 
+// migrationAdvisoryLockKey is the constant key used by pg_advisory_lock to
+// serialize migrate() across concurrent processes hitting the same DB —
+// e.g. parallel Go test packages each calling Open(url) in CI. The integer
+// is arbitrary but must stay stable across releases.
+const migrationAdvisoryLockKey int64 = 0x4147525348ed01
+
 func (db *DB) migrate() error {
+	// Block until any concurrent migrate() finishes. Prevents two test
+	// packages from racing through the schema_migrations check and both
+	// trying to apply the same migration (which fails with PK violation
+	// on schema_migrations or duplicate-type/index errors on the DDL).
+	if _, err := db.Exec(`SELECT pg_advisory_lock($1)`, migrationAdvisoryLockKey); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec(`SELECT pg_advisory_unlock($1)`, migrationAdvisoryLockKey)
+	}()
+
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version TEXT PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
