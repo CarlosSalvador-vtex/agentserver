@@ -313,3 +313,73 @@ func safePrefix(s string) string {
 	}
 	return s
 }
+
+// BuildHermesConfigOverride returns a per-sandbox ConfigMap + volume +
+// mount that override the cluster-wide hermes-config with one carrying
+// the soul body injected as agent.system_prompt. Returns zero values
+// when soulBody is empty (caller falls back to the global config).
+//
+// The base config is the raw config.yaml string from the cluster-wide
+// hermes-config ConfigMap; we append (or replace) the agent.system_prompt
+// key without parsing YAML — a simple text-level append is enough
+// because the chart-rendered base never sets agent.system_prompt.
+//
+// Mount path stays /opt/data/config.yaml (same as the global config);
+// manager.go uses this override volume when present and skips the
+// global volume to avoid two mounts at the same path.
+func BuildHermesConfigOverride(sandboxID, namespace, baseConfigYAML, soulBody string) (corev1.ConfigMap, corev1.Volume, corev1.VolumeMount, bool) {
+	if soulBody == "" {
+		return corev1.ConfigMap{}, corev1.Volume{}, corev1.VolumeMount{}, false
+	}
+	// YAML multi-line string with the `|` block scalar so embedded
+	// markdown (headers, lists) survives intact.
+	indented := indentSoulForYAML(soulBody)
+	overlay := baseConfigYAML + "\nagent:\n  system_prompt: |\n" + indented + "\n"
+
+	cmName := "agentserver-draft-" + safePrefix(sandboxID) + "-hermes-config"
+	cm := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cmName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"agentserver.io/ephemeral":  "true",
+				"agentserver.io/sandbox-id": sandboxID,
+				"agentserver.io/draft-kind": "hermes-config",
+			},
+		},
+		Data: map[string]string{"config.yaml": overlay},
+	}
+	vol := corev1.Volume{
+		Name: "hermes-config-override",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+				Items: []corev1.KeyToPath{
+					{Key: "config.yaml", Path: "config.yaml"},
+				},
+			},
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      "hermes-config-override",
+		MountPath: "/opt/data/config.yaml",
+		SubPath:   "config.yaml",
+		ReadOnly:  true,
+	}
+	return cm, vol, mount, true
+}
+
+// indentSoulForYAML indents each line of the soul body by 4 spaces so
+// it nests under `system_prompt: |` correctly in YAML block scalar
+// syntax. Empty lines stay empty (no trailing whitespace) which keeps
+// YAML parsers happy.
+func indentSoulForYAML(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		lines[i] = "    " + line
+	}
+	return strings.Join(lines, "\n")
+}

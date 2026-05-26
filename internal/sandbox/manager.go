@@ -636,26 +636,56 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// (mirrors `-v ~/.hermes:/opt/data` from upstream docs). SubPath ensures
 	// only config.yaml is overlaid; runtime files (state.db, sessions/) stay
 	// writable on the session PVC.
+	//
+	// When composition supplies a draft soul, we build a per-sandbox
+	// override ConfigMap that prepends the cluster config with
+	// agent.system_prompt: <soul.body>. The override mounts at the same
+	// /opt/data/config.yaml path; we skip the cluster mount to avoid
+	// two mounts at the same target.
 	if opts.SandboxType == "hermes" && m.cfg.HermesConfigMapName != "" {
-		volumes = append(volumes, corev1.Volume{
-			Name: "hermes-config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: m.cfg.HermesConfigMapName,
-					},
-					Items: []corev1.KeyToPath{
-						{Key: "config.yaml", Path: "config.yaml"},
+		var hermesConfigOverridden bool
+		if composition.SoulBody != "" {
+			srcNS := m.cfg.AgentserverNamespace
+			if srcNS == "" {
+				srcNS = "default"
+			}
+			baseCM, err := m.clientset.CoreV1().ConfigMaps(srcNS).Get(ctx, m.cfg.HermesConfigMapName, metav1.GetOptions{})
+			if err == nil {
+				baseYAML := baseCM.Data["config.yaml"]
+				if overrideCM, overrideVol, overrideMount, ok := BuildHermesConfigOverride(id, ns, baseYAML, composition.SoulBody); ok {
+					if _, createErr := m.clientset.CoreV1().ConfigMaps(ns).Create(ctx, &overrideCM, metav1.CreateOptions{}); createErr != nil && !k8serrors.IsAlreadyExists(createErr) {
+						log.Printf("apply hermes config override %s/%s: %v", ns, overrideCM.Name, createErr)
+					} else {
+						volumes = append(volumes, overrideVol)
+						volumeMounts = append(volumeMounts, overrideMount)
+						hermesConfigOverridden = true
+					}
+				}
+			} else {
+				log.Printf("read base hermes config %s/%s: %v (falling back to cluster default)", srcNS, m.cfg.HermesConfigMapName, err)
+			}
+		}
+		if !hermesConfigOverridden {
+			volumes = append(volumes, corev1.Volume{
+				Name: "hermes-config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: m.cfg.HermesConfigMapName,
+						},
+						Items: []corev1.KeyToPath{
+							{Key: "config.yaml", Path: "config.yaml"},
+						},
 					},
 				},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "hermes-config",
-			MountPath: "/opt/data/config.yaml",
-			SubPath:   "config.yaml",
-			ReadOnly:  true,
-		})
+			})
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				Name:      "hermes-config",
+				MountPath: "/opt/data/config.yaml",
+				SubPath:   "config.yaml",
+				ReadOnly:  true,
+			})
+		}
 	}
 
 	// Skill ConfigMaps (cobrança, etc.) — mounted under
