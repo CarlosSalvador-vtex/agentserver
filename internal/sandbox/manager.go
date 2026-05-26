@@ -363,125 +363,26 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 		)
 	}
 
-	// Select image, port, and command based on sandbox type.
-	var sandboxImage string
-	var containerPort int
-	var containerCmd []string
-	var containerArgs []string
-
+	// Select image, port, command, and env via per-platform helpers
+	// (manager_config.go). Each helper returns the same shape; the caller
+	// here just unpacks and continues with the shared mount/volume
+	// assembly below. See improvements.md #10.
+	var cfg *containerConfigOutput
+	var cfgErr error
 	switch opts.SandboxType {
 	case SandboxTypeOpenclaw.String():
-		if m.cfg.OpenclawImage == "" {
-			return "", fmt.Errorf("OPENCLAW_IMAGE not configured: set the environment variable to the openclaw container image")
-		}
-		sandboxImage = m.cfg.OpenclawImage
-		containerPort = m.cfg.OpenclawPort
-		if containerPort == 0 {
-			containerPort = 18789
-		}
-		// Build openclaw config JSON with gateway settings and LLM provider.
-		cfgBaseURL, cfgAPIKey := proxyBaseURL, opts.ProxyToken
-		var cfgModels []process.LLMModel
-		if opts.BYOKBaseURL != "" {
-			cfgBaseURL = opts.BYOKBaseURL
-			cfgAPIKey = opts.BYOKAPIKey
-			cfgModels = opts.BYOKModels
-		}
-		// Surface enabled skill plugins (one entry per skill ConfigMap) so the
-		// openclaw plugin host loads them on startup. WhatsApp allowlist is
-		// taken from the env (HERMES_WHATSAPP_ALLOWED reused for openclaw
-		// when set on the agentserver pod).
-		var skillPlugins []string
-		for name := range m.cfg.SkillConfigMaps {
-			skillPlugins = append(skillPlugins, name)
-		}
-		var openclawWA []string
-		if m.cfg.OpenclawWhatsappAllowed != "" {
-			for _, n := range strings.Split(m.cfg.OpenclawWhatsappAllowed, ",") {
-				if t := strings.TrimSpace(n); t != "" {
-					openclawWA = append(openclawWA, t)
-				}
-			}
-		}
-		// Merge env-driven skill list with composition-driven skill list
-		// so plugins.entries covers both sources. EnabledSkillNames is
-		// populated for both git (chart-mounted) and draft (ephemeral CM)
-		// refs in ResolveComposition.
-		mergedSkills := append([]string{}, skillPlugins...)
-		mergedSkills = append(mergedSkills, composition.EnabledSkillNames...)
-		openclawCfg := BuildOpenclawConfig(cfgBaseURL, cfgAPIKey, opts.OpenclawToken, cfgModels, OpenclawConfigOptions{
-			EnabledPlugins:  mergedSkills,
-			WhatsappAllowed: openclawWA,
-			SoulBody:        composition.SoulBody,
-		})
-		// Merge our gateway/models config into the image's existing openclaw.json
-		// (which contains plugin install metadata) instead of overwriting it.
-		containerCmd = []string{"sh", "-c", `mkdir -p ~/.openclaw && node -e "
-const fs = require('fs');
-const path = require('os').homedir() + '/.openclaw/openclaw.json';
-let existing = {};
-try { existing = JSON.parse(fs.readFileSync(path, 'utf8')); } catch {}
-const inject = JSON.parse(process.env.__OPENCLAW_INJECT_CFG);
-// Deep-merge: inject keys override existing, but preserve plugins/channels.
-Object.assign(existing, inject);
-if (inject.gateway) {
-  existing.gateway = existing.gateway || {};
-  Object.assign(existing.gateway, inject.gateway);
-  if (inject.gateway.controlUi) {
-    existing.gateway.controlUi = existing.gateway.controlUi || {};
-    Object.assign(existing.gateway.controlUi, inject.gateway.controlUi);
-  }
-}
-if (inject.models) existing.models = inject.models;
-// Soul: playground composition emits agent.systemPrompt. Deep-merge so
-// the image's default agent.* fields (max_turns, retry settings) stay
-// intact while the persona overrides systemPrompt.
-if (inject.agent) {
-  existing.agent = existing.agent || {};
-  Object.assign(existing.agent, inject.agent);
-}
-fs.writeFileSync(path, JSON.stringify(existing, null, 2));
-" && exec node openclaw.mjs gateway --allow-unconfigured --bind lan`}
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: "__OPENCLAW_INJECT_CFG", Value: openclawCfg})
-		// Ensure ~ resolves to the PVC mount so credentials and conversation
-		// data persist across pause/resume.
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: "HOME", Value: "/home/agent"})
-		if opts.OpenclawToken != "" {
-			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCLAW_GATEWAY_TOKEN", Value: opts.OpenclawToken})
-		}
-		if composition.SoulBody != "" {
-			containerEnv = append(containerEnv,
-				corev1.EnvVar{Name: "OPENCLAW_SOUL_FILE", Value: "/home/agent/.openclaw/soul.md"},
-				corev1.EnvVar{Name: "AGENTSERVER_SOUL_BODY", Value: composition.SoulBody},
-			)
-		}
+		cfg, cfgErr = m.applyOpenclawConfig(opts, composition, proxyBaseURL)
 	case SandboxTypeHermes.String():
-		if m.cfg.HermesImage == "" {
-			return "", fmt.Errorf("HERMES_IMAGE not configured: set the environment variable to the hermes-agent container image (ghcr.io/nousresearch/hermes-agent)")
-		}
-		sandboxImage = m.cfg.HermesImage
-		containerPort = m.cfg.HermesPort
-
-		containerArgs = []string{"gateway", "run"}
-
-		containerEnv = append(containerEnv,
-			corev1.EnvVar{Name: "AWS_REGION", Value: "us-east-1"},
-			corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
-			corev1.EnvVar{Name: "HERMES_DASHBOARD", Value: "1"},
-			corev1.EnvVar{Name: "HERMES_DASHBOARD_TUI", Value: "1"},
-			corev1.EnvVar{Name: "GATEWAY_ALLOW_ALL_USERS", Value: "true"},
-		)
-		if m.cfg.HermesWhatsappAllowed != "" {
-			containerEnv = append(containerEnv,
-				corev1.EnvVar{Name: "WHATSAPP_ALLOWED_USERS", Value: m.cfg.HermesWhatsappAllowed},
-			)
-		}
-		if m.cfg.HermesGLMAPIKey != "" {
-			containerEnv = append(containerEnv,
-				corev1.EnvVar{Name: "GLM_API_KEY", Value: m.cfg.HermesGLMAPIKey},
-			)
-		}
+		cfg, cfgErr = m.applyHermesConfig(opts)
 	}
+	if cfgErr != nil {
+		return "", cfgErr
+	}
+	sandboxImage := cfg.Image
+	containerPort := cfg.Port
+	containerCmd := cfg.Command
+	containerArgs := cfg.Args
+	containerEnv = append(containerEnv, cfg.EnvAppend...)
 
 	// Volume mounts for the main container. Hermes-agent expects its data
 	// directory at /opt/data (mirrors `-v ~/.hermes:/opt/data` from upstream
@@ -542,41 +443,13 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		})
 	}
 
-	// Skill ConfigMaps (cobrança, etc.) — mounted under
-	// /opt/data/skills/personal/<name>/ for hermes or
-	// /home/agent/.openclaw/extensions/<name>/ for openclaw. Two paths
-	// feed this:
-	//   1. Env-driven SkillConfigMaps (chart-level): the historical
-	//      global skill list. Mounted via skillVolumesAndMounts.
-	//   2. Composition-driven (playground): per-sandbox refs in
-	//      sandbox_compositions. ResolveComposition materializes
-	//      ephemeral ConfigMaps + builds the vol/mount payload directly.
-	if opts.SandboxType == SandboxTypeHermes.String() || opts.SandboxType == SandboxTypeOpenclaw.String() {
-		if err := m.replicateSkillConfigMaps(ctx, ns); err != nil {
-			return "", fmt.Errorf("replicate skill configmaps: %w", err)
-		}
-		skillVols, skillMounts, err := m.skillVolumesAndMounts(ctx, opts.SandboxType)
-		if err != nil {
-			return "", fmt.Errorf("build skill mounts: %w", err)
-		}
-		volumes = append(volumes, skillVols...)
-		volumeMounts = append(volumeMounts, skillMounts...)
-
-		// Composition (playground) — apply draft soul + skill mounts on
-		// top of the env-driven ones. Resolution was already done at
-		// the top of StartContainerWithIP (the openclaw config emitter
-		// needs SoulBody too). Here we just apply the resulting
-		// ConfigMaps + append volumes/mounts.
-		for i := range composition.EphemeralConfigMaps {
-			cm := composition.EphemeralConfigMaps[i]
-			if _, err := m.clientset.CoreV1().ConfigMaps(ns).Create(ctx, &cm, metav1.CreateOptions{}); err != nil {
-				if !k8serrors.IsAlreadyExists(err) {
-					log.Printf("apply ephemeral configmap %s/%s: %v", ns, cm.Name, err)
-				}
-			}
-		}
-		volumes = append(volumes, composition.ExtraVolumes...)
-		volumeMounts = append(volumeMounts, composition.ExtraMounts...)
+	// Skill ConfigMaps + playground composition — extracted into
+	// applyCompositionMounts (manager_config.go) so this orchestrator
+	// stays focused on assembly order. improvements.md #10.
+	var err error
+	volumes, volumeMounts, err = m.applyCompositionMounts(ctx, ns, opts, composition, volumes, volumeMounts)
+	if err != nil {
+		return "", err
 	}
 
 	// Determine the home directory to seed from: openclaw uses /home/node,
