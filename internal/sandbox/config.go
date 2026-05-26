@@ -352,18 +352,20 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 	// without a corresponding `installs.<name>` record ("stale config
 	// entry" warning) and silently drops it on save.
 	plugins := map[string]pluginEntry{}
-	installs := map[string]pluginInstall{}
+	// Skill plugins land in /home/agent/.openclaw/extensions/<name>/ via
+	// the ConfigMap mount (see manager.go::skillVolumesAndMounts). We do
+	// NOT emit an `installs` entry for them: OpenClaw's plugin loader
+	// treats path-source installs without an integrity hash as "stale"
+	// and refuses to load the matching `entries.<name>` row. With no
+	// `installs` row, the loader falls back to auto-discovery of the
+	// extensions/ directory and picks the skill up like a bundled
+	// plugin.
 	for _, p := range opts.EnabledPlugins {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
 		plugins[p] = pluginEntry{Enabled: true}
-		installs[p] = pluginInstall{
-			Source:      "path",
-			InstallPath: "/home/node/.openclaw/extensions/" + p,
-			Version:     "0.0.0",
-		}
 	}
 	// WhatsApp lives in the bundled extensions dir, not in plugins/.
 	if len(opts.WhatsappAllowed) > 0 {
@@ -373,7 +375,7 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 		c.Plugins = &struct {
 			Entries  map[string]pluginEntry   `json:"entries"`
 			Installs map[string]pluginInstall `json:"installs,omitempty"`
-		}{Entries: plugins, Installs: installs}
+		}{Entries: plugins}
 	}
 
 	// WhatsApp channel.
