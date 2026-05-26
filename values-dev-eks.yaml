@@ -3,7 +3,7 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: playground-v4
+  tag: playground-v8
   pullPolicy: Always
 
 llmproxy:
