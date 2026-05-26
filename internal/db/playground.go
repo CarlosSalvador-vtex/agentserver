@@ -16,6 +16,7 @@ type SkillDraft struct {
 	Name            string
 	Description     string
 	AuthorUserID    sql.NullString
+	WorkspaceID     sql.NullString // tenant scope; NULL = system template (migration 035)
 	Files           map[string]string
 	Status          string
 	PromotedPRURL   sql.NullString
@@ -32,6 +33,7 @@ type SoulDraft struct {
 	Name            string
 	Description     string
 	AuthorUserID    sql.NullString
+	WorkspaceID     sql.NullString // tenant scope; NULL = system template (migration 035)
 	Frontmatter     map[string]interface{}
 	Body            string
 	SchemaVersion   string
@@ -56,14 +58,18 @@ type SandboxComposition struct {
 
 // --- Skill drafts ----------------------------------------------------------
 
-func (db *DB) CreateSkillDraft(name, description, authorUserID string) (*SkillDraft, error) {
+// CreateSkillDraft inserts a new draft. workspaceID is the tenant scope
+// (migration 035); empty = system template visible to all. Backward-compat:
+// existing callers that pass "" effectively create a system-wide draft —
+// new code paths set it to the caller's chosen workspace.
+func (db *DB) CreateSkillDraft(name, description, authorUserID, workspaceID string) (*SkillDraft, error) {
 	d := &SkillDraft{}
 	err := db.QueryRow(
-		`INSERT INTO skill_drafts (name, description, author_user_id)
-		VALUES ($1, $2, $3)
-		RETURNING id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at`,
-		name, description, nullIfEmpty(authorUserID),
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
+		`INSERT INTO skill_drafts (name, description, author_user_id, workspace_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, name, description, author_user_id, workspace_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at`,
+		name, description, nullIfEmpty(authorUserID), nullIfEmpty(workspaceID),
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create skill draft: %w", err)
 	}
@@ -73,10 +79,10 @@ func (db *DB) CreateSkillDraft(name, description, authorUserID string) (*SkillDr
 func (db *DB) GetSkillDraft(id string) (*SkillDraft, error) {
 	d := &SkillDraft{}
 	err := db.QueryRow(
-		`SELECT id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		`SELECT id, name, description, author_user_id, workspace_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM skill_drafts WHERE id = $1`,
 		id,
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -88,7 +94,7 @@ func (db *DB) GetSkillDraft(id string) (*SkillDraft, error) {
 
 func (db *DB) ListSkillDraftsByAuthor(authorUserID string) ([]*SkillDraft, error) {
 	rows, err := db.Query(
-		`SELECT id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		`SELECT id, name, description, author_user_id, workspace_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM skill_drafts WHERE author_user_id = $1 AND status != 'archived' ORDER BY updated_at DESC`,
 		authorUserID,
 	)
@@ -100,8 +106,71 @@ func (db *DB) ListSkillDraftsByAuthor(authorUserID string) ([]*SkillDraft, error
 	var drafts []*SkillDraft
 	for rows.Next() {
 		d := &SkillDraft{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan skill draft: %w", err)
+		}
+		drafts = append(drafts, d)
+	}
+	return drafts, rows.Err()
+}
+
+// ListSkillDraftsForScope returns drafts visible to a user under the
+// tenant-scoped catalog rules (improvements.md #17):
+//   - Drafts the user authored, OR
+//   - Drafts whose workspace_id matches one the user belongs to, OR
+//   - System templates (workspace_id IS NULL)
+// Filtered to non-archived; ordered by updated_at DESC.
+func (db *DB) ListSkillDraftsForScope(authorUserID string, workspaceIDs []string) ([]*SkillDraft, error) {
+	rows, err := db.Query(
+		`SELECT id, name, description, author_user_id, workspace_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		 FROM skill_drafts
+		 WHERE status != 'archived'
+		   AND (
+		     author_user_id = $1
+		     OR workspace_id IS NULL
+		     OR workspace_id = ANY($2)
+		   )
+		 ORDER BY updated_at DESC`,
+		authorUserID, pq.Array(workspaceIDs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list skill drafts (scoped): %w", err)
+	}
+	defer rows.Close()
+	var drafts []*SkillDraft
+	for rows.Next() {
+		d := &SkillDraft{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan skill draft: %w", err)
+		}
+		drafts = append(drafts, d)
+	}
+	return drafts, rows.Err()
+}
+
+// ListSoulDraftsForScope mirrors ListSkillDraftsForScope for soul drafts.
+func (db *DB) ListSoulDraftsForScope(authorUserID string, workspaceIDs []string) ([]*SoulDraft, error) {
+	rows, err := db.Query(
+		`SELECT id, name, description, author_user_id, workspace_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		 FROM soul_drafts
+		 WHERE status != 'archived'
+		   AND (
+		     author_user_id = $1
+		     OR workspace_id IS NULL
+		     OR workspace_id = ANY($2)
+		   )
+		 ORDER BY updated_at DESC`,
+		authorUserID, pq.Array(workspaceIDs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list soul drafts (scoped): %w", err)
+	}
+	defer rows.Close()
+	var drafts []*SoulDraft
+	for rows.Next() {
+		d := &SoulDraft{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan soul draft: %w", err)
 		}
 		drafts = append(drafts, d)
 	}
@@ -180,14 +249,16 @@ func (db *DB) RevertPromoteSkillDraft(id string) error {
 
 // --- Soul drafts -----------------------------------------------------------
 
-func (db *DB) CreateSoulDraft(name, description, authorUserID string) (*SoulDraft, error) {
+// CreateSoulDraft inserts a new soul draft. workspaceID is the tenant scope
+// (migration 035); empty = system template visible to all.
+func (db *DB) CreateSoulDraft(name, description, authorUserID, workspaceID string) (*SoulDraft, error) {
 	d := &SoulDraft{}
 	err := db.QueryRow(
-		`INSERT INTO soul_drafts (name, description, author_user_id)
-		VALUES ($1, $2, $3)
-		RETURNING id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at`,
-		name, description, nullIfEmpty(authorUserID),
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
+		`INSERT INTO soul_drafts (name, description, author_user_id, workspace_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, name, description, author_user_id, workspace_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at`,
+		name, description, nullIfEmpty(authorUserID), nullIfEmpty(workspaceID),
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create soul draft: %w", err)
 	}
@@ -197,10 +268,10 @@ func (db *DB) CreateSoulDraft(name, description, authorUserID string) (*SoulDraf
 func (db *DB) GetSoulDraft(id string) (*SoulDraft, error) {
 	d := &SoulDraft{}
 	err := db.QueryRow(
-		`SELECT id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		`SELECT id, name, description, author_user_id, workspace_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM soul_drafts WHERE id = $1`,
 		id,
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -212,7 +283,7 @@ func (db *DB) GetSoulDraft(id string) (*SoulDraft, error) {
 
 func (db *DB) ListSoulDraftsByAuthor(authorUserID string) ([]*SoulDraft, error) {
 	rows, err := db.Query(
-		`SELECT id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		`SELECT id, name, description, author_user_id, workspace_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM soul_drafts WHERE author_user_id = $1 AND status != 'archived' ORDER BY updated_at DESC`,
 		authorUserID,
 	)
@@ -224,7 +295,7 @@ func (db *DB) ListSoulDraftsByAuthor(authorUserID string) ([]*SoulDraft, error) 
 	var drafts []*SoulDraft
 	for rows.Next() {
 		d := &SoulDraft{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan soul draft: %w", err)
 		}
 		drafts = append(drafts, d)
