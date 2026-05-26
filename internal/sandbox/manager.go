@@ -497,11 +497,12 @@ chown -R 1000:1000 /mnt/session-data
 	// `import { ... } from "openclaw/plugin-sdk/core"` in skill index.mjs
 	// by exposing the image-baked SDK under a NODE_PATH-resolvable
 	// directory. Approach: EmptyDir at /opt/sdk-shim/node_modules,
-	// initContainer drops a symlink `openclaw -> /app/node_modules/openclaw`
+	// initContainer drops a symlink `openclaw -> /app` (the package root)
 	// into it, main container resolves the package via NODE_PATH.
 	//
-	// Symlink target lives in the openclaw image filesystem; busybox
-	// can create the symlink because it only stores the target string.
+	// Symlink target: /app is the openclaw package root in the image
+	// (package.json name="openclaw", exports ./plugin-sdk/core etc.).
+	// busybox from ECR public mirror (avoids DockerHub rate limits on EKS).
 	if opts.SandboxType == SandboxTypeOpenclaw.String() {
 		const shimVol = "openclaw-sdk-shim"
 		volumes = append(volumes, corev1.Volume{
@@ -510,9 +511,9 @@ chown -R 1000:1000 /mnt/session-data
 		})
 		initContainers = append(initContainers, corev1.Container{
 			Name:  "link-sdk",
-			Image: "busybox:1.36",
+			Image: "public.ecr.aws/docker/library/busybox:1.36",
 			Command: []string{"sh", "-c",
-				`mkdir -p /shim/node_modules && ln -sfn /app/node_modules/openclaw /shim/node_modules/openclaw`,
+				`mkdir -p /shim/node_modules && ln -sfn /app /shim/node_modules/openclaw`,
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: shimVol, MountPath: "/shim"},

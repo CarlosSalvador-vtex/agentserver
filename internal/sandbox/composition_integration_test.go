@@ -134,7 +134,7 @@ func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 
 	var soulMount, skillMount bool
 	for _, mount := range resolved.ExtraMounts {
-		if mount.MountPath == "/home/agent/.openclaw/soul.md" {
+		if mount.MountPath == "/home/agent/.openclaw/workspace/SOUL.md" {
 			soulMount = true
 		}
 		if strings.HasPrefix(mount.MountPath, "/home/agent/.openclaw/extensions/"+skill.Name+"/") {
@@ -142,7 +142,7 @@ func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 		}
 	}
 	if !soulMount {
-		t.Fatal("missing soul.md mount at /home/agent/.openclaw/soul.md")
+		t.Fatal("missing SOUL.md mount at /home/agent/.openclaw/workspace/SOUL.md")
 	}
 	if !skillMount {
 		t.Fatal("missing skill mount under /home/agent/.openclaw/extensions/")
