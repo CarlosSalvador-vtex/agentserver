@@ -29,6 +29,7 @@ type playgroundSkillSummary struct {
 	Status          string `json:"status"`
 	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
 	PromotedPRState string `json:"promoted_pr_state,omitempty"`
+	PromotedCommit  string `json:"promoted_commit,omitempty"`
 	UpdatedAt       string `json:"updated_at"`
 }
 
@@ -45,6 +46,7 @@ type playgroundSoulSummary struct {
 	SchemaVersion   string `json:"schema_version"`
 	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
 	PromotedPRState string `json:"promoted_pr_state,omitempty"`
+	PromotedCommit  string `json:"promoted_commit,omitempty"`
 	UpdatedAt       string `json:"updated_at"`
 }
 
@@ -348,6 +350,7 @@ func summarizeSkill(d *db.SkillDraft) playgroundSkillSummary {
 		Status:          d.Status,
 		PromotedPRURL:   d.PromotedPRURL.String,
 		PromotedPRState: d.PromotedPRState.String,
+		PromotedCommit:  d.PromotedCommit.String,
 		UpdatedAt:       d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
@@ -361,6 +364,7 @@ func summarizeSoul(d *db.SoulDraft) playgroundSoulSummary {
 		SchemaVersion:   d.SchemaVersion,
 		PromotedPRURL:   d.PromotedPRURL.String,
 		PromotedPRState: d.PromotedPRState.String,
+		PromotedCommit:  d.PromotedCommit.String,
 		UpdatedAt:       d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
