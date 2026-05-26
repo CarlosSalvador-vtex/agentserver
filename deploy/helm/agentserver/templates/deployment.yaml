@@ -14,9 +14,7 @@ spec:
   replicas: {{ .Values.replicaCount }}
   # New pod must be Ready before the old one is removed. With the
   # default 25%/25% on a 1-replica deployment, the old pod could be
-  # killed before the new one is serving — codex-exec-gateway then
-  # returns 401 from the validator round-trip and every codex client
-  # disconnects with `executor registry authentication error`.
+  # killed before the new one is serving in-flight requests.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -211,28 +209,6 @@ spec:
             - name: SANDBOX_SKILL_CONFIGMAPS
               value: {{ join "," $skillCMs | quote }}
             {{- end }}
-            {{- if .Values.codexExecGateway.enabled }}
-            - name: CODEX_EXEC_GATEWAY_URL
-              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
-            # serve.go reads this name (instead of CODEX_EXEC_GATEWAY_URL)
-            # to wire ExecutorsClient — without it /api/workspaces/.../executors
-            # returns []. Same URL, distinct name for clarity vs PUBLIC_HOST.
-            - name: CODEX_EXEC_GATEWAY_INTERNAL_URL
-              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
-            {{- end }}
-            {{- if .Values.codexAppGateway.enabled }}
-            # REST base URL for /api/turns (codex routing path, e.g. WeChat).
-            # Distinct from CODEX_EXEC_GATEWAY_URL above (which serves the
-            # jupyter SDK). The /notebook/ws WS path was removed in chart
-            # 0.61.0 along with the SDK transport switch.
-            - name: CODEX_APP_GATEWAY_REST_URL
-              value: {{ printf "http://%s-codex-app-gateway.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.codexAppGateway.port) | quote }}
-            - name: CODEX_INBOUND_HMAC_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-codex-gateway
-                  key: inbound-hmac-secret
-            {{- end }}
             - name: IMBRIDGE_URL
               value: {{ printf "http://%s-imbridge.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.imbridge.port) | quote }}
             {{- if .Values.internal.apiSecret }}
@@ -261,39 +237,6 @@ spec:
             {{- end }}
             - name: AGENTSERVER_OPERATIONS_RETENTION_DAYS
               value: {{ .Values.operations.retentionDays | quote }}
-            {{- if .Values.codexExecGateway.publicHost }}
-            - name: CODEX_EXEC_GATEWAY_PUBLIC_HOST
-              value: {{ .Values.codexExecGateway.publicHost | quote }}
-            {{- end }}
-            {{- if .Values.codexAuth.enabled }}
-            {{- /*
-            CODEX_AUTH_ISSUER_URL is the public-facing issuer URL codex
-            sees. It lives on its own subdomain (default
-            codex-auth.<platform.domain>) routed through Gateway/Ingress
-            to agentserver's /codex-auth/* mount. Operator can override
-            the subdomain via codexAuth.externalHost.
-            */}}
-            {{- $codexAuthHost := .Values.codexAuth.externalHost }}
-            {{- if not $codexAuthHost }}{{- $codexAuthHost = printf "codex-auth.%s" .Values.platform.domain }}{{- end }}
-            - name: CODEX_AUTH_ISSUER_URL
-              value: {{ printf "https://%s" $codexAuthHost | quote }}
-            # CODEX_AUTH_HOST is the public Host header used on the
-            # codex-auth subdomain. agentserver does an in-process
-            # path rewrite (/foo → /codex-auth/foo) when it sees this
-            # exact Host, because istio 1.30's Gateway-API URLRewrite
-            # with PathPrefix `/` is a no-op (does not actually rewrite
-            # paths). Doing the rewrite in Go avoids the istio bug.
-            - name: CODEX_AUTH_HOST
-              value: {{ $codexAuthHost | quote }}
-            # Cookie Domain. When codexAuth is on, the session cookie
-            # set by /api/auth/login on <platform.domain> must also be
-            # readable on codex-auth.<platform.domain>, otherwise the
-            # codex login flow's SessionResolve always sees no session.
-            # ".<domain>" tells the browser to send the cookie to all
-            # subdomains.
-            - name: AGENTSERVER_COOKIE_DOMAIN
-              value: {{ printf ".%s" .Values.platform.domain | quote }}
-            {{- end }}
             - name: OPENCLAW_SUBDOMAIN_PREFIX
               value: {{ .Values.sandbox.openclaw.subdomainPrefix | default "claw" | quote }}
             - name: HERMES_SUBDOMAIN_PREFIX
@@ -386,10 +329,7 @@ spec:
           # On pod delete, sleep before the binary sees SIGTERM so kube
           # endpoints controller has time to remove this pod from the
           # Service backend list. Without this gap, in-flight requests
-          # (notably codex-exec-gateway's /internal/codex-auth/validate
-          # call) get RST'd mid-flight when the binary exits, surfacing
-          # as 401 to codex which then exits its register loop. 10s
-          # comfortably exceeds the worst-case endpoints propagation.
+          # get RST'd mid-flight when the binary exits.
           lifecycle:
             preStop:
               exec:

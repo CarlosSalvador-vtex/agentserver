@@ -13,7 +13,7 @@ Invoke this skill when working on the `agentserver-study` fork: editing Go servi
 
 Top-level Go service (`main.go` + `cmd/`) plus a React frontend in `web/` and a Helm chart in `deploy/helm/agentserver/`.
 
-- `cmd/` — Go binaries. `cmd/serve.go` is the main agentserver entrypoint. Also `cmd/imbridge`, `cmd/llmproxy`, `cmd/sandboxproxy`, `cmd/codex-app-gateway`, `cmd/codex-exec-gateway`, `cmd/credentialproxy`, `cmd/agentserver-agent`.
+- `cmd/` — Go binaries. `cmd/serve.go` is the main agentserver entrypoint. Also `cmd/imbridge`, `cmd/llmproxy`, `cmd/sandboxproxy`, `cmd/credentialproxy`, `cmd/agentserver-agent`.
 - `internal/server/` — REST handlers, auth, request plumbing.
 - `internal/sandbox/` — Pod lifecycle: `manager.go`, `composition.go`, ephemeral ConfigMap mounting for playground drafts.
 - `internal/imbridge/` — IM channel providers (WeChat, Telegram, Matrix, WhatsApp). `whatsapp_provider.go` is the WhatsApp Cloud impl.
@@ -56,7 +56,7 @@ bash scripts/build/login.sh                          # once per session (12h ECR
 bash scripts/build/build-one.sh <key> [tag]          # tag defaults to "dev"
 ```
 
-Image keys (see `scripts/build/README.md`): `agentserver`, `imbridge`, `llmproxy`, `sandboxproxy`, `codex-app-gateway`, `codex-exec-gateway`, `credentialproxy`, `claudecode`, `jupyter`, `nanoclaw`, `openclaw`, `opencode`. Registry: `344729309528.dkr.ecr.us-east-1.amazonaws.com`.
+Image keys (see `scripts/build/README.md`): `agentserver`, `imbridge`, `llmproxy`, `sandboxproxy`, `credentialproxy`, `openclaw`. Registry: `344729309528.dkr.ecr.us-east-1.amazonaws.com`.
 
 ### Build + push all images
 

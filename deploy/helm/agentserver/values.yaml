@@ -141,20 +141,6 @@ agentSandbox:
   install: true
   controllerImage: registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.1.1
 
-codexAuth:
-  # Self-hosted codex 0.132+ auth shim. When enabled, agentserver
-  # serves PKCE / device flow / JWKS / agent-identity endpoints on a
-  # dedicated subdomain (default codex-auth.<gateway.host or ingress.host>),
-  # routed through Gateway URLRewrite / Ingress rewrite-target back to
-  # the agentserver service's /codex-auth/* internal mount.
-  #
-  # User-facing issuer URL is the subdomain (no path), so:
-  #   codex login --issuer https://codex-auth.<your-domain>
-  enabled: false
-  # Override the auto-derived subdomain when you need a different host
-  # (e.g. for a custom DNS scheme). Leave empty to use codex-auth.<gateway.host>.
-  externalHost: ""
-
 hydra:
   # Ory Hydra OAuth2 server for agent Device Flow registration.
   # When enabled, deploys Hydra alongside agentserver and configures
@@ -274,112 +260,10 @@ whatsapp:
 # all API key holders must re-mint after a pepper change.
 secretsPepper: ""
 
-# Operation log (Plan 2): codex-app-gateway records every MCP tool call to
-# agentserver's /internal/operations endpoint for audit + replay.
+# Operation audit log retention (agentserver /internal/operations).
 operations:
-  # When true, codex-app-gateway POSTs every mcpServer/tool/call to
-  # agentserver's /internal/operations. Disable to revert to pre-Plan-2
-  # behavior (no logging).
-  enabled: true
-  # Retention in days. 0 disables the cleanup loop.
   retentionDays: 90
-  # Bounded channel capacity inside the gateway. Drops on overflow.
   channelCapacity: 1024
-
-# codexGateway: shared secrets for the codex-app-gateway / codex-exec-gateway
-# pair. Both pods read from the same auto-generated k8s Secret so the cap
-# tokens app-gw mints are verifiable by exec-gw, and the internal API
-# Bearer is in agreement on both sides.
-#
-# Override any of these to pin values across reinstalls; leave empty for
-# auto-generated 48-char alphanum (preserved on upgrade via lookup).
-codexGateway:
-  inboundHmacSecret: ""
-  capTokenHmacSecret: ""
-  internalSharedSecret: ""
-
-# codex-app-gateway: per-thread codex app-server subprocess manager + ws
-# frame proxy. Spawns codex app-server children, fetches workspace executor
-# bindings from codex-exec-gateway, mints per-turn cap tokens, and writes
-# config.toml entries that route remote tool calls through the env-mcp
-# child binary.
-codexAppGateway:
-  enabled: false
-  image:
-    repository: ghcr.io/agentserver/codex-app-gateway
-    tag: latest
-    pullPolicy: Always
-  replicaCount: 1
-  port: 8086
-  logLevel: info
-  # Idle-shutdown timer: spawned codex app-server child gets reaped this
-  # long after the last proxied frame. Cap-token TTL should be at least
-  # this long so a long-idle session can resume without re-mint.
-  idleShutdown: 30m
-  capTokenTtl: 1h
-  # Model + provider info written verbatim into each per-thread
-  # config.toml's [model_providers.X] block. Defaults assume llmproxy
-  # in-cluster.
-  model: gpt-5.5
-  modelProvider: modelserver
-  modelProviderBaseUrl: ""        # default: http://{release}-llmproxy:{port}/v1
-  modelProviderEnvKey: CODEX_API_KEY
-  modelProviderWireApi: responses
-  # API key the spawned codex uses to authenticate to the model provider.
-  # Required for the subprocess to make any LLM call.
-  codexApiKey: ""
-  # Comma-separated paths marked trust_level="trusted" in config.toml.
-  # Empty defaults to "/tmp" inside the gateway code.
-  projectTrustedPaths: ""
-  # Where per-thread CODEX_HOME tmpdirs live. Should be on a fast local
-  # volume; emptyDir is fine since state is round-tripped to S3.
-  tmpRoot: /tmp/codex-app-gateway
-  # External hostname for the codex TUI to reach this gateway.
-  # Empty defaults to "codex-app.<ingress.host>" (or .<gateway.host>).
-  # Only used when ingress.enabled or gateway.enabled is true.
-  externalHost: ""
-  # S3-compatible store for per-thread CODEX_HOME tarballs (sqlite +
-  # session jsonl). Required.
-  s3:
-    endpoint: ""
-    region: ""
-    bucket: ""
-    pathStyle: false
-    existingSecret: ""            # k8s secret with keys: access_key_id, secret_access_key
-  resources: {}
-
-# codex-exec-gateway: pairs inbound /codex-exec/{exe_id} executor connections
-# with /bridge/{exe_id} env-mcp child connections, owns executors +
-# workspace_executors Postgres tables, exposes register/binding HTTP API.
-codexExecGateway:
-  enabled: false
-  image:
-    repository: ghcr.io/agentserver/codex-exec-gateway
-    tag: latest
-    pullPolicy: Always
-  replicaCount: 1
-  port: 6060
-  logLevel: info
-  pingInterval: 30s
-  idleTimeout: 5m
-  database:
-    name: codexexecgateway
-    externalUrl: ""
-  # External hostname for remote `codex exec-server --connect` workers
-  # and operators calling /api/codex-exec/*. Empty defaults to
-  # "codex-exec.<ingress.host>" (or .<gateway.host>). Only used when
-  # ingress.enabled or gateway.enabled is true.
-  externalHost: ""
-  # External hostname for `codex exec-server --connect ...` URLs shown
-  # in the workspace UI (e.g. "codex-exec.agent.cs.ac.cn"). Empty omits
-  # the convenience copy-command in the registration response — UI then
-  # tells the user to ask their operator for the URL.
-  publicHost: ""
-  # v0.56.0 HTTP relay copy_path tunables. Both optional; defaults
-  # baked into the binary (5m / 16) apply when empty.
-  relayDefaultTTL: ""      # e.g. "5m" — per-ticket pairing timeout
-  relayMaxPerWorkspace: 0  # e.g. 16 — concurrent relays per workspace
-  resources: {}
 
 service:
   type: ClusterIP

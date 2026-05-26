@@ -11,8 +11,6 @@ IMAGES=(
   imbridge
   llmproxy
   sandboxproxy
-  codex-app-gateway
-  codex-exec-gateway
   credentialproxy
   openclaw
 )

@@ -38,14 +38,8 @@ Valid image keys and their Dockerfiles:
 | imbridge             | Dockerfile.imbridge           | agentserver-imbridge                |
 | llmproxy             | Dockerfile.llmproxy           | agentserver-llmproxy                |
 | sandboxproxy         | Dockerfile.sandboxproxy       | agentserver-sandboxproxy            |
-| codex-app-gateway    | Dockerfile.codex-app-gateway  | agentserver-codex-app-gateway       |
-| codex-exec-gateway   | Dockerfile.codex-exec-gateway | agentserver-codex-exec-gateway      |
 | credentialproxy      | Dockerfile.credentialproxy    | agentserver-credentialproxy         |
-| claudecode           | Dockerfile.claudecode         | agentserver-claudecode              |
-| jupyter              | Dockerfile.jupyter            | agentserver-jupyter                 |
-| nanoclaw             | Dockerfile.nanoclaw           | agentserver-nanoclaw                |
 | openclaw             | Dockerfile.openclaw           | agentserver-openclaw                |
-| opencode             | Dockerfile.opencode           | agentserver-opencode                |
 
 Examples:
 
