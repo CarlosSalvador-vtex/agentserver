@@ -1,16 +1,28 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/db"
+)
+
+// Playground dry-run config — kept here vs values.yaml since these are
+// runtime-only knobs the operator may want to tune without redeploy.
+const (
+	playgroundDryRunModelDefault = "claude-sonnet-4-6"
+	playgroundDryRunMaxTokens    = 1024
 )
 
 // playgroundDryRunRequest carries optional inputs to the dry-run
@@ -29,15 +41,21 @@ type playgroundDryRunMessage struct {
 }
 
 // playgroundDryRunResponse returns the composed prompt + tool surface
-// without actually calling the LLM. A future iteration will wire this
-// through llmproxy; for v1 the response is enough to render a preview
-// panel in the playground UI.
+// + an actual LLM completion when llmproxy is reachable. Falls back to
+// preview-only when llmproxy is unavailable or returns an error — the
+// frontend always renders the prompt panel + completion when present.
 type playgroundDryRunResponse struct {
 	SystemPrompt string                      `json:"system_prompt"`
 	Tools        []playgroundDryRunTool      `json:"tools"`
 	Messages     []playgroundDryRunMessage   `json:"messages"`
 	SoulSummary  *playgroundDryRunSoulInfo   `json:"soul,omitempty"`
 	SkillSummary playgroundDryRunSkillInfo   `json:"skill"`
+	// Completion is the LLM's reply, populated when llmproxy returned
+	// a response. Empty when llmproxy is not configured or the call
+	// failed — CompletionError carries the diagnostic in that case.
+	Completion      string `json:"completion,omitempty"`
+	CompletionModel string `json:"completion_model,omitempty"`
+	CompletionError string `json:"completion_error,omitempty"`
 }
 
 type playgroundDryRunTool struct {
@@ -116,7 +134,107 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 	}
 	resp.SystemPrompt = strings.Join(promptParts, "\n\n---\n\n")
 
+	// Optional LLM round-trip via llmproxy. When the proxy URL is unset
+	// (dev / first-boot), we return the preview-only shape so the
+	// frontend always has something to render.
+	if s.LLMProxyURL != "" && req.UserMessage != "" {
+		model := playgroundDryRunModelDefault
+		if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
+			model = envModel
+		}
+		completion, err := s.callLLMProxyForDryRun(r.Context(), model, resp.SystemPrompt, resp.Messages)
+		if err != nil {
+			resp.CompletionError = err.Error()
+		} else {
+			resp.Completion = completion
+			resp.CompletionModel = model
+		}
+	}
+
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// callLLMProxyForDryRun sends the composed dry-run payload to llmproxy
+// in Anthropic /v1/messages shape. llmproxy validates the proxy token
+// against the workspace token catalog; for system-level calls we use
+// INTERNAL_API_SECRET as the bearer (already required for other
+// internal endpoints — see /api/internal/workspace-token wiring).
+func (s *Server) callLLMProxyForDryRun(ctx context.Context, model, systemPrompt string, msgs []playgroundDryRunMessage) (string, error) {
+	internal := os.Getenv("INTERNAL_API_SECRET")
+	if internal == "" {
+		return "", fmt.Errorf("INTERNAL_API_SECRET not set; cannot reach llmproxy")
+	}
+
+	type anthMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type anthReq struct {
+		Model     string    `json:"model"`
+		System    string    `json:"system,omitempty"`
+		MaxTokens int       `json:"max_tokens"`
+		Messages  []anthMsg `json:"messages"`
+	}
+
+	body := anthReq{
+		Model:     model,
+		System:    systemPrompt,
+		MaxTokens: playgroundDryRunMaxTokens,
+		Messages:  make([]anthMsg, 0, len(msgs)),
+	}
+	for _, m := range msgs {
+		if m.Role == "" || m.Content == "" {
+			continue
+		}
+		body.Messages = append(body.Messages, anthMsg{Role: m.Role, Content: m.Content})
+	}
+	if len(body.Messages) == 0 {
+		return "", fmt.Errorf("no user message to send")
+	}
+
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := strings.TrimRight(s.LLMProxyURL, "/") + "/v1/messages"
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, "POST", url, bytes.NewReader(buf))
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", internal)
+	req.Header.Set("x-api-key", internal)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("dispatch: %w", err)
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("llmproxy %d: %s", resp.StatusCode, string(rb))
+	}
+
+	var parsed struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(rb, &parsed); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+	var out strings.Builder
+	for _, c := range parsed.Content {
+		if c.Type == "text" {
+			out.WriteString(c.Text)
+		}
+	}
+	return out.String(), nil
 }
 
 // resolveSoulForPreview turns a soul ref into the body string the
