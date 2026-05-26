@@ -1419,10 +1419,15 @@ func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([
 	case "hermes":
 		mountRoot = "/opt/data/skills/personal"
 	case "openclaw":
-		// OpenClaw discovers plugins under ~/.openclaw/extensions/ (where the
-		// bundled openclaw-weixin lives), NOT ~/.openclaw/plugins/ — the
-		// latter exists as a metadata cache but the loader scans extensions/.
-		mountRoot = "/home/node/.openclaw/extensions"
+		// OpenClaw discovers plugins under ~/.openclaw/extensions/. The
+		// upstream openclaw image runs as user `agent` (warning at boot:
+		// "discovered non-bundled plugins may auto-load: openclaw-weixin
+		// (/home/agent/.openclaw/extensions/openclaw-weixin/...)"), so
+		// the mount has to land under that home dir. Previous attempt
+		// at /home/node/.openclaw/extensions/ landed outside the loader
+		// scan path, leaving plugins.entries.<name> dangling and the
+		// loader logging "plugin not found: <name> (stale config entry)".
+		mountRoot = "/home/agent/.openclaw/extensions"
 	default:
 		return nil, nil, fmt.Errorf("skill mounts not supported for sandbox type %q", platform)
 	}

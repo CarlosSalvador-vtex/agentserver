@@ -1,0 +1,10 @@
+{
+  "id": "cobranca",
+  "version": "0.1.0",
+  "channels": ["whatsapp", "telegram", "dashboard"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
