@@ -984,12 +984,15 @@ export interface ListOperationsFilters {
 
 export type PlaygroundDraftStatus = 'draft' | 'promoting' | 'promoted' | 'archived'
 
+export type PlaygroundPRState = 'open' | 'merged' | 'closed'
+
 export interface PlaygroundSkillSummary {
   id: string
   name: string
   description: string
   status: PlaygroundDraftStatus
   promoted_pr_url?: string
+  promoted_pr_state?: PlaygroundPRState
   updated_at: string
 }
 
@@ -1004,6 +1007,7 @@ export interface PlaygroundSoulSummary {
   status: PlaygroundDraftStatus
   schema_version: string
   promoted_pr_url?: string
+  promoted_pr_state?: PlaygroundPRState
   updated_at: string
 }
 

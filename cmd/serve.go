@@ -336,6 +336,11 @@ var serveCmd = &cobra.Command{
 		// playground_test_sandboxes.expires_at has passed.
 		srv.StartPlaygroundReaper(healthCtx)
 
+		// Playground promote PR status poller. Background 5-min loop that
+		// refreshes promoted_pr_state by polling the GitHub Pulls API.
+		// No-op when GITHUB_PROMOTE_TOKEN is unset.
+		srv.StartPromotePoller(healthCtx)
+
 		httpServer := &http.Server{Addr: addr, Handler: srv.Router()}
 
 		// Graceful shutdown on SIGTERM/SIGINT

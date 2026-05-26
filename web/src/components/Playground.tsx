@@ -70,6 +70,7 @@ export function Playground() {
           id: s.id,
           name: s.name,
           status: s.status,
+          prState: s.promoted_pr_state,
           to: `/playground/skills/${s.id}`,
           prURL: s.promoted_pr_url,
           updatedAt: s.updated_at,
@@ -105,6 +106,7 @@ interface SectionItem {
   name: string
   description: string
   status: string
+  prState?: string
   to: string
   prURL?: string
   updatedAt: string
@@ -148,7 +150,7 @@ function Section({
               <Link to={it.to} className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-[var(--foreground)] font-medium">{it.name}</span>
-                  <StatusBadge status={it.status} />
+                  <StatusBadge status={it.status} prState={it.prState} />
                 </div>
                 <div className="text-xs text-[var(--muted-foreground)] truncate">
                   {it.description || 'No description'} · updated {new Date(it.updatedAt).toLocaleString()}
@@ -180,16 +182,23 @@ function Section({
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, prState }: { status: string; prState?: string }) {
+  // When status='promoted' and the background poller has observed the PR
+  // state, surface that finer-grained label so users see when the PR was
+  // merged or closed without re-opening the tab.
+  const label = status === 'promoted' && prState ? `promoted-${prState}` : status
   const styles: Record<string, string> = {
     draft: 'bg-blue-500/10 text-blue-400',
     promoting: 'bg-yellow-500/10 text-yellow-400',
     promoted: 'bg-green-500/10 text-green-400',
+    'promoted-open': 'bg-green-500/10 text-green-400',
+    'promoted-merged': 'bg-emerald-500/20 text-emerald-300',
+    'promoted-closed': 'bg-gray-500/10 text-gray-400',
     archived: 'bg-gray-500/10 text-gray-400',
   }
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${styles[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
-      {status}
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${styles[label] ?? 'bg-gray-500/10 text-gray-400'}`}>
+      {label}
     </span>
   )
 }

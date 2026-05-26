@@ -12,33 +12,35 @@ import (
 // SkillDraft is one row in skill_drafts. Files is a flat path→content
 // map; nested paths (e.g. "references/leads.json") use "/" verbatim.
 type SkillDraft struct {
-	ID             string
-	Name           string
-	Description    string
-	AuthorUserID   sql.NullString
-	Files          map[string]string
-	Status         string
-	PromotedPRURL  sql.NullString
-	PromotedCommit sql.NullString
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              string
+	Name            string
+	Description     string
+	AuthorUserID    sql.NullString
+	Files           map[string]string
+	Status          string
+	PromotedPRURL   sql.NullString
+	PromotedCommit  sql.NullString
+	PromotedPRState sql.NullString // 'open' | 'merged' | 'closed' | NULL (migration 033)
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // SoulDraft is one row in soul_drafts. Frontmatter is held as raw map
 // so the API layer can validate against the schema before persisting.
 type SoulDraft struct {
-	ID             string
-	Name           string
-	Description    string
-	AuthorUserID   sql.NullString
-	Frontmatter    map[string]interface{}
-	Body           string
-	SchemaVersion  string
-	Status         string
-	PromotedPRURL  sql.NullString
-	PromotedCommit sql.NullString
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              string
+	Name            string
+	Description     string
+	AuthorUserID    sql.NullString
+	Frontmatter     map[string]interface{}
+	Body            string
+	SchemaVersion   string
+	Status          string
+	PromotedPRURL   sql.NullString
+	PromotedCommit  sql.NullString
+	PromotedPRState sql.NullString // 'open' | 'merged' | 'closed' | NULL (migration 033)
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // SandboxComposition records which soul + skills a sandbox boots with.
@@ -59,9 +61,9 @@ func (db *DB) CreateSkillDraft(name, description, authorUserID string) (*SkillDr
 	err := db.QueryRow(
 		`INSERT INTO skill_drafts (name, description, author_user_id)
 		VALUES ($1, $2, $3)
-		RETURNING id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, created_at, updated_at`,
+		RETURNING id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at`,
 		name, description, nullIfEmpty(authorUserID),
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create skill draft: %w", err)
 	}
@@ -71,10 +73,10 @@ func (db *DB) CreateSkillDraft(name, description, authorUserID string) (*SkillDr
 func (db *DB) GetSkillDraft(id string) (*SkillDraft, error) {
 	d := &SkillDraft{}
 	err := db.QueryRow(
-		`SELECT id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, created_at, updated_at
+		`SELECT id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM skill_drafts WHERE id = $1`,
 		id,
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -86,7 +88,7 @@ func (db *DB) GetSkillDraft(id string) (*SkillDraft, error) {
 
 func (db *DB) ListSkillDraftsByAuthor(authorUserID string) ([]*SkillDraft, error) {
 	rows, err := db.Query(
-		`SELECT id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, created_at, updated_at
+		`SELECT id, name, description, author_user_id, files, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM skill_drafts WHERE author_user_id = $1 AND status != 'archived' ORDER BY updated_at DESC`,
 		authorUserID,
 	)
@@ -98,7 +100,7 @@ func (db *DB) ListSkillDraftsByAuthor(authorUserID string) ([]*SkillDraft, error
 	var drafts []*SkillDraft
 	for rows.Next() {
 		d := &SkillDraft{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Files), &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan skill draft: %w", err)
 		}
 		drafts = append(drafts, d)
@@ -183,9 +185,9 @@ func (db *DB) CreateSoulDraft(name, description, authorUserID string) (*SoulDraf
 	err := db.QueryRow(
 		`INSERT INTO soul_drafts (name, description, author_user_id)
 		VALUES ($1, $2, $3)
-		RETURNING id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, created_at, updated_at`,
+		RETURNING id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at`,
 		name, description, nullIfEmpty(authorUserID),
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create soul draft: %w", err)
 	}
@@ -195,10 +197,10 @@ func (db *DB) CreateSoulDraft(name, description, authorUserID string) (*SoulDraf
 func (db *DB) GetSoulDraft(id string) (*SoulDraft, error) {
 	d := &SoulDraft{}
 	err := db.QueryRow(
-		`SELECT id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, created_at, updated_at
+		`SELECT id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM soul_drafts WHERE id = $1`,
 		id,
-	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -210,7 +212,7 @@ func (db *DB) GetSoulDraft(id string) (*SoulDraft, error) {
 
 func (db *DB) ListSoulDraftsByAuthor(authorUserID string) ([]*SoulDraft, error) {
 	rows, err := db.Query(
-		`SELECT id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, created_at, updated_at
+		`SELECT id, name, description, author_user_id, frontmatter, body, schema_version, status, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
 		FROM soul_drafts WHERE author_user_id = $1 AND status != 'archived' ORDER BY updated_at DESC`,
 		authorUserID,
 	)
@@ -222,7 +224,7 @@ func (db *DB) ListSoulDraftsByAuthor(authorUserID string) ([]*SoulDraft, error) 
 	var drafts []*SoulDraft
 	for rows.Next() {
 		d := &SoulDraft{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan soul draft: %w", err)
 		}
 		drafts = append(drafts, d)
@@ -369,6 +371,75 @@ func (db *DB) ListExpiredPlaygroundTestSandboxes() ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// --- promote PR state (migration 033) --------------------------------------
+
+// PromoteStateRow is a thin projection used by the PR-state poller. Kind is
+// "skill" or "soul"; PRNumber is parsed from the stored URL when scheduling
+// the GitHub API call.
+type PromoteStateRow struct {
+	Kind            string // "skill" | "soul"
+	DraftID         string
+	PromotedPRURL   string
+	PromotedPRState sql.NullString
+}
+
+// ListPromotedDraftsForPolling returns every promoted draft (skill + soul)
+// whose recorded GitHub state is NULL or "open" — those are the only states
+// the poller can change. Closed / merged are terminal.
+func (db *DB) ListPromotedDraftsForPolling() ([]PromoteStateRow, error) {
+	var out []PromoteStateRow
+	q := func(table, kind string) error {
+		rows, err := db.Query(
+			`SELECT id, promoted_pr_url, promoted_pr_state
+			 FROM ` + table + `
+			 WHERE status = 'promoted' AND promoted_pr_url IS NOT NULL
+			   AND (promoted_pr_state IS NULL OR promoted_pr_state = 'open')`,
+		)
+		if err != nil {
+			return fmt.Errorf("list %s for polling: %w", table, err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r PromoteStateRow
+			r.Kind = kind
+			if err := rows.Scan(&r.DraftID, &r.PromotedPRURL, &r.PromotedPRState); err != nil {
+				return fmt.Errorf("scan %s row: %w", table, err)
+			}
+			out = append(out, r)
+		}
+		return rows.Err()
+	}
+	if err := q("skill_drafts", "skill"); err != nil {
+		return nil, err
+	}
+	if err := q("soul_drafts", "soul"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdatePromotedPRState writes the observed GitHub PR state for a promoted
+// draft. Validates kind + state at the app boundary.
+func (db *DB) UpdatePromotedPRState(kind, draftID, state string) error {
+	if state != "open" && state != "merged" && state != "closed" {
+		return fmt.Errorf("invalid promoted_pr_state %q", state)
+	}
+	var table string
+	switch kind {
+	case "skill":
+		table = "skill_drafts"
+	case "soul":
+		table = "soul_drafts"
+	default:
+		return fmt.Errorf("invalid kind %q", kind)
+	}
+	_, err := db.Exec(
+		`UPDATE `+table+` SET promoted_pr_state = $2, updated_at = NOW() WHERE id = $1`,
+		draftID, state,
+	)
+	return err
 }
 
 // --- helpers ---------------------------------------------------------------
