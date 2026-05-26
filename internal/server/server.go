@@ -19,11 +19,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/codexauth"
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
 	"github.com/agentserver/agentserver/internal/process"
+	"github.com/agentserver/agentserver/internal/sandbox"
 	"github.com/agentserver/agentserver/internal/sbxstore"
 	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/agentserver/agentserver/internal/shortid"
@@ -104,6 +106,9 @@ type Server struct {
 	// imBridgeProxy is set by Router() when IMBridgeURL is non-empty.
 	// Stored here so per-route wrapper methods (im_routes.go) can call it.
 	imBridgeProxy http.HandlerFunc
+
+	dryRunLimiter      *playgroundRateLimiter
+	testSandboxLimiter *playgroundRateLimiter
 }
 
 func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore *sbxstore.Store, processManager process.Manager, driveManager storage.DriveManager, nsMgr *namespace.Manager, tunnelReg *tunnel.Registry, staticFS fs.FS, passwordAuthEnabled bool) *Server {
@@ -157,6 +162,8 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		HermesSubdomainPrefix:     hermesPrefix,
 		PasswordAuthEnabled:       passwordAuthEnabled,
 		deviceFlows:               make(map[string]*pendingDeviceFlow),
+		dryRunLimiter:             newPlaygroundRateLimiter(rate.Every(6*time.Second), 3),
+		testSandboxLimiter:        newPlaygroundRateLimiter(rate.Every(20*time.Second), 1),
 	}
 	if s.OIDC != nil {
 		s.OIDC.OnUserCreated = s.createDefaultWorkspace
@@ -461,8 +468,8 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/api/playground/skills/{id}", s.handlePatchSkillDraft)
 		r.Delete("/api/playground/skills/{id}", s.handleArchiveSkillDraft)
 		r.Post("/api/playground/skills/{id}/promote", s.handlePromoteSkillDraft)
-		r.Post("/api/playground/skills/{id}/dry-run", s.handleSkillDraftDryRun)
-		r.Post("/api/playground/skills/{id}/test-sandbox", s.handleSkillDraftTestSandbox)
+		r.Post("/api/playground/skills/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSkillDraftDryRun))
+		r.Post("/api/playground/skills/{id}/test-sandbox", s.testSandboxLimiter.middleware(20, s.handleSkillDraftTestSandbox))
 		r.Get("/api/playground/souls", s.handleListSoulDrafts)
 		r.Post("/api/playground/souls", s.handleCreateSoulDraft)
 		r.Get("/api/playground/souls/{id}", s.handleGetSoulDraft)
@@ -942,15 +949,15 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 			subID = sbx.ID
 		}
 		switch sbx.Type {
-		case "openclaw":
+		case sandbox.SandboxTypeOpenclaw.String():
 			resp.OpenclawURL = "https://" + s.OpenclawSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "nanoclaw":
+		case sandbox.SandboxTypeNanoclaw.String():
 			// NanoClaw has no Web UI — no URL to generate
-		case "claudecode":
+		case sandbox.SandboxTypeClaudeCode.String():
 			resp.ClaudeCodeURL = "https://" + s.ClaudeCodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "jupyter":
+		case sandbox.SandboxTypeJupyter.String():
 			resp.JupyterURL = "https://" + s.JupyterSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "hermes":
+		case sandbox.SandboxTypeHermes.String():
 			resp.HermesURL = "https://" + s.HermesSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		case "custom":
 			// Custom agents use the opencode subdomain prefix (code-{id}.domain)
@@ -1000,7 +1007,7 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 
 // attachIMBindings fetches and attaches IM channel records to a sandbox response.
 func (s *Server) attachIMBindings(resp *sandboxResponse) {
-	if resp.Type != "openclaw" && resp.Type != "nanoclaw" {
+	if resp.Type != sandbox.SandboxTypeOpenclaw.String() && resp.Type != sandbox.SandboxTypeNanoclaw.String() {
 		return
 	}
 	// Return only the channel bound to THIS sandbox.
@@ -1787,9 +1794,9 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	}
 	sandboxType := in.Type
 	if sandboxType == "" {
-		sandboxType = "opencode"
+		sandboxType = sandbox.SandboxTypeOpencode.String()
 	}
-	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" && sandboxType != "hermes" {
+	if !sandbox.SandboxType(sandboxType).Valid() {
 		return nil, &provisionError{
 			Code:    "invalid_type",
 			Status:  http.StatusBadRequest,
@@ -1861,7 +1868,7 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	// docs/superpowers/specs/2026-05-19-jupyter-sandbox-type-design.md
 	// ("Non-goals: Mounting workspace-drive in jupyter sandboxes").
 	var workspaceVolumes []process.VolumeMount
-	if sandboxType != "jupyter" {
+	if sandboxType != sandbox.SandboxTypeJupyter.String() {
 		workspaceVolumes, err = s.DriveManager.EnsureDrive(ctx, wsID, wsNamespace)
 		if err != nil {
 			log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
@@ -1887,19 +1894,19 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 		return nil, fmt.Errorf("generate proxy token: %w", err)
 	}
 	switch sandboxType {
-	case "openclaw":
+	case sandbox.SandboxTypeOpenclaw.String():
 		openclawToken, err = generatePassword()
 		if err != nil {
 			return nil, fmt.Errorf("generate openclaw token: %w", err)
 		}
-	case "nanoclaw":
+	case sandbox.SandboxTypeNanoclaw.String():
 		// NanoClaw uses a bridge secret instead of openclaw/opencode tokens.
 		// The bridge secret is stored separately after sandbox creation.
-	case "claudecode":
+	case sandbox.SandboxTypeClaudeCode.String():
 		// Claude Code only uses proxyToken (as ANTHROPIC_API_KEY).
-	case "jupyter":
+	case sandbox.SandboxTypeJupyter.String():
 		// Jupyter Server uses proxyToken as its built-in JUPYTER_TOKEN.
-	default: // "opencode"
+	default: // opencode
 		opencodeToken, err = generatePassword()
 		if err != nil {
 			return nil, fmt.Errorf("generate opencode token: %w", err)
@@ -1922,7 +1929,7 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	}
 
 	// Generate and store bridge secret for nanoclaw sandboxes.
-	if sandboxType == "nanoclaw" {
+	if sandboxType == sandbox.SandboxTypeNanoclaw.String() {
 		bridgeSecret, err := generatePassword()
 		if err != nil {
 			return nil, fmt.Errorf("generate nanoclaw bridge secret: %w", err)
@@ -1944,17 +1951,17 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 		CPU:              cpuMillis,
 		Memory:           memBytes,
 	}
-	if sandboxType == "nanoclaw" {
+	if sandboxType == sandbox.SandboxTypeNanoclaw.String() {
 		startOpts.NanoclawBridgeSecret = sbx.NanoclawBridgeSecret
 		startOpts.SandboxID = id
 		startOpts.WorkspaceID = wsID
 		startOpts.AssistantName = sbx.MetadataString("assistant_name")
 	}
-	if sandboxType == "claudecode" {
+	if sandboxType == sandbox.SandboxTypeClaudeCode.String() {
 		startOpts.SandboxID = id
 		startOpts.WorkspaceID = wsID
 	}
-	if sandboxType == "jupyter" {
+	if sandboxType == sandbox.SandboxTypeJupyter.String() {
 		startOpts.SandboxID = id
 		startOpts.WorkspaceID = wsID
 	}
@@ -2184,7 +2191,7 @@ func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Unbind sandbox from its IM channel (poller keeps running at channel level).
-	if sbx.Type == "nanoclaw" {
+	if sbx.Type == sandbox.SandboxTypeNanoclaw.String() {
 		if err := s.DB.UnbindSandboxFromChannel(id); err != nil {
 			log.Printf("failed to unbind sandbox %s from IM channel: %v", id, err)
 		}
@@ -2330,7 +2337,7 @@ func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 		// Restart IM bridge pollers for nanoclaw sandboxes after resume.
 		// The Pod has a new IP; notify imbridge to restart pollers.
 		sbxNow, ok := s.Sandboxes.Get(id)
-		if ok && sbxNow.Type == "nanoclaw" && s.IMBridgeURL != "" {
+		if ok && sbxNow.Type == sandbox.SandboxTypeNanoclaw.String() && s.IMBridgeURL != "" {
 			go s.notifyIMBridgePollerRestore(id)
 		}
 
@@ -2646,7 +2653,7 @@ func (s *Server) handleChannelAutoBind(w http.ResponseWriter, r *http.Request) {
 	if sandboxID == "" {
 		sbxType := req.SandboxType
 		if sbxType == "" {
-			sbxType = "openclaw"
+			sbxType = sandbox.SandboxTypeOpenclaw.String()
 		}
 		name := req.Name
 		if name == "" {

@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/agentserver/agentserver/internal/sandbox"
 )
 
 const (
@@ -21,7 +23,7 @@ type MatrixProvider struct {
 	CryptoManager *MatrixCryptoManager
 }
 
-func (p *MatrixProvider) Name() string      { return "matrix" }
+func (p *MatrixProvider) Name() string { return sandbox.ProviderMatrix.String() }
 func (p *MatrixProvider) JIDSuffix() string { return "@matrix" }
 
 // InitProvider implements InitializableProvider — sets up the E2EE crypto manager.

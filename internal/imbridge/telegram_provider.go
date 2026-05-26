@@ -7,12 +7,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/agentserver/agentserver/internal/sandbox"
 )
 
 // TelegramProvider implements Provider for Telegram Bot API.
 type TelegramProvider struct{}
 
-func (p *TelegramProvider) Name() string      { return "telegram" }
+func (p *TelegramProvider) Name() string { return sandbox.ProviderTelegram.String() }
 func (p *TelegramProvider) JIDSuffix() string { return "@tg" }
 
 func (p *TelegramProvider) Poll(ctx context.Context, creds *Credentials, cursor string) (*PollResult, error) {

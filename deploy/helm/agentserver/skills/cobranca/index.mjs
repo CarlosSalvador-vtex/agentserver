@@ -18,9 +18,26 @@ import path from "node:path";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 
+function loadSoulBody() {
+  const soulPath =
+    process.env.OPENCLAW_SOUL_FILE || "/home/agent/.openclaw/soul.md";
+  try {
+    if (fs.existsSync(soulPath)) {
+      return fs.readFileSync(soulPath, "utf8").trim();
+    }
+  } catch {
+    /* mount optional */
+  }
+  return (process.env.AGENTSERVER_SOUL_BODY || "").trim();
+}
+
 // Pre-load at module init so register() stays purely synchronous and the
 // loader sees no promise on the return path.
-const PROMPT_BODY = fs.readFileSync(path.join(HERE, "prompt.md"), "utf8");
+let PROMPT_BODY = fs.readFileSync(path.join(HERE, "prompt.md"), "utf8");
+const SOUL_BODY = loadSoulBody();
+if (SOUL_BODY) {
+  PROMPT_BODY = `## Persona (soul.md)\n${SOUL_BODY}\n\n${PROMPT_BODY}`;
+}
 const LEADS = JSON.parse(fs.readFileSync(path.join(HERE, "references", "leads.json"), "utf8"));
 
 const plugin = {
@@ -41,7 +58,8 @@ const plugin = {
     // skill bundle discoverable by name-based agent prompts.
     if (api?.logger?.info) {
       api.logger.info(
-        `[cobranca] loaded — ${LEADS.length} leads, prompt ${PROMPT_BODY.length} chars`,
+        `[cobranca] loaded — ${LEADS.length} leads, prompt ${PROMPT_BODY.length} chars` +
+          (SOUL_BODY ? `, soul ${SOUL_BODY.length} chars` : ""),
       );
     }
     return { id: "cobranca", version: "0.1.0" };

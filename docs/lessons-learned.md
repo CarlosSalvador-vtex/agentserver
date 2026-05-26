@@ -126,6 +126,33 @@ Auth is per-service. `INTERNAL_API_SECRET` is **not** a master key; it's just on
 
 ---
 
+## OpenClaw soul.md (Tier 1)
+
+OpenClaw has **no** Hermes-style auto-load of `soul.md`. The mount at `/home/agent/.openclaw/soul.md` is useless unless something reads it.
+
+**What we ship (Tier 1):**
+
+| Layer | Mechanism |
+|---|---|
+| Mount | Draft soul → ephemeral ConfigMap → `soul.md` at `/home/agent/.openclaw/soul.md` (unchanged) |
+| Env (Option C) | `OPENCLAW_SOUL_FILE` + `AGENTSERVER_SOUL_BODY` when composition has a draft soul |
+| Skill prompt (Option B) | Playground draft skills get a `prompt.md` preamble pointing at the soul file; chart skill `cobranca/index.mjs` reads soul at module init and prepends to prompt |
+
+**Do not retry:** `agent.systemPrompt` at the root of `openclaw.json` — loader rejects with `<root>: Unrecognized key: "agent"` (PR #25).
+
+**Next step (Tier 4 #16):** initContainer symlink + `plugin-sdk` import so skills can register a real system-prompt hook. See `docs/openclaw-skill-slash-research.md`.
+
+**Verify on dev EKS:**
+
+```bash
+kubectl exec -n "$NS" "$SBX" -c agent -- bash -c '
+  cat /home/agent/.openclaw/soul.md | head -5
+  env | grep -i soul
+'
+```
+
+---
+
 ## Cross-cutting patterns
 
 ### Pattern: "deployed image doesn't match merged code"
@@ -172,6 +199,7 @@ We saved hours on PR #29 by SSH'ing into a running hermes pod and grepping the s
 When opening a new PR that touches:
 
 - **OpenClaw plugin manifest** — verify `openclaw.plugin.json` shape against `/app/extensions/openshell/openclaw.plugin.json` in the image.
+- **OpenClaw persona** — mount `soul.md` + env `OPENCLAW_SOUL_FILE` / `AGENTSERVER_SOUL_BODY`; do not add root `agent` key to openclaw.json.
 - **Hermes persona** — go straight to `/opt/data/SOUL.md`. Don't touch config.yaml.
 - **Sandbox pod spec** — remember existing sandboxes won't update. Spawn a fresh one to test.
 - **DB writes before goroutines** — invariants must hold before `go func() { ... }()`. Don't write after.

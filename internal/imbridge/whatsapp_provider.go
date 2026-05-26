@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/agentserver/agentserver/internal/sandbox"
 )
 
 // WhatsAppProvider integrates the WhatsApp Cloud API (Meta/Facebook).
@@ -32,7 +34,7 @@ const (
 	whatsappJIDSuffix      = "@wa"
 )
 
-func (p *WhatsAppProvider) Name() string      { return "whatsapp" }
+func (p *WhatsAppProvider) Name() string { return sandbox.ProviderWhatsApp.String() }
 func (p *WhatsAppProvider) JIDSuffix() string { return whatsappJIDSuffix }
 
 // Poll is a no-op for WhatsApp Cloud — messages arrive via webhook.
