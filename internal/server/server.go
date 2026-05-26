@@ -589,6 +589,13 @@ func (s *Server) Router() http.Handler {
 		r.Post("/api/workspaces/{wid}/api-keys", s.handleMintWorkspaceAPIKey)
 		r.Delete("/api/workspaces/{wid}/api-keys/{id}", s.handleRevokeWorkspaceAPIKey)
 
+		// Marketplace — cross-tenant shared templates (improvements.md #18).
+		// Any authenticated user can list + fork; visibility toggle is admin-only.
+		r.Get("/api/marketplace/skills", s.handleListMarketplaceSkills)
+		r.Get("/api/marketplace/souls", s.handleListMarketplaceSouls)
+		r.Post("/api/marketplace/skills/{id}/fork", s.handleForkMarketplaceSkill)
+		r.Post("/api/marketplace/souls/{id}/fork", s.handleForkMarketplaceSoul)
+
 		// Admin routes
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)
@@ -613,6 +620,10 @@ func (s *Server) Router() http.Handler {
 			r.Get("/workspaces/{id}/llm-quota", s.handleAdminGetWorkspaceLLMQuota)
 			r.Put("/workspaces/{id}/llm-quota", s.handleAdminSetWorkspaceLLMQuota)
 			r.Delete("/workspaces/{id}/llm-quota", s.handleAdminDeleteWorkspaceLLMQuota)
+
+			// Marketplace visibility moderation (improvements.md #18)
+			r.Patch("/playground/skills/{id}/visibility", s.handleSetSkillVisibility)
+			r.Patch("/playground/souls/{id}/visibility", s.handleSetSoulVisibility)
 		})
 	})
 

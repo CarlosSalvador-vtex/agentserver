@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Plus, Trash2, FolderOpen, Sun, Moon, Monitor, Shield, LogOut, Settings, FlaskConical } from 'lucide-react'
+import { ChevronDown, Plus, Trash2, FolderOpen, Sun, Moon, Monitor, Shield, LogOut, Settings, FlaskConical, Store } from 'lucide-react'
 import {
   type Workspace,
   createWorkspace,
@@ -19,6 +19,7 @@ interface TopBarProps {
   onShowAdmin?: () => void
   onShowManageWorkspaces: () => void
   onShowPlayground: () => void
+  onShowMarketplace: () => void
 }
 
 function UserAvatar({ name, picture }: { name: string; picture?: string | null }) {
@@ -49,6 +50,7 @@ export function TopBar({
   onShowAdmin,
   onShowManageWorkspaces,
   onShowPlayground,
+  onShowMarketplace,
 }: TopBarProps) {
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -255,6 +257,13 @@ export function TopBar({
               >
                 <FlaskConical size={14} />
                 Playground
+              </button>
+              <button
+                onClick={() => { onShowMarketplace(); setMenuOpen(false) }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--secondary)]"
+              >
+                <Store size={14} />
+                Marketplace
               </button>
               {onShowAdmin && (
                 <button

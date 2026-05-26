@@ -27,6 +27,7 @@ import { AdminPanel } from './components/AdminPanel'
 import { Playground } from './components/Playground'
 import { PlaygroundSkillEditor } from './components/PlaygroundSkillEditor'
 import { PlaygroundSoulEditor } from './components/PlaygroundSoulEditor'
+import { Marketplace } from './components/Marketplace'
 import { WorkspaceDetail, tabFromSlug, type Tab as WorkspaceTab } from './components/WorkspaceDetail'
 
 export interface UserInfo {
@@ -354,6 +355,7 @@ export default function App() {
         onShowAdmin={user?.role === 'admin' ? () => navigate('/admin') : undefined}
         onShowManageWorkspaces={() => navigate('/workspaces')}
         onShowPlayground={() => navigate('/playground')}
+        onShowMarketplace={() => navigate('/marketplace')}
       />
       <Routes>
         <Route path="/w/:workspaceId" element={
@@ -428,6 +430,7 @@ export default function App() {
         <Route path="/playground" element={<Playground />} />
         <Route path="/playground/skills/:id" element={<PlaygroundSkillEditor />} />
         <Route path="/playground/souls/:id" element={<PlaygroundSoulEditor />} />
+        <Route path="/marketplace" element={<Marketplace />} />
         <Route path="*" element={selectedWorkspaceId ? <Navigate to={`/w/${selectedWorkspaceId}`} replace /> : null} />
       </Routes>
     </div>

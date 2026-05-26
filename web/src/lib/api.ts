@@ -1187,3 +1187,49 @@ export async function listOperations(
   const data = await apiFetch<WorkspaceOperationsResponse>({ method: 'GET', path })
   return data.operations ?? []
 }
+
+// ── Marketplace (improvements.md #18) ────────────────────────────────────────
+
+export interface MarketplaceSkillSummary {
+  id: string
+  name: string
+  description: string
+  status: PlaygroundDraftStatus
+  workspace_id?: string
+  updated_at: string
+}
+
+export interface MarketplaceSoulSummary {
+  id: string
+  name: string
+  description: string
+  status: PlaygroundDraftStatus
+  workspace_id?: string
+  updated_at: string
+}
+
+export async function listMarketplaceSkills(): Promise<MarketplaceSkillSummary[]> {
+  const r = await apiFetch<{ skills: MarketplaceSkillSummary[] }>({ method: 'GET', path: '/api/marketplace/skills' })
+  return r.skills ?? []
+}
+
+export async function listMarketplaceSouls(): Promise<MarketplaceSoulSummary[]> {
+  const r = await apiFetch<{ souls: MarketplaceSoulSummary[] }>({ method: 'GET', path: '/api/marketplace/souls' })
+  return r.souls ?? []
+}
+
+export async function forkMarketplaceSkill(id: string, workspaceId: string): Promise<PlaygroundSkillSummary> {
+  return apiFetch({ method: 'POST', path: `/api/marketplace/skills/${encodeURIComponent(id)}/fork`, body: { workspace_id: workspaceId } })
+}
+
+export async function forkMarketplaceSoul(id: string, workspaceId: string): Promise<PlaygroundSoulSummary> {
+  return apiFetch({ method: 'POST', path: `/api/marketplace/souls/${encodeURIComponent(id)}/fork`, body: { workspace_id: workspaceId } })
+}
+
+export async function adminSetSkillVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/admin/playground/skills/${encodeURIComponent(id)}/visibility`, body: { visibility } })
+}
+
+export async function adminSetSoulVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/admin/playground/souls/${encodeURIComponent(id)}/visibility`, body: { visibility } })
+}
