@@ -991,6 +991,7 @@ export interface PlaygroundSkillSummary {
   name: string
   description: string
   status: PlaygroundDraftStatus
+  workspace_id?: string  // empty = system template visible to all tenants
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
   promoted_commit?: string
@@ -1007,6 +1008,7 @@ export interface PlaygroundSoulSummary {
   description: string
   status: PlaygroundDraftStatus
   schema_version: string
+  workspace_id?: string  // empty = system template visible to all tenants
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
   promoted_commit?: string
