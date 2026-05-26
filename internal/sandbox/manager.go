@@ -493,6 +493,41 @@ chown -R 1000:1000 /mnt/session-data
 		)
 	}
 
+	// OpenClaw plugin-sdk symlink shim (improvements.md #16). Unlocks
+	// `import { ... } from "openclaw/plugin-sdk/core"` in skill index.mjs
+	// by exposing the image-baked SDK under a NODE_PATH-resolvable
+	// directory. Approach: EmptyDir at /opt/sdk-shim/node_modules,
+	// initContainer drops a symlink `openclaw -> /app/node_modules/openclaw`
+	// into it, main container resolves the package via NODE_PATH.
+	//
+	// Symlink target lives in the openclaw image filesystem; busybox
+	// can create the symlink because it only stores the target string.
+	if opts.SandboxType == SandboxTypeOpenclaw.String() {
+		const shimVol = "openclaw-sdk-shim"
+		volumes = append(volumes, corev1.Volume{
+			Name:         shimVol,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+		initContainers = append(initContainers, corev1.Container{
+			Name:  "link-sdk",
+			Image: "busybox:1.36",
+			Command: []string{"sh", "-c",
+				`mkdir -p /shim/node_modules && ln -sfn /app/node_modules/openclaw /shim/node_modules/openclaw`,
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: shimVol, MountPath: "/shim"},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      shimVol,
+			MountPath: "/opt/sdk-shim",
+		})
+		containerEnv = append(containerEnv, corev1.EnvVar{
+			Name:  "NODE_PATH",
+			Value: "/opt/sdk-shim/node_modules",
+		})
+	}
+
 	storageSize := resource.MustParse(m.cfg.SessionStorageSize)
 	vctMeta := sandboxv1alpha1.EmbeddedObjectMetadata{Name: "session-data"}
 	vcts := []sandboxv1alpha1.PersistentVolumeClaimTemplate{{
