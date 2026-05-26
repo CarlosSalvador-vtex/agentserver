@@ -63,6 +63,7 @@ func (db *DB) UnbindAllSandboxChannels(sandboxID string) error {
 // rollouts), the most recently bound running sandbox wins.
 func (db *DB) GetSandboxForChannelViaBinding(channelID string) (sandboxID, podIP, bridgeSecret, assistantName string, err error) {
 	var metadataJSON []byte
+	var bridgeSecretNull sql.NullString
 	err = db.QueryRow(
 		`SELECT s.id, s.pod_ip, s.nanoclaw_bridge_secret, s.metadata
 		FROM sandbox_channel_bindings b
@@ -73,7 +74,10 @@ func (db *DB) GetSandboxForChannelViaBinding(channelID string) (sandboxID, podIP
 		ORDER BY b.bound_at DESC
 		LIMIT 1`,
 		channelID,
-	).Scan(&sandboxID, &podIP, &bridgeSecret, &metadataJSON)
+	).Scan(&sandboxID, &podIP, &bridgeSecretNull, &metadataJSON)
+	if bridgeSecretNull.Valid {
+		bridgeSecret = bridgeSecretNull.String
+	}
 	if err == nil && len(metadataJSON) > 0 {
 		var meta map[string]interface{}
 		if json.Unmarshal(metadataJSON, &meta) == nil {
