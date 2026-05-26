@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -51,52 +52,50 @@ func ParseCompositionRef(s string) (*CompositionRef, error) {
 }
 
 // ResolvedComposition is what the manager hands to buildPodSpec after
-// turning DB refs into concrete file payloads.
+// turning DB refs into concrete K8s objects.
+//
+// EphemeralConfigMaps must be applied to the workspace namespace
+// before pod create (the pod references them by name). ExtraVolumes +
+// ExtraMounts append directly to the pod spec.
+//
+// Git refs are intentionally a no-op in this resolver — they require
+// the chart-rendered ConfigMap to already be present in the workspace
+// namespace, which the existing replicateSkillConfigMaps path handles
+// via SANDBOX_SKILL_CONFIGMAPS env. Composition-driven mounts target
+// draft refs (the playground iteration loop).
 type ResolvedComposition struct {
-	// SoulBody is the prose body extracted from soul.md (frontmatter stripped),
-	// ready to append to the agent's system prompt. Empty when no soul.
+	EphemeralConfigMaps []corev1.ConfigMap
+	ExtraVolumes        []corev1.Volume
+	ExtraMounts         []corev1.VolumeMount
+	// SoulBody is the body of the soul markdown (frontmatter stripped),
+	// ready to append to the agent's system prompt. Only populated for
+	// draft soul refs; git refs leave this empty (the body is fetched at
+	// runtime from the mounted soul.md).
 	SoulBody string
 	// SoulConstraints carries the structured frontmatter the runtime cares
-	// about (max_turns, refuse_patterns, handoff_to_human_if). Empty map
-	// when no soul or schema-v0 soul without constraints.
+	// about (max_turns, refuse_patterns, handoff_to_human_if).
 	SoulConstraints map[string]interface{}
-	// SkillNames identifies which skill ConfigMaps to mount. Names match
-	// the directory names under deploy/helm/agentserver/skills/<name>/
-	// for git refs; for draft refs, we materialize an ephemeral ConfigMap
-	// per draft and reuse its name here.
-	SkillNames []string
-	// EphemeralConfigMaps is the list of K8s ConfigMaps the resolver
-	// materialized from drafts. The caller is expected to apply them
-	// before pod create + set ownerReferences so they cascade-delete.
-	EphemeralConfigMaps []corev1.ConfigMap
-	// SkillConfig is the per-skill configSchema input the
-	// __OPENCLAW_INJECT_CFG / hermes config templating should pick up.
-	SkillConfig map[string]map[string]interface{}
+	// EnabledSkillNames is the set of skill plugins composition wants
+	// enabled in OpenClaw (added to plugins.entries.<name> by the inject
+	// emitter). Doesn't include skills declared via the env-based
+	// SkillConfigMaps map — those keep their existing enable path.
+	EnabledSkillNames []string
 }
 
-// ResolveComposition turns a stored sandbox_compositions row into
-// concrete file/config inputs the pod spec builder can consume.
-//
-// Git refs are looked up against the chart-mounted skill ConfigMaps in
-// the agentserver namespace (same path the existing skillVolumesAndMounts
-// uses). Draft refs are read from skill_drafts / soul_drafts and
-// materialized into per-sandbox ephemeral ConfigMaps named
-// "agentserver-draft-<sandboxID>-<kind>-<draftID>".
-func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace string) (*ResolvedComposition, error) {
+// ResolveComposition turns a stored sandbox_compositions row into the
+// K8s objects + payloads the pod spec builder consumes.
+func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, platform string) (*ResolvedComposition, error) {
 	comp, err := m.db.GetSandboxComposition(sandboxID)
 	if err != nil {
 		return nil, fmt.Errorf("load composition: %w", err)
 	}
 	if comp == nil {
-		// Sandbox booted without composition (legacy / direct create). Empty
-		// resolved means the caller skips soul mount + uses chart-default
-		// skill ConfigMaps (legacy SANDBOX_SKILL_CONFIGMAPS behavior).
+		// Sandbox booted without composition (legacy / direct create).
+		// Empty resolved keeps existing behaviour intact.
 		return &ResolvedComposition{}, nil
 	}
 
-	resolved := &ResolvedComposition{
-		SkillConfig: comp.SkillConfig,
-	}
+	resolved := &ResolvedComposition{}
 
 	// --- Soul ---
 	if comp.SoulRef.Valid {
@@ -104,18 +103,7 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace s
 		if err != nil {
 			return nil, fmt.Errorf("soul_ref %q: %w", comp.SoulRef.String, err)
 		}
-		switch soulRef.Kind {
-		case "git":
-			// Git soul lives in chart ConfigMap "agentserver-soul-<name>",
-			// rendered by templates/souls-configmap.yaml. We don't read it
-			// from K8s API here — the mount in skillVolumesAndMounts handles
-			// it. The constraint frontmatter the runtime cares about is read
-			// in-pod via /opt/agent/soul.md by the agent boot script. For the
-			// in-Go path we leave SoulBody empty and SoulConstraints nil;
-			// boot-time prompt assembly is the agent's responsibility for
-			// git-sourced souls.
-			resolved.SoulBody = ""
-		case "draft":
+		if soulRef != nil && soulRef.Kind == "draft" {
 			soul, err := m.db.GetSoulDraft(soulRef.UUID)
 			if err != nil {
 				return nil, fmt.Errorf("load soul draft %s: %w", soulRef.UUID, err)
@@ -126,14 +114,17 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace s
 			resolved.SoulBody = soul.Body
 			resolved.SoulConstraints = extractSoulConstraints(soul.Frontmatter)
 
-			// Materialize ephemeral ConfigMap so the mount path stays uniform
-			// with git-sourced souls.
-			cm, err := buildEphemeralSoulConfigMap(sandboxID, namespace, soul)
+			cm, vol, mount, err := buildSoulConfigMapAndMount(sandboxID, namespace, soul, platform)
 			if err != nil {
-				return nil, fmt.Errorf("build ephemeral soul configmap: %w", err)
+				return nil, fmt.Errorf("build soul mount: %w", err)
 			}
-			resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, *cm)
+			resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, cm)
+			resolved.ExtraVolumes = append(resolved.ExtraVolumes, vol)
+			resolved.ExtraMounts = append(resolved.ExtraMounts, mount)
 		}
+		// git: soul body is read in-pod from the chart-mounted ConfigMap.
+		// We don't mount it here — the chart already does via a future
+		// souls-configmap.yaml template (out of this PR).
 	}
 
 	// --- Skills ---
@@ -142,32 +133,37 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace s
 		if err != nil {
 			return nil, fmt.Errorf("skill_ref %q: %w", refStr, err)
 		}
-		switch ref.Kind {
-		case "git":
-			resolved.SkillNames = append(resolved.SkillNames, ref.Name)
-		case "draft":
-			skill, err := m.db.GetSkillDraft(ref.UUID)
-			if err != nil {
-				return nil, fmt.Errorf("load skill draft %s: %w", ref.UUID, err)
+		if ref == nil || ref.Kind != "draft" {
+			// Git skill: the chart's skills-configmap.yaml already mounts
+			// it via env-driven SkillConfigMaps. Composition records the
+			// intent; the existing path materializes it.
+			if ref != nil && ref.Kind == "git" {
+				resolved.EnabledSkillNames = append(resolved.EnabledSkillNames, ref.Name)
 			}
-			if skill == nil {
-				return nil, fmt.Errorf("skill draft %s: not found", ref.UUID)
-			}
-			cm, err := buildEphemeralSkillConfigMap(sandboxID, namespace, skill)
-			if err != nil {
-				return nil, fmt.Errorf("build ephemeral skill configmap: %w", err)
-			}
-			resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, *cm)
-			resolved.SkillNames = append(resolved.SkillNames, skill.Name)
+			continue
 		}
+		skill, err := m.db.GetSkillDraft(ref.UUID)
+		if err != nil {
+			return nil, fmt.Errorf("load skill draft %s: %w", ref.UUID, err)
+		}
+		if skill == nil {
+			return nil, fmt.Errorf("skill draft %s: not found", ref.UUID)
+		}
+		cm, vols, mounts, err := buildSkillConfigMapAndMounts(sandboxID, namespace, skill, platform)
+		if err != nil {
+			return nil, fmt.Errorf("build skill mount %s: %w", skill.Name, err)
+		}
+		resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, cm)
+		resolved.ExtraVolumes = append(resolved.ExtraVolumes, vols...)
+		resolved.ExtraMounts = append(resolved.ExtraMounts, mounts...)
+		resolved.EnabledSkillNames = append(resolved.EnabledSkillNames, skill.Name)
 	}
 
 	return resolved, nil
 }
 
 // extractSoulConstraints pulls the subset of frontmatter the runtime
-// enforces (max_turns / refuse_patterns / handoff_to_human_if). Unknown
-// fields are ignored — frontmatter v1 readers tolerate v2-only fields.
+// enforces. Unknown fields are ignored (forward-compat with v2).
 func extractSoulConstraints(fm map[string]interface{}) map[string]interface{} {
 	if fm == nil {
 		return nil
@@ -185,19 +181,36 @@ func extractSoulConstraints(fm map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// buildEphemeralSoulConfigMap renders a draft soul into a per-sandbox
-// ConfigMap. The mount path (`/opt/agent/soul.md` for Hermes,
-// `/home/agent/.openclaw/soul.md` for OpenClaw) is the same as the
-// git-sourced one — only the ConfigMap source name differs.
-func buildEphemeralSoulConfigMap(sandboxID, namespace string, soul *db.SoulDraft) (*corev1.ConfigMap, error) {
+// soulMountPath returns the in-pod path where soul.md lands for each
+// platform. Both agents read this file at boot to layer the persona on
+// top of their default system prompt.
+func soulMountPath(platform string) string {
+	switch platform {
+	case "openclaw":
+		return "/home/agent/.openclaw/soul.md"
+	case "hermes":
+		return "/opt/agent/soul.md"
+	default:
+		return ""
+	}
+}
+
+func buildSoulConfigMapAndMount(sandboxID, namespace string, soul *db.SoulDraft, platform string) (corev1.ConfigMap, corev1.Volume, corev1.VolumeMount, error) {
+	path := soulMountPath(platform)
+	if path == "" {
+		return corev1.ConfigMap{}, corev1.Volume{}, corev1.VolumeMount{},
+			fmt.Errorf("soul mount not supported for platform %q", platform)
+	}
 	fmJSON, err := json.MarshalIndent(soul.Frontmatter, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("marshal frontmatter: %w", err)
+		return corev1.ConfigMap{}, corev1.Volume{}, corev1.VolumeMount{},
+			fmt.Errorf("marshal frontmatter: %w", err)
 	}
 	body := "---\n" + string(fmJSON) + "\n---\n\n" + soul.Body
-	return &corev1.ConfigMap{
+	cmName := fmt.Sprintf("agentserver-draft-%s-soul-%s", safePrefix(sandboxID), safePrefix(soul.ID))
+	cm := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("agentserver-draft-%s-soul-%s", sandboxID[:8], soul.ID[:8]),
+			Name:      cmName,
 			Namespace: namespace,
 			Labels: map[string]string{
 				"agentserver.io/ephemeral":  "true",
@@ -206,25 +219,52 @@ func buildEphemeralSoulConfigMap(sandboxID, namespace string, soul *db.SoulDraft
 				"agentserver.io/draft-id":   soul.ID,
 			},
 		},
-		Data: map[string]string{
-			"soul.md": body,
+		Data: map[string]string{"soul.md": body},
+	}
+	vol := corev1.Volume{
+		Name: "soul-md",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+				Items: []corev1.KeyToPath{
+					{Key: "soul.md", Path: "soul.md"},
+				},
+			},
 		},
-	}, nil
+	}
+	mount := corev1.VolumeMount{
+		Name:      "soul-md",
+		MountPath: path,
+		SubPath:   "soul.md",
+		ReadOnly:  true,
+	}
+	return cm, vol, mount, nil
 }
 
-// buildEphemeralSkillConfigMap turns a draft skill's flat files map
-// into a ConfigMap with "/" → "__" key encoding (matching the chart's
-// skills-configmap.yaml convention) so the existing mount builder in
-// skillVolumesAndMounts can consume it uniformly.
-func buildEphemeralSkillConfigMap(sandboxID, namespace string, skill *db.SkillDraft) (*corev1.ConfigMap, error) {
+func buildSkillConfigMapAndMounts(sandboxID, namespace string, skill *db.SkillDraft, platform string) (corev1.ConfigMap, []corev1.Volume, []corev1.VolumeMount, error) {
+	var mountRoot string
+	switch platform {
+	case "openclaw":
+		mountRoot = "/home/agent/.openclaw/extensions"
+	case "hermes":
+		mountRoot = "/opt/data/skills/personal"
+	default:
+		return corev1.ConfigMap{}, nil, nil, fmt.Errorf("skill mounts not supported for platform %q", platform)
+	}
+
+	cmName := fmt.Sprintf("agentserver-draft-%s-skill-%s", safePrefix(sandboxID), safePrefix(skill.ID))
 	data := make(map[string]string, len(skill.Files))
+	keys := make([]string, 0, len(skill.Files))
 	for path, content := range skill.Files {
 		key := strings.ReplaceAll(path, "/", "__")
 		data[key] = content
+		keys = append(keys, key)
 	}
-	return &corev1.ConfigMap{
+	sort.Strings(keys)
+
+	cm := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("agentserver-draft-%s-skill-%s", sandboxID[:8], skill.ID[:8]),
+			Name:      cmName,
 			Namespace: namespace,
 			Labels: map[string]string{
 				"agentserver.io/ephemeral":  "true",
@@ -235,5 +275,41 @@ func buildEphemeralSkillConfigMap(sandboxID, namespace string, skill *db.SkillDr
 			},
 		},
 		Data: data,
-	}, nil
+	}
+
+	volName := fmt.Sprintf("skill-draft-%s", safePrefix(skill.ID))
+	items := make([]corev1.KeyToPath, 0, len(keys))
+	for _, key := range keys {
+		path := strings.ReplaceAll(key, "__", "/")
+		items = append(items, corev1.KeyToPath{Key: key, Path: path})
+	}
+	vol := corev1.Volume{
+		Name: volName,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+				Items:                items,
+			},
+		},
+	}
+	mounts := make([]corev1.VolumeMount, 0, len(items))
+	for _, item := range items {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      volName,
+			MountPath: fmt.Sprintf("%s/%s/%s", mountRoot, skill.Name, item.Path),
+			SubPath:   item.Path,
+			ReadOnly:  true,
+		})
+	}
+	return cm, []corev1.Volume{vol}, mounts, nil
+}
+
+// safePrefix returns the first 8 chars of s, or all of s when shorter,
+// for use as a stable prefix in K8s object names that must stay under
+// 63 chars after concatenation.
+func safePrefix(s string) string {
+	if len(s) >= 8 {
+		return s[:8]
+	}
+	return s
 }
