@@ -268,6 +268,15 @@ credentialproxy:
 internal:
   apiSecret: ""
 
+# Playground — promote draft → git PR (see docs/playground-design.md §7).
+# When token is empty, the promote endpoint returns 503 — useful for dev
+# clusters where authoring matters but git pushes shouldn't fire.
+playground:
+  github:
+    token: ""                                  # PAT with "repo" scope
+    repo: "CarlosSalvador-vtex/agentserver"    # default; override per env
+    base: "main"
+
 # WhatsApp Cloud (Meta) integration.
 # webhookVerifyToken: shared secret for the GET /webhook/whatsapp handshake
 #   (must match Meta App Dashboard → Webhooks → Verify Token).
