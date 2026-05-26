@@ -1082,6 +1082,30 @@ export async function dryRunPlaygroundSoul(
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/dry-run`, body })
 }
 
+// Git-pinned skill/soul templates (improvements.md picker gap a).
+export interface TemplateSkill {
+  name: string
+  ref: string // grammar: "git:<name>@<rev>"
+  description: string
+  config_schema?: Record<string, unknown>
+}
+
+export interface TemplateSoul {
+  name: string
+  ref: string
+  description: string
+}
+
+export async function listTemplateSkills(): Promise<TemplateSkill[]> {
+  const r = await apiFetch<{ templates: TemplateSkill[] }>({ method: 'GET', path: '/api/templates/skills' })
+  return r.templates ?? []
+}
+
+export async function listTemplateSouls(): Promise<TemplateSoul[]> {
+  const r = await apiFetch<{ templates: TemplateSoul[] }>({ method: 'GET', path: '/api/templates/souls' })
+  return r.templates ?? []
+}
+
 export async function spawnPlaygroundTestSandbox(
   id: string,
   body: { workspace_id: string; sandbox_type?: string; soul_ref?: string; name?: string },
