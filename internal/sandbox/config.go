@@ -63,6 +63,18 @@ type Config struct {
 	// onto tainted nodes. Loaded from SANDBOX_TOLERATIONS (JSON-encoded
 	// []corev1.Toleration). Empty by default.
 	Tolerations []corev1.Toleration
+	// SkillConfigMaps maps a skill name → ConfigMap name that the manager
+	// replicates into each workspace namespace and mounts inside hermes /
+	// openclaw sandbox pods. Loaded from SANDBOX_SKILL_CONFIGMAPS as a
+	// comma-separated list of "<skillName>=<configMapName>" pairs.
+	SkillConfigMaps map[string]string
+	// HermesWhatsappAllowed is injected as WHATSAPP_ALLOWED_USERS env on
+	// hermes pods (comma-separated E.164 numbers). Empty disables the
+	// allowlist (Hermes will deny all unauthenticated users by default).
+	HermesWhatsappAllowed string
+	// OpenclawWhatsappAllowed is injected into the openclaw config
+	// (channels.whatsapp.allowFrom + plugins.entries.whatsapp). Comma list.
+	OpenclawWhatsappAllowed string
 }
 
 // DefaultConfig returns a Config populated from environment variables with sensible defaults.
@@ -101,7 +113,37 @@ func DefaultConfig() Config {
 		AgentServerInternalURL:     os.Getenv("AGENTSERVER_INTERNAL_URL"),
 		CredproxyPublicURL:         os.Getenv("CREDPROXY_PUBLIC_URL"),
 		Tolerations:                parseTolerations(os.Getenv("SANDBOX_TOLERATIONS")),
+		SkillConfigMaps:            parseSkillConfigMaps(os.Getenv("SANDBOX_SKILL_CONFIGMAPS")),
+		HermesWhatsappAllowed:      os.Getenv("HERMES_WHATSAPP_ALLOWED"),
+		OpenclawWhatsappAllowed:    os.Getenv("OPENCLAW_WHATSAPP_ALLOWED"),
 	}
+}
+
+// parseSkillConfigMaps reads SANDBOX_SKILL_CONFIGMAPS — a comma-separated list
+// of "<skillName>=<configMapName>" pairs — into a map. Pairs missing the
+// "=" separator are ignored. Empty input returns nil.
+func parseSkillConfigMaps(s string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	out := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		eq := strings.Index(pair, "=")
+		if eq <= 0 || eq == len(pair)-1 {
+			log.Printf("sandbox: ignoring malformed skill pair %q in SANDBOX_SKILL_CONFIGMAPS", pair)
+			continue
+		}
+		out[strings.TrimSpace(pair[:eq])] = strings.TrimSpace(pair[eq+1:])
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func parseTolerations(s string) []corev1.Toleration {
@@ -191,12 +233,29 @@ func ExtractProxyBaseURL(configJSON string) string {
 	return baseURL
 }
 
+// OpenclawConfigOptions bundles optional extensions to the openclaw.json
+// injection — plugin enable flags and the WhatsApp allowlist. Keeps the
+// BuildOpenclawConfig signature stable as we add features.
+type OpenclawConfigOptions struct {
+	// EnabledPlugins becomes plugins.entries.<name> = { enabled: true } in
+	// the injected config. The Node init wrapper deep-merges this into the
+	// existing openclaw.json so bundled plugin manifests are preserved.
+	EnabledPlugins []string
+	// WhatsappAllowed becomes channels.whatsapp.allowFrom + implicitly
+	// enables the bundled "whatsapp" plugin (added to EnabledPlugins).
+	// Empty disables the WA channel entirely.
+	WhatsappAllowed []string
+}
+
 // BuildOpenclawConfig returns the openclaw.json content with gateway settings
 // and optional Anthropic proxy credentials. The gatewayToken is written into
 // gateway.auth.token so that the gateway and Control UI share the same secret;
 // without this, OpenClaw v2026.3.12+ auto-generates a random token on startup
 // that won't match the token our proxy injects.
-func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customModels []process.LLMModel) string {
+//
+// opts is optional — pass an empty OpenclawConfigOptions{} (or rely on the
+// zero value) when no plugin / WhatsApp wiring is needed.
+func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customModels []process.LLMModel, opts OpenclawConfigOptions) string {
 	type modelDef struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -209,6 +268,14 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 	}
 	type gatewayAuth struct {
 		Token string `json:"token,omitempty"`
+	}
+	type pluginEntry struct {
+		Enabled bool `json:"enabled"`
+	}
+	type whatsappChannel struct {
+		Enabled    bool     `json:"enabled"`
+		AllowFrom  []string `json:"allowFrom,omitempty"`
+		SessionDir string   `json:"sessionDir,omitempty"`
 	}
 	type config struct {
 		Gateway struct {
@@ -224,6 +291,12 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 		Models *struct {
 			Providers map[string]provider `json:"providers"`
 		} `json:"models,omitempty"`
+		Plugins *struct {
+			Entries map[string]pluginEntry `json:"entries"`
+		} `json:"plugins,omitempty"`
+		Channels *struct {
+			Whatsapp *whatsappChannel `json:"whatsapp,omitempty"`
+		} `json:"channels,omitempty"`
 	}
 
 	var c config
@@ -262,6 +335,45 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 					API:     "anthropic-messages",
 					Models:  models,
 				},
+			},
+		}
+	}
+
+	// Plugins. If WhatsApp is enabled but the caller didn't list the
+	// "whatsapp" plugin explicitly, add it implicitly so the channel
+	// adapter is loaded.
+	plugins := map[string]pluginEntry{}
+	for _, p := range opts.EnabledPlugins {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		plugins[p] = pluginEntry{Enabled: true}
+	}
+	if len(opts.WhatsappAllowed) > 0 {
+		plugins["whatsapp"] = pluginEntry{Enabled: true}
+	}
+	if len(plugins) > 0 {
+		c.Plugins = &struct {
+			Entries map[string]pluginEntry `json:"entries"`
+		}{Entries: plugins}
+	}
+
+	// WhatsApp channel.
+	if len(opts.WhatsappAllowed) > 0 {
+		allow := make([]string, 0, len(opts.WhatsappAllowed))
+		for _, n := range opts.WhatsappAllowed {
+			if t := strings.TrimSpace(n); t != "" {
+				allow = append(allow, t)
+			}
+		}
+		c.Channels = &struct {
+			Whatsapp *whatsappChannel `json:"whatsapp,omitempty"`
+		}{
+			Whatsapp: &whatsappChannel{
+				Enabled:    true,
+				AllowFrom:  allow,
+				SessionDir: "/home/node/.openclaw/whatsapp",
 			},
 		}
 	}
