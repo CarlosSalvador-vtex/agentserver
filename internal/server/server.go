@@ -452,6 +452,19 @@ func (s *Server) Router() http.Handler {
 		// Workspace routes
 		r.Get("/api/workspaces", s.handleListWorkspaces)
 		r.Post("/api/workspaces", s.handleCreateWorkspace)
+
+		// Playground — soul + skill drafts (DB-backed, scoped to author).
+		// See docs/playground-design.md for the design.
+		r.Get("/api/playground/skills", s.handleListSkillDrafts)
+		r.Post("/api/playground/skills", s.handleCreateSkillDraft)
+		r.Get("/api/playground/skills/{id}", s.handleGetSkillDraft)
+		r.Patch("/api/playground/skills/{id}", s.handlePatchSkillDraft)
+		r.Delete("/api/playground/skills/{id}", s.handleArchiveSkillDraft)
+		r.Get("/api/playground/souls", s.handleListSoulDrafts)
+		r.Post("/api/playground/souls", s.handleCreateSoulDraft)
+		r.Get("/api/playground/souls/{id}", s.handleGetSoulDraft)
+		r.Patch("/api/playground/souls/{id}", s.handlePatchSoulDraft)
+		r.Delete("/api/playground/souls/{id}", s.handleArchiveSoulDraft)
 		r.Get("/api/workspaces/quota", s.handleGetWorkspacesQuota)
 		r.Get("/api/workspaces/{id}", s.handleGetWorkspace)
 		r.Patch("/api/workspaces/{id}", s.handleRenameWorkspace)
