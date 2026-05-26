@@ -971,6 +971,135 @@ export interface ListOperationsFilters {
   limit?: number  // default 100, max 1000
 }
 
+// --- Playground (soul + skill drafts) -------------------------------------
+
+export type PlaygroundDraftStatus = 'draft' | 'promoting' | 'promoted' | 'archived'
+
+export interface PlaygroundSkillSummary {
+  id: string
+  name: string
+  description: string
+  status: PlaygroundDraftStatus
+  promoted_pr_url?: string
+  updated_at: string
+}
+
+export interface PlaygroundSkillFull extends PlaygroundSkillSummary {
+  files: Record<string, string>
+}
+
+export interface PlaygroundSoulSummary {
+  id: string
+  name: string
+  description: string
+  status: PlaygroundDraftStatus
+  schema_version: string
+  promoted_pr_url?: string
+  updated_at: string
+}
+
+export interface PlaygroundSoulFull extends PlaygroundSoulSummary {
+  frontmatter: Record<string, unknown>
+  body: string
+}
+
+export interface PlaygroundDryRunResponse {
+  system_prompt: string
+  tools: { name: string; description?: string }[]
+  messages: { role: string; content: string }[]
+  soul?: { name: string; source: string; voice?: string; max_turns?: number }
+  skill: { name: string; files: string[]; has_prompt: boolean; has_index: boolean }
+  completion?: string
+  completion_model?: string
+  completion_error?: string
+}
+
+export interface PlaygroundPromoteResponse {
+  pr_url: string
+  branch: string
+  head_sha: string
+  draft_id: string
+  draft_kind: string
+}
+
+export interface PlaygroundTestSandboxResponse {
+  sandbox_id: string
+  expires_at: string
+  strategy: string
+}
+
+export async function listPlaygroundSkills(): Promise<PlaygroundSkillSummary[]> {
+  const r = await apiFetch<{ drafts: PlaygroundSkillSummary[] }>({ method: 'GET', path: '/api/playground/skills' })
+  return r.drafts ?? []
+}
+
+export async function createPlaygroundSkill(name: string, description = ''): Promise<PlaygroundSkillSummary> {
+  return apiFetch({ method: 'POST', path: '/api/playground/skills', body: { name, description } })
+}
+
+export async function getPlaygroundSkill(id: string): Promise<PlaygroundSkillFull> {
+  return apiFetch({ method: 'GET', path: `/api/playground/skills/${encodeURIComponent(id)}` })
+}
+
+export async function patchPlaygroundSkill(id: string, files: Record<string, string>): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/playground/skills/${encodeURIComponent(id)}`, body: { files } })
+}
+
+export async function archivePlaygroundSkill(id: string): Promise<void> {
+  await apiFetch({ method: 'DELETE', path: `/api/playground/skills/${encodeURIComponent(id)}` })
+}
+
+export async function promotePlaygroundSkill(id: string): Promise<PlaygroundPromoteResponse> {
+  return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/promote`, body: {} })
+}
+
+export async function dryRunPlaygroundSkill(
+  id: string,
+  body: { soul_ref?: string; user_message?: string; history?: { role: string; content: string }[] },
+): Promise<PlaygroundDryRunResponse> {
+  return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/dry-run`, body })
+}
+
+export async function spawnPlaygroundTestSandbox(
+  id: string,
+  body: { workspace_id: string; sandbox_type?: string; soul_ref?: string; name?: string },
+): Promise<PlaygroundTestSandboxResponse> {
+  return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/test-sandbox`, body })
+}
+
+export async function listPlaygroundSouls(): Promise<PlaygroundSoulSummary[]> {
+  const r = await apiFetch<{ drafts: PlaygroundSoulSummary[] }>({ method: 'GET', path: '/api/playground/souls' })
+  return r.drafts ?? []
+}
+
+export async function createPlaygroundSoul(name: string, description = ''): Promise<PlaygroundSoulSummary> {
+  return apiFetch({ method: 'POST', path: '/api/playground/souls', body: { name, description } })
+}
+
+export async function getPlaygroundSoul(id: string): Promise<PlaygroundSoulFull> {
+  return apiFetch({ method: 'GET', path: `/api/playground/souls/${encodeURIComponent(id)}` })
+}
+
+export async function patchPlaygroundSoul(
+  id: string,
+  frontmatter: Record<string, unknown>,
+  body: string,
+): Promise<void> {
+  await apiFetch({
+    method: 'PATCH',
+    path: `/api/playground/souls/${encodeURIComponent(id)}`,
+    body: { frontmatter, body },
+  })
+}
+
+export async function archivePlaygroundSoul(id: string): Promise<void> {
+  await apiFetch({ method: 'DELETE', path: `/api/playground/souls/${encodeURIComponent(id)}` })
+}
+
+export async function promotePlaygroundSoul(id: string): Promise<PlaygroundPromoteResponse> {
+  return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/promote`, body: {} })
+}
+
 /**
  * List operations for a workspace, server-side filtered.
  */
