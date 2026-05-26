@@ -148,7 +148,7 @@ func (m *Manager) EnsureContainer(id string, opts process.StartOptions) (string,
 	// Select image and set env vars based on sandbox type.
 	containerImage := m.cfg.Image
 	switch opts.SandboxType {
-	case "openclaw":
+	case sandbox.SandboxTypeOpenclaw.String():
 		if m.cfg.OpenclawImage != "" {
 			containerImage = m.cfg.OpenclawImage
 		}
@@ -200,7 +200,7 @@ func (m *Manager) EnsureContainer(id string, opts process.StartOptions) (string,
 		Labels:     map[string]string{labelManagedBy: labelValue},
 		WorkingDir: "/home/agent/projects",
 	}
-	if opts.SandboxType == "openclaw" {
+	if opts.SandboxType == sandbox.SandboxTypeOpenclaw.String() {
 		proxyBaseURL := sandbox.ExtractProxyBaseURL(m.cfg.OpencodeConfigContent)
 		cfgBaseURL, cfgAPIKey := proxyBaseURL, opts.ProxyToken
 		var cfgModels []process.LLMModel

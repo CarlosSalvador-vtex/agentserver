@@ -192,6 +192,20 @@ POST /webhook/whatsapp                             <Meta payload> → 200 + disp
 
 ---
 
+## Tier 1 playground hardening (2026-05-26)
+
+| Area | Change |
+|------|--------|
+| Constants | `internal/sandbox/types.go` — `SandboxType`, `RefKind`, `ProviderKind` |
+| Tests | `composition_integration_test.go`, `playground_provision_integration_test.go` (need `TEST_DATABASE_URL`) |
+| Rate limits | Per-user limits on `POST .../dry-run` (~10/min) and `.../test-sandbox` (~3/min) |
+| UI | Composition picker in Create Sandbox modal (draft soul + skills) |
+| OpenClaw soul | Env `OPENCLAW_SOUL_FILE` / `AGENTSERVER_SOUL_BODY` + prompt preamble on draft skills |
+
+Deploy tag suggestion: `tier1-final` — bump `values-dev-eks.yaml` before `helm upgrade`.
+
+---
+
 ## Acknowledgements
 
 Built with [Claude Code](https://claude.com/claude-code) in a single session, end-to-end: research, planning, implementation, deploy, browser-driven smoke tests, and bug surfacing + hot-fixes.

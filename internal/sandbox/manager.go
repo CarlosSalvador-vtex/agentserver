@@ -369,7 +369,7 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 	var containerArgs []string
 
 	switch opts.SandboxType {
-	case "openclaw":
+	case SandboxTypeOpenclaw.String():
 		if m.cfg.OpenclawImage != "" {
 			sandboxImage = m.cfg.OpenclawImage
 		}
@@ -431,13 +431,6 @@ if (inject.gateway) {
   }
 }
 if (inject.models) existing.models = inject.models;
-// Soul: playground composition emits agent.systemPrompt. Deep-merge so
-// the image's default agent.* fields (max_turns, retry settings) stay
-// intact while the persona overrides systemPrompt.
-if (inject.agent) {
-  existing.agent = existing.agent || {};
-  Object.assign(existing.agent, inject.agent);
-}
 fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 " && exec node openclaw.mjs gateway --allow-unconfigured --bind lan`}
 		containerEnv = append(containerEnv, corev1.EnvVar{Name: "__OPENCLAW_INJECT_CFG", Value: openclawCfg})
@@ -447,7 +440,13 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		if opts.OpenclawToken != "" {
 			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCLAW_GATEWAY_TOKEN", Value: opts.OpenclawToken})
 		}
-	case "claudecode":
+		if composition.SoulBody != "" {
+			containerEnv = append(containerEnv,
+				corev1.EnvVar{Name: "OPENCLAW_SOUL_FILE", Value: "/home/agent/.openclaw/soul.md"},
+				corev1.EnvVar{Name: "AGENTSERVER_SOUL_BODY", Value: composition.SoulBody},
+			)
+		}
+	case SandboxTypeClaudeCode.String():
 		if m.cfg.ClaudeCodeImage == "" {
 			return "", fmt.Errorf("CLAUDECODE_IMAGE not configured: set the environment variable to the claudecode container image (build with Dockerfile.claudecode)")
 		}
@@ -468,7 +467,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
 			corev1.EnvVar{Name: "AGENTSERVER_SANDBOX_ID", Value: opts.SandboxID},
 		)
-	case "nanoclaw":
+	case SandboxTypeNanoclaw.String():
 		if m.cfg.NanoclawImage == "" {
 			return "", fmt.Errorf("NANOCLAW_IMAGE not configured: set the environment variable to the nanoclaw container image (build with Dockerfile.nanoclaw)")
 		}
@@ -512,7 +511,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
 			corev1.EnvVar{Name: "AGENTSERVER_SANDBOX_ID", Value: opts.SandboxID},
 		)
-	case "jupyter":
+	case SandboxTypeJupyter.String():
 		if m.cfg.JupyterImage == "" {
 			return "", fmt.Errorf("JUPYTER_IMAGE not configured: set the environment variable to the jupyter container image (build with Dockerfile.jupyter)")
 		}
@@ -539,7 +538,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 				corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
 			)
 		}
-	case "hermes":
+	case SandboxTypeHermes.String():
 		if m.cfg.HermesImage == "" {
 			return "", fmt.Errorf("HERMES_IMAGE not configured: set the environment variable to the hermes-agent container image (ghcr.io/nousresearch/hermes-agent)")
 		}
@@ -599,7 +598,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// directory at /opt/data (mirrors `-v ~/.hermes:/opt/data` from upstream
 	// docs); all other sandbox types use the user's home directory.
 	sessionMountPath := "/home/agent"
-	if opts.SandboxType == "hermes" {
+	if opts.SandboxType == SandboxTypeHermes.String() {
 		sessionMountPath = "/opt/data"
 	}
 	volumeMounts := []corev1.VolumeMount{
@@ -607,7 +606,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	}
 	// NanoClaw: persist store (SQLite DB) and data (IPC/sessions) on PVC
 	// so they survive pause/resume.
-	if opts.SandboxType == "nanoclaw" {
+	if opts.SandboxType == SandboxTypeNanoclaw.String() {
 		volumeMounts = append(volumeMounts,
 			corev1.VolumeMount{Name: "session-data", MountPath: "/app/store", SubPath: "nanoclaw/store"},
 			corev1.VolumeMount{Name: "session-data", MountPath: "/app/data", SubPath: "nanoclaw/data"},
@@ -640,7 +639,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// Soul body for hermes lands at /opt/data/SOUL.md (uppercase, the
 	// HERMES_HOME convention — hermes-agent auto-loads it as persona on
 	// every turn). See soulMountPath in composition.go.
-	if opts.SandboxType == "hermes" && m.cfg.HermesConfigMapName != "" {
+	if opts.SandboxType == SandboxTypeHermes.String() && m.cfg.HermesConfigMapName != "" {
 		volumes = append(volumes, corev1.Volume{
 			Name: "hermes-config",
 			VolumeSource: corev1.VolumeSource{
@@ -671,7 +670,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	//   2. Composition-driven (playground): per-sandbox refs in
 	//      sandbox_compositions. ResolveComposition materializes
 	//      ephemeral ConfigMaps + builds the vol/mount payload directly.
-	if opts.SandboxType == "hermes" || opts.SandboxType == "openclaw" {
+	if opts.SandboxType == SandboxTypeHermes.String() || opts.SandboxType == SandboxTypeOpenclaw.String() {
 		if err := m.replicateSkillConfigMaps(ctx, ns); err != nil {
 			return "", fmt.Errorf("replicate skill configmaps: %w", err)
 		}
@@ -702,7 +701,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// Determine the home directory to seed from: openclaw uses /home/node,
 	// all other images use /home/agent.
 	seedHome := "/home/agent"
-	if opts.SandboxType == "openclaw" {
+	if opts.SandboxType == SandboxTypeOpenclaw.String() {
 		seedHome = "/home/node"
 	}
 	initScript := fmt.Sprintf(`
@@ -759,9 +758,9 @@ chown -R 1000:1000 /mnt/session-data
 
 	workingDir := "/home/agent/projects"
 	switch opts.SandboxType {
-	case "openclaw":
+	case SandboxTypeOpenclaw.String():
 		workingDir = "/app"
-	case "nanoclaw":
+	case SandboxTypeNanoclaw.String():
 		workingDir = "/app"
 	}
 
@@ -826,7 +825,7 @@ chown -R 1000:1000 /mnt/session-data
 			},
 		},
 	}
-	if opts.SandboxType == "nanoclaw" {
+	if opts.SandboxType == SandboxTypeNanoclaw.String() {
 		mainContainer.ReadinessProbe = &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
@@ -847,7 +846,7 @@ chown -R 1000:1000 /mnt/session-data
 	}
 
 	var serviceAccountName string
-	if opts.SandboxType == "hermes" && m.cfg.HermesServiceAccountRoleArn != "" {
+	if opts.SandboxType == SandboxTypeHermes.String() && m.cfg.HermesServiceAccountRoleArn != "" {
 		if err := m.ensureHermesServiceAccount(ctx, ns); err != nil {
 			return "", fmt.Errorf("ensure hermes ServiceAccount: %w", err)
 		}
@@ -1100,19 +1099,19 @@ func (m *Manager) runtimeClassName() *string {
 
 func (m *Manager) runtimeClassNameFor(sandboxType string) *string {
 	switch sandboxType {
-	case "openclaw":
+	case SandboxTypeOpenclaw.String():
 		if m.cfg.OpenclawRuntimeClassName != "" {
 			return strPtr(m.cfg.OpenclawRuntimeClassName)
 		}
-	case "nanoclaw":
+	case SandboxTypeNanoclaw.String():
 		if m.cfg.NanoclawRuntimeClassName != "" {
 			return strPtr(m.cfg.NanoclawRuntimeClassName)
 		}
-	case "claudecode":
+	case SandboxTypeClaudeCode.String():
 		if m.cfg.ClaudeCodeRuntimeClassName != "" {
 			return strPtr(m.cfg.ClaudeCodeRuntimeClassName)
 		}
-	case "jupyter":
+	case SandboxTypeJupyter.String():
 		if m.cfg.JupyterRuntimeClassName != "" {
 			return strPtr(m.cfg.JupyterRuntimeClassName)
 		}
@@ -1464,9 +1463,9 @@ func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([
 	}
 	var mountRoot string
 	switch platform {
-	case "hermes":
+	case SandboxTypeHermes.String():
 		mountRoot = "/opt/data/skills/personal"
-	case "openclaw":
+	case SandboxTypeOpenclaw.String():
 		// OpenClaw discovers plugins under ~/.openclaw/extensions/. The
 		// upstream openclaw image runs as user `agent` (warning at boot:
 		// "discovered non-bundled plugins may auto-load: openclaw-weixin

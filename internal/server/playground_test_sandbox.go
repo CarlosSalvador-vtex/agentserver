@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/agentserver/agentserver/internal/auth"
+	"github.com/agentserver/agentserver/internal/sandbox"
 )
 
 // Quotas + TTL for ephemeral test sandboxes (see playground-design.md §10).
@@ -62,9 +63,9 @@ func (s *Server) handleSkillDraftTestSandbox(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if req.SandboxType == "" {
-		req.SandboxType = "openclaw"
+		req.SandboxType = sandbox.SandboxTypeOpenclaw.String()
 	}
-	if req.SandboxType != "openclaw" && req.SandboxType != "hermes" {
+	if req.SandboxType != sandbox.SandboxTypeOpenclaw.String() && req.SandboxType != sandbox.SandboxTypeHermes.String() {
 		http.Error(w, "sandbox_type must be openclaw or hermes", http.StatusBadRequest)
 		return
 	}

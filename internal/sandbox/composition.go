@@ -39,14 +39,14 @@ func ParseCompositionRef(s string) (*CompositionRef, error) {
 		if name == "" || sha == "" {
 			return nil, fmt.Errorf("composition ref %q: empty name or sha", s)
 		}
-		return &CompositionRef{Kind: "git", Name: name, Sha: sha}, nil
+		return &CompositionRef{Kind: RefKindGit.String(), Name: name, Sha: sha}, nil
 	}
 	if strings.HasPrefix(s, "draft:") {
 		uuid := strings.TrimPrefix(s, "draft:")
 		if uuid == "" {
 			return nil, fmt.Errorf("composition ref %q: draft requires <uuid>", s)
 		}
-		return &CompositionRef{Kind: "draft", UUID: uuid}, nil
+		return &CompositionRef{Kind: RefKindDraft.String(), UUID: uuid}, nil
 	}
 	return nil, fmt.Errorf("composition ref %q: must start with git: or draft:", s)
 }
@@ -103,7 +103,7 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, 
 		if err != nil {
 			return nil, fmt.Errorf("soul_ref %q: %w", comp.SoulRef.String, err)
 		}
-		if soulRef != nil && soulRef.Kind == "draft" {
+		if soulRef != nil && soulRef.Kind == RefKindDraft.String() {
 			soul, err := m.db.GetSoulDraft(soulRef.UUID)
 			if err != nil {
 				return nil, fmt.Errorf("load soul draft %s: %w", soulRef.UUID, err)
@@ -133,11 +133,11 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, 
 		if err != nil {
 			return nil, fmt.Errorf("skill_ref %q: %w", refStr, err)
 		}
-		if ref == nil || ref.Kind != "draft" {
+		if ref == nil || ref.Kind != RefKindDraft.String() {
 			// Git skill: the chart's skills-configmap.yaml already mounts
 			// it via env-driven SkillConfigMaps. Composition records the
 			// intent; the existing path materializes it.
-			if ref != nil && ref.Kind == "git" {
+			if ref != nil && ref.Kind == RefKindGit.String() {
 				resolved.EnabledSkillNames = append(resolved.EnabledSkillNames, ref.Name)
 			}
 			continue
@@ -190,9 +190,9 @@ func extractSoulConstraints(fm map[string]interface{}) map[string]interface{} {
 // the skill's prompt.md / register hook to read it if needed.
 func soulMountPath(platform string) string {
 	switch platform {
-	case "openclaw":
+	case SandboxTypeOpenclaw.String():
 		return "/home/agent/.openclaw/soul.md"
-	case "hermes":
+	case SandboxTypeHermes.String():
 		return "/opt/data/SOUL.md"
 	default:
 		return ""
@@ -248,18 +248,22 @@ func buildSoulConfigMapAndMount(sandboxID, namespace string, soul *db.SoulDraft,
 func buildSkillConfigMapAndMounts(sandboxID, namespace string, skill *db.SkillDraft, platform string) (corev1.ConfigMap, []corev1.Volume, []corev1.VolumeMount, error) {
 	var mountRoot string
 	switch platform {
-	case "openclaw":
+	case SandboxTypeOpenclaw.String():
 		mountRoot = "/home/agent/.openclaw/extensions"
-	case "hermes":
+	case SandboxTypeHermes.String():
 		mountRoot = "/opt/data/skills/personal"
 	default:
 		return corev1.ConfigMap{}, nil, nil, fmt.Errorf("skill mounts not supported for platform %q", platform)
 	}
 
 	cmName := fmt.Sprintf("agentserver-draft-%s-skill-%s", safePrefix(sandboxID), safePrefix(skill.ID))
-	data := make(map[string]string, len(skill.Files))
-	keys := make([]string, 0, len(skill.Files))
-	for path, content := range skill.Files {
+	files := skill.Files
+	if platform == SandboxTypeOpenclaw.String() {
+		files = prependOpenclawSoulHint(files)
+	}
+	data := make(map[string]string, len(files))
+	keys := make([]string, 0, len(files))
+	for path, content := range files {
 		key := strings.ReplaceAll(path, "/", "__")
 		data[key] = content
 		keys = append(keys, key)
@@ -311,6 +315,30 @@ func buildSkillConfigMapAndMounts(sandboxID, namespace string, skill *db.SkillDr
 // safePrefix returns the first 8 chars of s, or all of s when shorter,
 // for use as a stable prefix in K8s object names that must stay under
 // 63 chars after concatenation.
+const openclawSoulHint = `# Persona (agentserver)
+Before every reply, read the soul file at /home/agent/.openclaw/soul.md (or OPENCLAW_SOUL_FILE / AGENTSERVER_SOUL_BODY env) and answer in that persona.
+
+`
+
+// prependOpenclawSoulHint copies skill files and prepends the soul-read
+// instruction to prompt.md so OpenClaw skills pick up playground souls.
+func prependOpenclawSoulHint(files map[string]string) map[string]string {
+	if len(files) == 0 {
+		return files
+	}
+	out := make(map[string]string, len(files))
+	for path, content := range files {
+		out[path] = content
+	}
+	for path, content := range files {
+		if path == "prompt.md" {
+			out[path] = openclawSoulHint + content
+			return out
+		}
+	}
+	return out
+}
+
 func safePrefix(s string) string {
 	if len(s) >= 8 {
 		return s[:8]
