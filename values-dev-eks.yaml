@@ -3,7 +3,7 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: routing-v2
+  tag: routing-v4
   pullPolicy: Always
 
 llmproxy:
@@ -16,7 +16,7 @@ llmproxy:
 imbridge:
   image:
     repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-imbridge
-    tag: routing-v2
+    tag: routing-v4
     pullPolicy: Always
 
 sandboxProxy:
