@@ -128,6 +128,11 @@ func (s *Server) handlePromoteSkillDraft(w http.ResponseWriter, r *http.Request)
 
 	RecordPromoteResult("skill", "ok")
 	RecordDraftAction("skill", "promoted")
+	_ = s.DB.AppendDraftAuditEvent("skill", id, userID, "promoted", map[string]interface{}{
+		"pr_url":   result.PRURL,
+		"head_sha": result.HeadSha,
+		"branch":   branch,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{
 		"pr_url":    result.PRURL,
 		"branch":    branch,
@@ -214,6 +219,11 @@ func (s *Server) handlePromoteSoulDraft(w http.ResponseWriter, r *http.Request) 
 
 	RecordPromoteResult("soul", "ok")
 	RecordDraftAction("soul", "promoted")
+	_ = s.DB.AppendDraftAuditEvent("soul", id, userID, "promoted", map[string]interface{}{
+		"pr_url":   result.PRURL,
+		"head_sha": result.HeadSha,
+		"branch":   branch,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{
 		"pr_url":     result.PRURL,
 		"branch":     branch,

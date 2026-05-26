@@ -1082,6 +1082,25 @@ export async function dryRunPlaygroundSoul(
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/dry-run`, body })
 }
 
+// Draft audit timeline (improvements.md #14).
+export interface DraftAuditEvent {
+  id: number
+  draft_kind: 'skill' | 'soul'
+  draft_id: string
+  actor_user_id?: string
+  action: string
+  payload_diff?: Record<string, unknown>
+  created_at: string
+}
+
+export async function listDraftAudit(kind: 'skills' | 'souls', id: string, limit = 50): Promise<DraftAuditEvent[]> {
+  const r = await apiFetch<{ events: DraftAuditEvent[] }>({
+    method: 'GET',
+    path: `/api/playground/${kind}/${encodeURIComponent(id)}/audit?limit=${limit}`,
+  })
+  return r.events ?? []
+}
+
 // Git-pinned skill/soul templates (improvements.md picker gap a).
 export interface TemplateSkill {
   name: string

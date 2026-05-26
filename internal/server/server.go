@@ -463,6 +463,9 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/api/playground/souls/{id}", s.handleArchiveSoulDraft)
 		r.Post("/api/playground/souls/{id}/promote", s.handlePromoteSoulDraft)
 		r.Post("/api/playground/souls/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSoulDraftDryRun))
+		// Draft audit timeline (improvements.md #14). Author-only.
+		r.Get("/api/playground/skills/{id}/audit", s.handleListSkillDraftAudit)
+		r.Get("/api/playground/souls/{id}/audit", s.handleListSoulDraftAudit)
 		// Git-pinned templates (improvements.md picker gap a). Hardcoded
 		// registry today; #17 tenant catalog moves to DB.
 		r.Get("/api/templates/skills", s.handleListSkillTemplates)
