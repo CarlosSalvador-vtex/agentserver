@@ -993,6 +993,7 @@ export interface PlaygroundSkillSummary {
   status: PlaygroundDraftStatus
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
+  promoted_commit?: string
   updated_at: string
 }
 
@@ -1008,6 +1009,7 @@ export interface PlaygroundSoulSummary {
   schema_version: string
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
+  promoted_commit?: string
   updated_at: string
 }
 

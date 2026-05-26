@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Save, Play, Send, ArrowLeft, Loader2, Plus, X } from 'lucide-react'
+import { Save, Play, Send, ArrowLeft, Loader2, Plus, X, FileDiff } from 'lucide-react'
 import {
   getPlaygroundSkill,
   patchPlaygroundSkill,
@@ -11,6 +11,7 @@ import {
   type PlaygroundDryRunResponse,
   type Workspace,
 } from '../lib/api'
+import { PromotedDiff } from './PromotedDiff'
 
 export function PlaygroundSkillEditor() {
   const { id } = useParams<{ id: string }>()
@@ -27,6 +28,7 @@ export function PlaygroundSkillEditor() {
   const [soulRef, setSoulRef] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
+  const [view, setView] = useState<'files' | 'diff'>('files')
 
   useEffect(() => {
     listWorkspaces()
@@ -196,7 +198,36 @@ export function PlaygroundSkillEditor() {
 
         {/* Editor */}
         <main className="flex flex-1 flex-col">
-          {activeFile ? (
+          {draft.status === 'promoted' && draft.promoted_commit && (
+            <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/50 px-3 py-1.5">
+              <button
+                onClick={() => setView('files')}
+                className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                  view === 'files' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+                }`}
+              >
+                Files
+              </button>
+              <button
+                onClick={() => setView('diff')}
+                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
+                  view === 'diff' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+                }`}
+                title={`Diff vs promoted commit ${draft.promoted_commit.slice(0, 7)}`}
+              >
+                <FileDiff size={11} /> Diff vs promoted
+              </button>
+            </div>
+          )}
+          {view === 'diff' && draft.promoted_commit ? (
+            <div className="flex-1 overflow-auto">
+              <PromotedDiff
+                commit={draft.promoted_commit}
+                skillName={draft.name}
+                draftFiles={files}
+              />
+            </div>
+          ) : activeFile ? (
             <textarea
               value={files[activeFile] ?? ''}
               onChange={(e) => updateActiveContent(e.target.value)}
