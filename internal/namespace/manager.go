@@ -44,6 +44,14 @@ func NewManager(clientset kubernetes.Interface, config Config) *Manager {
 	}
 }
 
+// Clientset returns the underlying K8s client. Exposed so adjacent packages
+// (e.g. internal/server reaper) can list/delete resources without having to
+// rewire kubeconfig themselves.
+func (m *Manager) Clientset() kubernetes.Interface { return m.clientset }
+
+// Prefix returns the configured namespace prefix (default "agent-ws").
+func (m *Manager) Prefix() string { return m.config.Prefix }
+
 // NamespaceName returns the K8s namespace name for a workspace ID.
 func (m *Manager) NamespaceName(workspaceID string) string {
 	short := workspaceID
