@@ -22,8 +22,9 @@ CREATE INDEX IF NOT EXISTS idx_sandbox_channel_bindings_sandbox ON sandbox_chann
 
 -- 3. Backfill: copia bindings existentes (FK legada) para a junction.
 -- Idempotente via ON CONFLICT — re-aplicar o migrate é seguro.
+-- sandboxes não tem updated_at; usamos created_at como proxy.
 INSERT INTO sandbox_channel_bindings (sandbox_id, channel_id, bound_at)
-SELECT id, im_channel_id, COALESCE(updated_at, NOW())
+SELECT id, im_channel_id, COALESCE(created_at, NOW())
 FROM sandboxes
 WHERE im_channel_id IS NOT NULL
 ON CONFLICT DO NOTHING;
