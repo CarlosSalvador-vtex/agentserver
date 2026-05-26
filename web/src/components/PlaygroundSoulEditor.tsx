@@ -1,11 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Save, Send, ArrowLeft, Loader2 } from 'lucide-react'
+import { Save, Send, ArrowLeft, Loader2, Play } from 'lucide-react'
 import {
   getPlaygroundSoul,
   patchPlaygroundSoul,
   promotePlaygroundSoul,
+  dryRunPlaygroundSoul,
+  listWorkspaces,
   type PlaygroundSoulFull,
+  type PlaygroundDryRunResponse,
+  type Workspace,
 } from '../lib/api'
 
 interface SoulFrontmatter {
@@ -34,6 +38,38 @@ export function PlaygroundSoulEditor() {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dryRun, setDryRun] = useState<PlaygroundDryRunResponse | null>(null)
+  const [running, setRunning] = useState(false)
+  const [userMessage, setUserMessage] = useState('')
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
+
+  useEffect(() => {
+    listWorkspaces()
+      .then((ws) => {
+        setWorkspaces(ws)
+        if (ws.length > 0 && !dryRunWorkspaceID) setDryRunWorkspaceID(ws[0].id)
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleDryRun = async () => {
+    if (!id) return
+    setRunning(true)
+    setError(null)
+    try {
+      const out = await dryRunPlaygroundSoul(id, {
+        user_message: userMessage,
+        workspace_id: dryRunWorkspaceID || undefined,
+      })
+      setDryRun(out)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'dry-run failed')
+    } finally {
+      setRunning(false)
+    }
+  }
 
   const load = useCallback(async () => {
     if (!id) return
@@ -189,6 +225,73 @@ export function PlaygroundSoulEditor() {
             placeholder="# Persona — descrição livre do agente"
           />
         </main>
+
+        {/* Dry-run panel */}
+        <aside className="w-96 shrink-0 border-l border-[var(--border)] bg-[var(--card)]/30 flex flex-col">
+          <div className="px-4 py-3 border-b border-[var(--border)]">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] mb-2">Dry-run (soul only)</div>
+            {workspaces.length > 1 && (
+              <select
+                value={dryRunWorkspaceID}
+                onChange={(e) => setDryRunWorkspaceID(e.target.value)}
+                title="Workspace whose LLM quota / BYOK funds this dry-run"
+                className="mb-2 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)]"
+              >
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.id.slice(0, 8)})
+                  </option>
+                ))}
+              </select>
+            )}
+            <textarea
+              placeholder="User message"
+              value={userMessage}
+              onChange={(e) => setUserMessage(e.target.value)}
+              rows={3}
+              className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] font-mono"
+            />
+            <button
+              onClick={handleDryRun}
+              disabled={running || !userMessage.trim()}
+              className="mt-2 inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-500 disabled:opacity-40"
+            >
+              {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+              Run dry-run
+            </button>
+            <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">
+              Persona only — no skill prompt. Use for testing voice + constraints in isolation.
+            </p>
+          </div>
+          <div className="flex-1 overflow-auto p-4 text-xs space-y-3">
+            {dryRun && (
+              <>
+                {dryRun.completion && (
+                  <div>
+                    <div className="text-[var(--muted-foreground)] mb-1">Completion ({dryRun.completion_model})</div>
+                    <div className="rounded bg-[var(--background)] p-2 whitespace-pre-wrap text-[var(--foreground)]">
+                      {dryRun.completion}
+                    </div>
+                  </div>
+                )}
+                {dryRun.completion_error && (
+                  <div>
+                    <div className="text-red-400 mb-1">Completion error</div>
+                    <div className="rounded bg-red-500/10 p-2 whitespace-pre-wrap text-red-400">
+                      {dryRun.completion_error}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-[var(--muted-foreground)] mb-1">System prompt</div>
+                  <pre className="rounded bg-[var(--background)] p-2 whitespace-pre-wrap text-[var(--foreground)] font-mono">
+                    {dryRun.system_prompt || '(empty)'}
+                  </pre>
+                </div>
+              </>
+            )}
+          </div>
+        </aside>
       </div>
 
       <div className="border-t border-[var(--border)] bg-[var(--card)] px-5 py-2 text-[11px] text-[var(--muted-foreground)]">
