@@ -112,6 +112,7 @@ func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, fmt.Sprintf("create failed: %v", err), http.StatusConflict)
 		return
 	}
+	RecordDraftAction("skill", "created")
 	writeJSON(w, http.StatusCreated, summarizeSkill(draft))
 }
 
@@ -166,6 +167,7 @@ func (s *Server) handlePatchSkillDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	RecordDraftAction("skill", "patched")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -185,6 +187,7 @@ func (s *Server) handleArchiveSkillDraft(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "archive failed", http.StatusInternalServerError)
 		return
 	}
+	RecordDraftAction("skill", "archived")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -248,6 +251,7 @@ func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("create failed: %v", err), http.StatusConflict)
 		return
 	}
+	RecordDraftAction("soul", "created")
 	writeJSON(w, http.StatusCreated, summarizeSoul(draft))
 }
 
@@ -308,6 +312,7 @@ func (s *Server) handlePatchSoulDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	RecordDraftAction("soul", "patched")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -327,6 +332,7 @@ func (s *Server) handleArchiveSoulDraft(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "archive failed", http.StatusInternalServerError)
 		return
 	}
+	RecordDraftAction("soul", "archived")
 	w.WriteHeader(http.StatusNoContent)
 }
 

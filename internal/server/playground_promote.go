@@ -83,6 +83,7 @@ func (s *Server) handlePromoteSkillDraft(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := validateSkillForPromote(draft); err != nil {
+		RecordPromoteResult("skill", "failed_validation")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -112,6 +113,7 @@ func (s *Server) handlePromoteSkillDraft(w http.ResponseWriter, r *http.Request)
 
 	result, err := promoteToGitHub(cfg, branch, title, body, files)
 	if err != nil {
+		RecordPromoteResult("skill", "failed_github")
 		_ = s.DB.RevertPromoteSkillDraft(id)
 		http.Error(w, fmt.Sprintf("github push failed: %v", err), http.StatusBadGateway)
 		return
@@ -124,6 +126,8 @@ func (s *Server) handlePromoteSkillDraft(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	RecordPromoteResult("skill", "ok")
+	RecordDraftAction("skill", "promoted")
 	writeJSON(w, http.StatusOK, map[string]string{
 		"pr_url":    result.PRURL,
 		"branch":    branch,
@@ -160,6 +164,7 @@ func (s *Server) handlePromoteSoulDraft(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := validateSoulForPromote(draft); err != nil {
+		RecordPromoteResult("soul", "failed_validation")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -196,6 +201,7 @@ func (s *Server) handlePromoteSoulDraft(w http.ResponseWriter, r *http.Request) 
 
 	result, err := promoteToGitHub(cfg, branch, title, body, files)
 	if err != nil {
+		RecordPromoteResult("soul", "failed_github")
 		_ = s.DB.RevertPromoteSoulDraft(id)
 		http.Error(w, fmt.Sprintf("github push failed: %v", err), http.StatusBadGateway)
 		return
@@ -206,6 +212,8 @@ func (s *Server) handlePromoteSoulDraft(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	RecordPromoteResult("soul", "ok")
+	RecordDraftAction("soul", "promoted")
 	writeJSON(w, http.StatusOK, map[string]string{
 		"pr_url":     result.PRURL,
 		"branch":     branch,

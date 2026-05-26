@@ -82,15 +82,22 @@ type playgroundDryRunSkillInfo struct {
 // tool surface without invoking the LLM. The frontend renders this as
 // a preview so authors can validate prompt assembly before promoting.
 func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	result := "ok"
+	defer func() {
+		ObserveDryRun("skill", result, time.Since(start).Seconds())
+	}()
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 
 	skill, err := s.DB.GetSkillDraft(id)
 	if err != nil || skill == nil {
+		result = "validation_error"
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	if !skill.AuthorUserID.Valid || skill.AuthorUserID.String != userID {
+		result = "validation_error"
 		http.Error(w, "not your draft", http.StatusForbidden)
 		return
 	}
@@ -98,6 +105,7 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 	var req playgroundDryRunRequest
 	if r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			result = "validation_error"
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
@@ -121,6 +129,7 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 	if req.SoulRef != "" {
 		soulBody, soulInfo, err := s.resolveSoulForPreview(req.SoulRef, userID)
 		if err != nil {
+			result = "validation_error"
 			http.Error(w, fmt.Sprintf("soul ref: %v", err), http.StatusBadRequest)
 			return
 		}
@@ -144,6 +153,7 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 		}
 		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, model, resp.SystemPrompt, resp.Messages)
 		if err != nil {
+			result = "llm_error"
 			resp.CompletionError = err.Error()
 		} else {
 			resp.Completion = completion
