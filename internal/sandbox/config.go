@@ -405,15 +405,14 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 		}
 	}
 
-	// Soul body — set agent.systemPrompt so the merged openclaw.json
-	// carries the playground persona. The Node init wrapper deep-merges
-	// `agent` (see manager.go) so this field survives alongside any
-	// upstream defaults.
-	if opts.SoulBody != "" {
-		c.Agent = &struct {
-			SystemPrompt string `json:"systemPrompt,omitempty"`
-		}{SystemPrompt: opts.SoulBody}
-	}
+	// Soul body: tried emitting agent.systemPrompt at root, but the
+	// OpenClaw config schema rejects "agent" as unrecognized
+	// ("<root>: Unrecognized key: \"agent\""). Until we find the
+	// right schema field for system prompt injection, the soul.md
+	// file mount (see manager.go::ResolveComposition) is the source
+	// of truth — the agent reads it from /home/agent/.openclaw/soul.md
+	// at turn time.
+	_ = opts.SoulBody
 
 	b, _ := json.Marshal(c)
 	return string(b)
