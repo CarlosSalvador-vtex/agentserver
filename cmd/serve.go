@@ -341,6 +341,10 @@ var serveCmd = &cobra.Command{
 		// No-op when GITHUB_PROMOTE_TOKEN is unset.
 		srv.StartPromotePoller(healthCtx)
 
+		// Playground ConfigMap orphan reaper. Catches ephemeral ConfigMaps
+		// left behind when an AgentSandbox CRD is deleted out-of-band.
+		srv.StartConfigMapReaper(healthCtx)
+
 		httpServer := &http.Server{Addr: addr, Handler: srv.Router()}
 
 		// Graceful shutdown on SIGTERM/SIGINT
