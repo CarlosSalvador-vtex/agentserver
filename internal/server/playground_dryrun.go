@@ -33,6 +33,11 @@ type playgroundDryRunRequest struct {
 	UserMessage string                            `json:"user_message,omitempty"`
 	History     []playgroundDryRunMessage         `json:"history,omitempty"`
 	Config      map[string]interface{}            `json:"config,omitempty"`
+	// WorkspaceID selects which workspace's LLM proxy token to mint for
+	// the round-trip. Empty falls back to the caller's first workspace
+	// (legacy behaviour). When set, the caller MUST be a member of that
+	// workspace — otherwise the call is rejected with 403.
+	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 
 type playgroundDryRunMessage struct {
@@ -151,7 +156,7 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 		if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
 			model = envModel
 		}
-		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, model, resp.SystemPrompt, resp.Messages)
+		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, req.WorkspaceID, model, resp.SystemPrompt, resp.Messages)
 		if err != nil {
 			result = "llm_error"
 			resp.CompletionError = err.Error()
@@ -167,15 +172,33 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 // callLLMProxyForDryRun sends the composed dry-run payload to llmproxy
 // in Anthropic /v1/messages shape. llmproxy validates the bearer
 // against the workspace_tokens catalog, so we mint (or reuse) the
-// workspace proxy token of the caller's first workspace before
-// dispatching. INTERNAL_API_SECRET alone is rejected by llmproxy
-// (it only honours tokens that map to a workspace row).
-func (s *Server) callLLMProxyForDryRunForUser(ctx context.Context, userID, model, systemPrompt string, msgs []playgroundDryRunMessage) (string, error) {
+// workspace proxy token of the chosen workspace before dispatching.
+// INTERNAL_API_SECRET alone is rejected by llmproxy (it only honours
+// tokens that map to a workspace row).
+//
+// wsIDChoice is the workspace_id the caller explicitly picked (improvements.md
+// #19). When empty, fall back to the caller's first workspace (legacy
+// behaviour). When non-empty, the caller MUST be a member of that workspace
+// — otherwise return an error and the handler rejects with 403.
+func (s *Server) callLLMProxyForDryRunForUser(ctx context.Context, userID, wsIDChoice, model, systemPrompt string, msgs []playgroundDryRunMessage) (string, error) {
 	wss, err := s.DB.ListWorkspacesByUser(userID)
 	if err != nil || len(wss) == 0 {
 		return "", fmt.Errorf("dry-run LLM call needs at least one workspace membership for user %s", userID)
 	}
 	wsID := wss[0].ID
+	if wsIDChoice != "" {
+		matched := false
+		for _, w := range wss {
+			if w.ID == wsIDChoice {
+				wsID = w.ID
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return "", fmt.Errorf("workspace_id %q: caller is not a member", wsIDChoice)
+		}
+	}
 	proxyToken, err := s.DB.GetOrCreateWorkspaceToken(wsID)
 	if err != nil {
 		return "", fmt.Errorf("mint workspace proxy token (ws=%s): %w", wsID, err)

@@ -6,8 +6,10 @@ import {
   patchPlaygroundSkill,
   promotePlaygroundSkill,
   dryRunPlaygroundSkill,
+  listWorkspaces,
   type PlaygroundSkillFull,
   type PlaygroundDryRunResponse,
+  type Workspace,
 } from '../lib/api'
 
 export function PlaygroundSkillEditor() {
@@ -23,6 +25,18 @@ export function PlaygroundSkillEditor() {
   const [userMessage, setUserMessage] = useState('')
   const [dryRun, setDryRun] = useState<PlaygroundDryRunResponse | null>(null)
   const [soulRef, setSoulRef] = useState('')
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
+
+  useEffect(() => {
+    listWorkspaces()
+      .then((ws) => {
+        setWorkspaces(ws)
+        if (ws.length > 0 && !dryRunWorkspaceID) setDryRunWorkspaceID(ws[0].id)
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const load = useCallback(async () => {
     if (!id) return
@@ -64,6 +78,7 @@ export function PlaygroundSkillEditor() {
       const out = await dryRunPlaygroundSkill(id, {
         user_message: userMessage,
         soul_ref: soulRef || undefined,
+        workspace_id: dryRunWorkspaceID || undefined,
       })
       setDryRun(out)
     } catch (e) {
@@ -206,6 +221,20 @@ export function PlaygroundSkillEditor() {
               onChange={(e) => setSoulRef(e.target.value)}
               className="mb-2 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)]"
             />
+            {workspaces.length > 1 && (
+              <select
+                value={dryRunWorkspaceID}
+                onChange={(e) => setDryRunWorkspaceID(e.target.value)}
+                title="Workspace whose LLM quota / BYOK config funds this dry-run"
+                className="mb-2 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)]"
+              >
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.id.slice(0, 8)})
+                  </option>
+                ))}
+              </select>
+            )}
             <textarea
               placeholder="User message (e.g. /cobranca lead L-001)"
               value={userMessage}

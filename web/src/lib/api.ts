@@ -1064,7 +1064,7 @@ export async function promotePlaygroundSkill(id: string): Promise<PlaygroundProm
 
 export async function dryRunPlaygroundSkill(
   id: string,
-  body: { soul_ref?: string; user_message?: string; history?: { role: string; content: string }[] },
+  body: { soul_ref?: string; user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
 ): Promise<PlaygroundDryRunResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/dry-run`, body })
 }
