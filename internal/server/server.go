@@ -209,6 +209,14 @@ func (s *Server) Router() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	// WhatsApp Cloud webhook — public, identity enforced by hub.verify_token.
+	// Reverse-proxied to the imbridge service (where the actual handler lives)
+	// so deployments split across pods still work. When IMBridgeURL is empty,
+	// the proxy short-circuits to localhost:8080 which is fine for in-process
+	// mode (single binary serves both).
+	r.Get("/webhook/whatsapp", s.imBridgeProxy)
+	r.Post("/webhook/whatsapp", s.imBridgeProxy)
+
 	// Internal API for LLM proxy token validation (no cookie auth).
 	r.Post("/internal/validate-proxy-token", s.handleValidateProxyToken)
 
@@ -508,6 +516,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/api/workspaces/{id}/im/weixin/qr-wait", s.handleIMWeixinQRWait)
 			r.Post("/api/workspaces/{id}/im/telegram/configure", s.handleIMTelegramConfigure)
 			r.Post("/api/workspaces/{id}/im/matrix/configure", s.handleIMMatrixConfigure)
+			r.Post("/api/workspaces/{id}/im/whatsapp/configure", s.handleIMWhatsAppConfigure)
 			// Sandbox IM channel binding (annotated wrappers in im_routes.go).
 			r.Post("/api/sandboxes/{id}/im/bind", s.handleIMSandboxBind)
 			r.Delete("/api/sandboxes/{id}/im/bind", s.handleIMSandboxUnbind)

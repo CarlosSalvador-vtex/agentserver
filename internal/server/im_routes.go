@@ -130,6 +130,26 @@ func (s *Server) handleIMMatrixConfigure(w http.ResponseWriter, r *http.Request)
 	s.imBridgeProxy(w, r)
 }
 
+// handleIMWhatsAppConfigure binds a WhatsApp Cloud (Meta) Business
+// phone number to a workspace. Unlike Telegram/Matrix this does not
+// start a poller; inbound messages arrive at /webhook/whatsapp.
+//
+//	@Summary     Bind a WhatsApp Cloud number to a workspace
+//	@Description Stores the Meta access token and phone_number_id. Inbound messages reach the agent via the public /webhook/whatsapp endpoint (configured in the Meta App dashboard).
+//	@Tags        IM Channels
+//	@Accept      json
+//	@Produce     json
+//	@Param       id    path  string  true  "Workspace id"
+//	@Success     200   {object}  map[string]interface{}
+//	@Failure     400   {string}  string  "phone_number_id and access_token are required"
+//	@Failure     403   {string}  string  "not a member"
+//	@Failure     500   {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/workspaces/{id}/im/whatsapp/configure [post]
+func (s *Server) handleIMWhatsAppConfigure(w http.ResponseWriter, r *http.Request) {
+	s.imBridgeProxy(w, r)
+}
+
 // handleIMSandboxBind binds a sandbox to an existing workspace IM channel.
 //
 //	@Summary     Bind a sandbox to an IM channel

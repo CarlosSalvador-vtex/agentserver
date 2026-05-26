@@ -45,6 +45,7 @@ func main() {
 		&imbridge.WeixinProvider{},
 		&imbridge.TelegramProvider{},
 		&imbridge.MatrixProvider{},
+		&imbridge.WhatsAppProvider{},
 	})
 
 	// Initialize providers that need server-level setup (Matrix E2EE crypto DB).
