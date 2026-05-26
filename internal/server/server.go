@@ -1717,6 +1717,12 @@ type provisionInput struct {
 	Memory      *int64
 	IdleTimeout *int
 	Metadata    map[string]interface{}
+	// Composition is persisted to sandbox_compositions BEFORE the
+	// container-start goroutine spawns, so the goroutine's call to
+	// manager.ResolveComposition sees the row. Persisting in the
+	// caller (handleCreateSandbox) creates a race where the goroutine
+	// reads sandbox_compositions before the row exists.
+	Composition *SandboxCompositionRequest
 }
 
 // provisionError is a typed error returned by provisionSandbox so HTTP
@@ -1967,6 +1973,24 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 		}
 	}
 
+	// Persist composition BEFORE the goroutine spawns so the
+	// container-start path (which calls manager.ResolveComposition)
+	// can see the row. Doing this in handleCreateSandbox after the
+	// fact caused a race where ResolveComposition returned an empty
+	// composition and the ephemeral ConfigMaps + soul mount were
+	// silently skipped.
+	if in.Composition != nil {
+		if err := s.DB.CreateSandboxComposition(
+			id,
+			in.Composition.Soul,
+			in.Composition.Skills,
+			in.Composition.Config,
+			in.Composition.TrackUpstream,
+		); err != nil {
+			log.Printf("persist composition for %s: %v", id, err)
+		}
+	}
+
 	// Start container asynchronously.
 	go func() {
 		var podIP string
@@ -2029,6 +2053,7 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		Memory:      req.Memory,
 		IdleTimeout: req.IdleTimeout,
 		Metadata:    req.Metadata,
+		Composition: req.Composition,
 	})
 	var pe *provisionError
 	if errors.As(err, &pe) {
@@ -2039,22 +2064,6 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		log.Printf("provision sandbox: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-
-	// Persist composition (if any). Best-effort: a missing composition
-	// row just means the sandbox boots without playground refs (legacy
-	// behavior). Failure to persist is logged but does not abort the
-	// create response — the sandbox itself is already up.
-	if req.Composition != nil {
-		if err := s.DB.CreateSandboxComposition(
-			sbx.ID,
-			req.Composition.Soul,
-			req.Composition.Skills,
-			req.Composition.Config,
-			req.Composition.TrackUpstream,
-		); err != nil {
-			log.Printf("persist composition for %s: %v", sbx.ID, err)
-		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
