@@ -11,26 +11,20 @@ import (
 	"github.com/agentserver/agentserver/internal/db"
 )
 
-// isValidSandboxType mirrors the type-validation predicate in handleAgentRegister.
-// It is duplicated here to make the unit tests independent of the handler's control flow.
 func isValidSandboxType(t string) bool {
-	return t == "opencode" || t == "claudecode" || t == "custom"
+	return t == "custom"
 }
 
-// TestSandboxTypeValidation_Logic verifies the type validation predicate
-// accepts exactly the three expected types.
 func TestSandboxTypeValidation_Logic(t *testing.T) {
 	tests := []struct {
 		sandboxType string
 		wantValid   bool
 	}{
-		{"opencode", true},
-		{"claudecode", true},
 		{"custom", true},
+		{"openclaw", false},
+		{"hermes", false},
 		{"unknown", false},
 		{"", false},
-		{"OPENCODE", false},
-		{"Custom", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.sandboxType, func(t *testing.T) {
@@ -41,36 +35,6 @@ func TestSandboxTypeValidation_Logic(t *testing.T) {
 	}
 }
 
-// TestCustomType_NoOpencodePassword verifies that the opencodePassword
-// generation condition does not fire for the "custom" sandbox type.
-// This mirrors the exact condition used in handleAgentRegister.
-func TestCustomType_NoOpencodePassword(t *testing.T) {
-	tests := []struct {
-		sandboxType          string
-		expectOpencodePasswd bool
-	}{
-		{"opencode", true},
-		{"claudecode", false},
-		{"custom", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.sandboxType, func(t *testing.T) {
-			// Mirror the exact condition from handleAgentRegister.
-			var opencodePassword string
-			if tc.sandboxType == "opencode" {
-				opencodePassword = "generated"
-			}
-			hasPassword := opencodePassword != ""
-			if hasPassword != tc.expectOpencodePasswd {
-				t.Errorf("type %q: opencodePassword generated=%v, want=%v",
-					tc.sandboxType, hasPassword, tc.expectOpencodePasswd)
-			}
-		})
-	}
-}
-
-// TestAgentRegister_TypeValidation_Integration tests the full handler against a
-// real database. Skipped when TEST_DATABASE_URL is not set.
 func TestAgentRegister_TypeValidation_Integration(t *testing.T) {
 	dbURL := testDatabaseURL(t)
 	if dbURL == "" {
@@ -82,7 +46,6 @@ func TestAgentRegister_TypeValidation_Integration(t *testing.T) {
 		t.Fatalf("open test db: %v", err)
 	}
 
-	// Fake Hydra: returns an active token for a known workspace/user pair.
 	const testWorkspaceIDVal = "ws-register-test"
 	const testUserID = "user-register-test"
 
@@ -127,10 +90,9 @@ func TestAgentRegister_TypeValidation_Integration(t *testing.T) {
 		sandboxType string
 		wantStatus  int
 	}{
-		{"opencode accepted", "opencode", http.StatusCreated},
-		{"claudecode accepted", "claudecode", http.StatusCreated},
 		{"custom accepted", "custom", http.StatusCreated},
-		{"invalid type rejected", "bogus", http.StatusBadRequest},
+		{"invalid type rejected", "openclaw", http.StatusBadRequest},
+		{"invalid type rejected empty defaults to custom", "", http.StatusCreated},
 	}
 
 	for _, tc := range tests {
@@ -147,10 +109,8 @@ func TestAgentRegister_TypeValidation_Integration(t *testing.T) {
 			}
 			if tc.wantStatus == http.StatusBadRequest {
 				msg := rr.Body.String()
-				for _, keyword := range []string{"opencode", "claudecode", "custom"} {
-					if !bytes.Contains([]byte(msg), []byte(keyword)) {
-						t.Errorf("error message missing %q: %s", keyword, msg)
-					}
+				if !bytes.Contains([]byte(msg), []byte("custom")) {
+					t.Errorf("error message missing custom: %s", msg)
 				}
 			}
 		})

@@ -12,12 +12,11 @@ import (
 // the poller.
 func TestForwardMessageChannelRoutingOverridesBinding(t *testing.T) {
 	b := &Bridge{
-		providers:        map[string]Provider{},
-		pollers:          map[string]pollerEntry{},
-		registeredGroups: map[string]string{},
-		channelMention:   map[string]bool{},
-		channelRouting:   map[string]string{},
-		typingSessions:   map[string]func(){},
+		providers:      map[string]Provider{},
+		pollers:        map[string]pollerEntry{},
+		channelMention: map[string]bool{},
+		channelRouting: map[string]string{},
+		typingSessions: map[string]func(){},
 	}
 
 	// Override with codex in the in-memory map.
@@ -43,12 +42,11 @@ func TestForwardMessageChannelRoutingOverridesBinding(t *testing.T) {
 // concurrency assumptions).
 func TestSetChannelRoutingModeConcurrent(t *testing.T) {
 	b := &Bridge{
-		providers:        map[string]Provider{},
-		pollers:          map[string]pollerEntry{},
-		registeredGroups: map[string]string{},
-		channelMention:   map[string]bool{},
-		channelRouting:   map[string]string{},
-		typingSessions:   map[string]func(){},
+		providers:      map[string]Provider{},
+		pollers:        map[string]pollerEntry{},
+		channelMention: map[string]bool{},
+		channelRouting: map[string]string{},
+		typingSessions: map[string]func(){},
 	}
 
 	var wg sync.WaitGroup

@@ -7,27 +7,11 @@ WORKDIR /app/web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
-# Generate TypeScript types from the committed OpenAPI spec before tsc runs.
-# The output (src/lib/api-generated/schema.d.ts) is gitignored — without
-# this step `web/src/lib/api.ts` can't resolve its `components` import and
-# tsc fails with TS2307 + cascading TS7006 implicit-any errors.
 COPY docs/api/openapi.yaml /app/docs/api/openapi.yaml
 RUN pnpm openapi:gen
 RUN pnpm build
 
-# Stage 2: Build opencode frontend from submodule (native host arch)
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS opencode-frontend
-WORKDIR /app
-# python3 + g++ + make are needed by node-gyp to build native addons pulled
-# by opencode (e.g. tree-sitter-powershell) during `bun install`.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-COPY opencode/ ./
-RUN bun install --frozen-lockfile
-RUN bun run --filter=@opencode-ai/app build
-
-# Stage 3: Build Go backend (native host arch; cross-compile to TARGETARCH)
+# Stage 2: Build Go backend (native host arch; cross-compile to TARGETARCH)
 FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS backend
 ARG TARGETARCH
 WORKDIR /app
@@ -35,10 +19,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
-COPY --from=opencode-frontend /app/packages/app/dist ./opencodeweb/dist
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -tags goolm -o agentserver .
 
-# Stage 4: Runtime image with Docker CLI (claude-code runs in agent containers)
+# Stage 3: Runtime image with Docker CLI (claude-code runs in agent containers)
 FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl gnupg \

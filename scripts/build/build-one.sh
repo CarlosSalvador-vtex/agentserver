@@ -5,8 +5,7 @@
 #
 # image-key must be one of:
 #   agentserver | imbridge | llmproxy | sandboxproxy |
-#   codex-app-gateway | codex-exec-gateway | credentialproxy |
-#   claudecode | jupyter | nanoclaw | openclaw | opencode
+#   credentialproxy | openclaw
 #
 # tag defaults to: dev
 set -euo pipefail
@@ -21,14 +20,8 @@ ALL_KEYS=(
   imbridge
   llmproxy
   sandboxproxy
-  codex-app-gateway
-  codex-exec-gateway
   credentialproxy
-  claudecode
-  jupyter
-  nanoclaw
   openclaw
-  opencode
 )
 
 ALL_DOCKERFILES=(
@@ -36,14 +29,8 @@ ALL_DOCKERFILES=(
   Dockerfile.imbridge
   Dockerfile.llmproxy
   Dockerfile.sandboxproxy
-  Dockerfile.codex-app-gateway
-  Dockerfile.codex-exec-gateway
   Dockerfile.credentialproxy
-  Dockerfile.claudecode
-  Dockerfile.jupyter
-  Dockerfile.nanoclaw
   Dockerfile.openclaw
-  Dockerfile.opencode
 )
 
 ALL_IMAGE_NAMES=(
@@ -51,14 +38,8 @@ ALL_IMAGE_NAMES=(
   agentserver-imbridge
   agentserver-llmproxy
   agentserver-sandboxproxy
-  agentserver-codex-app-gateway
-  agentserver-codex-exec-gateway
   agentserver-credentialproxy
-  agentserver-claudecode
-  agentserver-jupyter
-  agentserver-nanoclaw
   agentserver-openclaw
-  agentserver-opencode
 )
 
 # ---------- lookup function -------------------------------------------------

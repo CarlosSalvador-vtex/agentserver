@@ -84,7 +84,7 @@ export function SandboxList({
 
   const handleCreateSandbox = async (
     name: string,
-    type: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes',
+    type: 'openclaw' | 'hermes',
     cpu?: number,
     memory?: number,
     idleTimeout?: number,
@@ -225,27 +225,11 @@ export function SandboxList({
                 <span className="shrink-0 rounded bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-400">
                   claw
                 </span>
-              ) : sbx.type === 'claudecode' ? (
-                <span className="shrink-0 rounded bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-400">
-                  claude
-                </span>
               ) : sbx.type === 'hermes' ? (
                 <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
                   hermes
                 </span>
-              ) : sbx.type === 'jupyter' ? (
-                <span className="shrink-0 rounded bg-pink-500/15 px-1.5 py-0.5 text-[10px] font-medium text-pink-400">
-                  jupyter
-                </span>
-              ) : sbx.type === 'nanoclaw' ? (
-                <span className="shrink-0 rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-400">
-                  nano
-                </span>
-              ) : (
-                <span className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                  code
-                </span>
-              )}
+              ) : null}
               <div className={isFlat ? 'flex gap-0.5' : 'hidden gap-0.5 group-hover:flex'}>
                 {!sbx.is_local && sbx.status === 'running' && (
                   <button

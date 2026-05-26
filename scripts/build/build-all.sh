@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 # scripts/build/build-all.sh — Build and push every image to ECR in sequence
-#
-# Usage: build-all.sh [tag]
-#   tag defaults to: dev
-#
-# Individual failures are collected and reported at the end; the script does
-# NOT abort on a single image failure so all images are attempted.
-set -uo pipefail   # note: no -e so we can collect failures ourselves
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_ONE="${SCRIPT_DIR}/build-one.sh"
@@ -17,14 +11,8 @@ IMAGES=(
   imbridge
   llmproxy
   sandboxproxy
-  codex-app-gateway
-  codex-exec-gateway
   credentialproxy
-  claudecode
-  jupyter
-  nanoclaw
   openclaw
-  opencode
 )
 
 FAILED=()

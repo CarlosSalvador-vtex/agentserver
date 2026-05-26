@@ -161,7 +161,7 @@ export function SandboxDetail({ sandbox, onPause, onResume, onDelete, onRename }
       setTraces(r.traces || [])
       setTracesTotal(r.total || 0)
     }).catch(() => {})
-    if (sandbox.type === 'openclaw' || sandbox.type === 'nanoclaw') {
+    if (sandbox.type === 'openclaw') {
       refreshIMBindings()
       loadWorkspaceChannels()
     }
@@ -180,12 +180,9 @@ export function SandboxDetail({ sandbox, onPause, onResume, onDelete, onRename }
   const isPaused = sandbox.status === 'paused'
   const isTransitional = sandbox.status === 'pausing' || sandbox.status === 'resuming' || sandbox.status === 'creating'
   const isOpenClaw = sandbox.type === 'openclaw'
-  const isNanoClaw = sandbox.type === 'nanoclaw'
-  const isClaudeCode = sandbox.type === 'claudecode'
   const isCustom = sandbox.type === 'custom'
-  const isJupyter = sandbox.type === 'jupyter'
   const isHermes = sandbox.type === 'hermes'
-  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isClaudeCode ? sandbox.claudecode_url : isJupyter ? (sandbox.jupyter_url || sandbox.opencode_url) : isNanoClaw ? null : isHermes ? sandbox.hermes_url : sandbox.opencode_url
+  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isHermes ? sandbox.hermes_url : null
 
   const totalRequests = usageData ? usageData.reduce((s, u) => s + u.request_count, 0) : 0
   const totalInput = usageData ? usageData.reduce((s, u) => s + u.input_tokens, 0) : 0
@@ -433,13 +430,10 @@ function OverviewTab({ sandbox, imBindings, usageData, totals, workspaceChannels
   const isOffline = sandbox.status === 'offline'
   const isRunning = sandbox.status === 'running'
   const isOpenClaw = sandbox.type === 'openclaw'
-  const isNanoClaw = sandbox.type === 'nanoclaw'
-  const isClaudeCode = sandbox.type === 'claudecode'
   const isCustom = sandbox.type === 'custom'
-  const isJupyter = sandbox.type === 'jupyter'
   const isHermes = sandbox.type === 'hermes'
-  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isClaudeCode ? sandbox.claudecode_url : isJupyter ? (sandbox.jupyter_url || sandbox.opencode_url) : isNanoClaw ? null : isHermes ? sandbox.hermes_url : sandbox.opencode_url
-  const fallbackLabel = isCustom ? 'Custom Agent' : isOpenClaw ? 'OpenClaw' : isClaudeCode ? 'Claude Code' : isJupyter ? 'Jupyter' : 'OpenCode'
+  const sandboxUrl = isCustom ? sandbox.custom_url : isOpenClaw ? sandbox.openclaw_url : isHermes ? sandbox.hermes_url : null
+  const fallbackLabel = isCustom ? 'Custom Agent' : isOpenClaw ? 'OpenClaw' : isHermes ? 'Hermes' : 'Sandbox'
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">
@@ -492,7 +486,7 @@ function OverviewTab({ sandbox, imBindings, usageData, totals, workspaceChannels
       )}
 
       {/* IM Channel */}
-      {(isOpenClaw || isNanoClaw) && (
+      {(isOpenClaw) && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-5 py-3">
             <MessageSquare size={14} className="text-green-400" />

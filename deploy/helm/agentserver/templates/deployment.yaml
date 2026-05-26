@@ -14,9 +14,7 @@ spec:
   replicas: {{ .Values.replicaCount }}
   # New pod must be Ready before the old one is removed. With the
   # default 25%/25% on a 1-replica deployment, the old pod could be
-  # killed before the new one is serving — codex-exec-gateway then
-  # returns 401 from the validator round-trip and every codex client
-  # disconnects with `executor registry authentication error`.
+  # killed before the new one is serving in-flight requests.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -106,7 +104,7 @@ spec:
             {{- /* Build OPENCODE_CONFIG_CONTENT with llmproxy baseURL merged in.
                  Users can override baseURL via sandbox.opencode.config.provider.anthropic.options.baseURL */}}
             {{- $llmproxyURL := printf "http://%s-llmproxy.%s.svc:%v/v1" .Release.Name .Release.Namespace (int .Values.llmproxy.port) }}
-            {{- $opcodeBase := deepCopy .Values.sandbox.opencode.config }}
+            {{- $opcodeBase := deepCopy .Values.sandbox.llmProxyConfig }}
             {{- $proxyOpts := dict "baseURL" $llmproxyURL }}
             {{- $proxyProvider := dict "options" $proxyOpts }}
             {{- $providerBlock := dict "anthropic" $proxyProvider }}
@@ -115,7 +113,7 @@ spec:
             - name: OPENCODE_CONFIG_CONTENT
               value: {{ $opcodeBase | toJson | quote }}
             - name: AGENT_IMAGE
-              value: {{ .Values.sandbox.opencode.image | quote }}
+              value: {{ .Values.sandbox.openclaw.image | default "" | quote }}
             {{- if .Values.sandbox.tolerations }}
             - name: SANDBOX_TOLERATIONS
               value: {{ .Values.sandbox.tolerations | toJson | quote }}
@@ -156,10 +154,6 @@ spec:
             - name: NETWORKPOLICY_DENY_CIDRS
               value: {{ join "," .Values.sandbox.networkPolicy.denyCIDRs | quote }}
             {{- end }}
-            {{- if .Values.sandbox.opencode.runtimeClassName }}
-            - name: RUNTIME_CLASS
-              value: {{ .Values.sandbox.opencode.runtimeClassName | quote }}
-            {{- end }}
             {{- if .Values.sandbox.openclaw.runtimeClassName }}
             - name: OPENCLAW_RUNTIME_CLASS
               value: {{ .Values.sandbox.openclaw.runtimeClassName | quote }}
@@ -167,22 +161,6 @@ spec:
             {{- if .Values.sandbox.openclaw.weixinEnabled }}
             - name: OPENCLAW_WEIXIN_ENABLED
               value: "true"
-            {{- end }}
-            {{- if .Values.sandbox.claudecode.image }}
-            - name: CLAUDECODE_IMAGE
-              value: {{ .Values.sandbox.claudecode.image | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.claudecode.runtimeClassName }}
-            - name: CLAUDECODE_RUNTIME_CLASS
-              value: {{ .Values.sandbox.claudecode.runtimeClassName | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.jupyter.image }}
-            - name: JUPYTER_IMAGE
-              value: {{ .Values.sandbox.jupyter.image | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.jupyter.runtimeClassName }}
-            - name: JUPYTER_RUNTIME_CLASS
-              value: {{ .Values.sandbox.jupyter.runtimeClassName | quote }}
             {{- end }}
             {{- if .Values.sandbox.hermes.image }}
             - name: HERMES_IMAGE
@@ -231,55 +209,6 @@ spec:
             - name: SANDBOX_SKILL_CONFIGMAPS
               value: {{ join "," $skillCMs | quote }}
             {{- end }}
-            {{- if .Values.codexExecGateway.enabled }}
-            - name: CODEX_EXEC_GATEWAY_URL
-              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
-            # serve.go reads this name (instead of CODEX_EXEC_GATEWAY_URL)
-            # to wire ExecutorsClient — without it /api/workspaces/.../executors
-            # returns []. Same URL, distinct name for clarity vs PUBLIC_HOST.
-            - name: CODEX_EXEC_GATEWAY_INTERNAL_URL
-              value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
-            {{- end }}
-            {{- if .Values.codexAppGateway.enabled }}
-            # REST base URL for /api/turns (codex routing path, e.g. WeChat).
-            # Distinct from CODEX_EXEC_GATEWAY_URL above (which serves the
-            # jupyter SDK). The /notebook/ws WS path was removed in chart
-            # 0.61.0 along with the SDK transport switch.
-            - name: CODEX_APP_GATEWAY_REST_URL
-              value: {{ printf "http://%s-codex-app-gateway.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.codexAppGateway.port) | quote }}
-            - name: CODEX_INBOUND_HMAC_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-codex-gateway
-                  key: inbound-hmac-secret
-            {{- end }}
-            {{- if .Values.sandbox.claudecode.image }}
-            - name: AGENTSERVER_INTERNAL_URL
-              value: {{ printf "http://%s.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.service.port) | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.image }}
-            - name: NANOCLAW_IMAGE
-              value: {{ .Values.sandbox.nanoclaw.image | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.runtimeClassName }}
-            - name: NANOCLAW_RUNTIME_CLASS
-              value: {{ .Values.sandbox.nanoclaw.runtimeClassName | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.weixinEnabled }}
-            - name: NANOCLAW_WEIXIN_ENABLED
-              value: "true"
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.model }}
-            - name: NANOCLAW_MODEL
-              value: {{ .Values.sandbox.nanoclaw.model | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.bridgeBaseUrl }}
-            - name: NANOCLAW_BRIDGE_BASE_URL
-              value: {{ .Values.sandbox.nanoclaw.bridgeBaseUrl | quote }}
-            {{- else if .Values.sandbox.nanoclaw.image }}
-            - name: NANOCLAW_BRIDGE_BASE_URL
-              value: {{ printf "http://%s-imbridge.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.imbridge.port) | quote }}
-            {{- end }}
             - name: IMBRIDGE_URL
               value: {{ printf "http://%s-imbridge.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.imbridge.port) | quote }}
             {{- if .Values.internal.apiSecret }}
@@ -308,47 +237,10 @@ spec:
             {{- end }}
             - name: AGENTSERVER_OPERATIONS_RETENTION_DAYS
               value: {{ .Values.operations.retentionDays | quote }}
-            {{- if .Values.codexExecGateway.publicHost }}
-            - name: CODEX_EXEC_GATEWAY_PUBLIC_HOST
-              value: {{ .Values.codexExecGateway.publicHost | quote }}
-            {{- end }}
-            {{- if .Values.codexAuth.enabled }}
-            {{- /*
-            CODEX_AUTH_ISSUER_URL is the public-facing issuer URL codex
-            sees. It lives on its own subdomain (default
-            codex-auth.<platform.domain>) routed through Gateway/Ingress
-            to agentserver's /codex-auth/* mount. Operator can override
-            the subdomain via codexAuth.externalHost.
-            */}}
-            {{- $codexAuthHost := .Values.codexAuth.externalHost }}
-            {{- if not $codexAuthHost }}{{- $codexAuthHost = printf "codex-auth.%s" .Values.platform.domain }}{{- end }}
-            - name: CODEX_AUTH_ISSUER_URL
-              value: {{ printf "https://%s" $codexAuthHost | quote }}
-            # CODEX_AUTH_HOST is the public Host header used on the
-            # codex-auth subdomain. agentserver does an in-process
-            # path rewrite (/foo → /codex-auth/foo) when it sees this
-            # exact Host, because istio 1.30's Gateway-API URLRewrite
-            # with PathPrefix `/` is a no-op (does not actually rewrite
-            # paths). Doing the rewrite in Go avoids the istio bug.
-            - name: CODEX_AUTH_HOST
-              value: {{ $codexAuthHost | quote }}
-            # Cookie Domain. When codexAuth is on, the session cookie
-            # set by /api/auth/login on <platform.domain> must also be
-            # readable on codex-auth.<platform.domain>, otherwise the
-            # codex login flow's SessionResolve always sees no session.
-            # ".<domain>" tells the browser to send the cookie to all
-            # subdomains.
-            - name: AGENTSERVER_COOKIE_DOMAIN
-              value: {{ printf ".%s" .Values.platform.domain | quote }}
-            {{- end }}
-            - name: OPENCODE_SUBDOMAIN_PREFIX
-              value: {{ .Values.sandbox.opencode.subdomainPrefix | default "code" | quote }}
             - name: OPENCLAW_SUBDOMAIN_PREFIX
               value: {{ .Values.sandbox.openclaw.subdomainPrefix | default "claw" | quote }}
-            - name: CLAUDECODE_SUBDOMAIN_PREFIX
-              value: {{ .Values.sandbox.claudecode.subdomainPrefix | default "claude" | quote }}
-            - name: JUPYTER_SUBDOMAIN_PREFIX
-              value: {{ .Values.sandbox.jupyter.subdomainPrefix | default "jupyter" | quote }}
+            - name: HERMES_SUBDOMAIN_PREFIX
+              value: {{ .Values.sandbox.hermes.subdomainPrefix | default "hermes" | quote }}
             - name: LLMPROXY_URL
               value: {{ printf "http://%s-llmproxy.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.llmproxy.port) | quote }}
             {{- if and .Values.platform.domain (or .Values.platform.auth.oidc.github.enabled .Values.platform.auth.oidc.generic.enabled) }}
@@ -437,10 +329,7 @@ spec:
           # On pod delete, sleep before the binary sees SIGTERM so kube
           # endpoints controller has time to remove this pod from the
           # Service backend list. Without this gap, in-flight requests
-          # (notably codex-exec-gateway's /internal/codex-auth/validate
-          # call) get RST'd mid-flight when the binary exits, surfacing
-          # as 401 to codex which then exits its register loop. 10s
-          # comfortably exceeds the worst-case endpoints propagation.
+          # get RST'd mid-flight when the binary exits.
           lifecycle:
             preStop:
               exec:

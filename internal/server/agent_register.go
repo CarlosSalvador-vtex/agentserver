@@ -25,7 +25,6 @@ import (
 //	@Failure   500   {string}  string  "internal error"
 //	@Router    /api/agent/register [post]
 func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
-	// Extract Bearer token.
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		http.Error(w, "missing or invalid Authorization header", http.StatusUnauthorized)
@@ -33,7 +32,6 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
-	// Introspect token via Hydra.
 	if s.HydraClient == nil {
 		http.Error(w, "OAuth not configured", http.StatusServiceUnavailable)
 		return
@@ -53,7 +51,6 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract workspace_id from token claims.
 	workspaceID, _ := introspection.Extra["workspace_id"].(string)
 	if workspaceID == "" {
 		http.Error(w, "token missing workspace_id claim", http.StatusBadRequest)
@@ -61,7 +58,6 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := introspection.Subject
 
-	// Verify workspace membership (defense in depth).
 	role, err := s.DB.GetWorkspaceMemberRole(workspaceID, userID)
 	if err != nil {
 		log.Printf("agent register: check role: %v", err)
@@ -73,7 +69,6 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request body.
 	var req struct {
 		Name string `json:"name"`
 		Type string `json:"type"`
@@ -87,16 +82,13 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	sandboxType := req.Type
 	if sandboxType == "" {
-		sandboxType = "opencode"
+		sandboxType = "custom"
 	}
-	// jupyter sandboxes are created via POST /api/workspaces/{wid}/sandboxes only;
-	// they don't self-register through this endpoint.
-	if sandboxType != "opencode" && sandboxType != "claudecode" && sandboxType != "custom" {
-		http.Error(w, "invalid type: must be opencode, claudecode, or custom", http.StatusBadRequest)
+	if sandboxType != "custom" {
+		http.Error(w, "invalid type: must be custom", http.StatusBadRequest)
 		return
 	}
 
-	// Create sandbox.
 	sandboxID := uuid.New().String()
 	tunnelToken, err := generatePassword()
 	if err != nil {
@@ -108,19 +100,11 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	var opencodePassword string
-	if sandboxType == "opencode" {
-		opencodePassword, err = generatePassword()
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-	}
 
 	sid := shortid.Generate()
 	var createErr error
 	for attempts := 0; attempts < 3; attempts++ {
-		createErr = s.DB.CreateLocalSandbox(sandboxID, workspaceID, req.Name, sandboxType, opencodePassword, proxyToken, tunnelToken, sid)
+		createErr = s.DB.CreateLocalSandbox(sandboxID, workspaceID, req.Name, sandboxType, "", proxyToken, tunnelToken, sid)
 		if createErr == nil {
 			break
 		}

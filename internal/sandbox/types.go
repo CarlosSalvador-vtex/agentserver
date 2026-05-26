@@ -4,12 +4,8 @@ package sandbox
 type SandboxType string
 
 const (
-	SandboxTypeOpencode   SandboxType = "opencode"
-	SandboxTypeOpenclaw   SandboxType = "openclaw"
-	SandboxTypeNanoclaw   SandboxType = "nanoclaw"
-	SandboxTypeClaudeCode SandboxType = "claudecode"
-	SandboxTypeJupyter    SandboxType = "jupyter"
-	SandboxTypeHermes     SandboxType = "hermes"
+	SandboxTypeOpenclaw SandboxType = "openclaw"
+	SandboxTypeHermes   SandboxType = "hermes"
 )
 
 // String returns the wire/API value for the sandbox type.
@@ -18,8 +14,7 @@ func (s SandboxType) String() string { return string(s) }
 // Valid reports whether s is a known sandbox runtime type.
 func (s SandboxType) Valid() bool {
 	switch s {
-	case SandboxTypeOpencode, SandboxTypeOpenclaw, SandboxTypeNanoclaw,
-		SandboxTypeClaudeCode, SandboxTypeJupyter, SandboxTypeHermes:
+	case SandboxTypeOpenclaw, SandboxTypeHermes:
 		return true
 	}
 	return false
