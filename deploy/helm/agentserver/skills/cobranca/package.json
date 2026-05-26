@@ -1,0 +1,15 @@
+{
+  "name": "cobranca",
+  "version": "0.1.0",
+  "description": "Cobrança pt-BR (mock) — debt-collection skill for OpenClaw + Hermes",
+  "type": "module",
+  "main": "index.mjs",
+  "openclaw": {
+    "plugin": {
+      "name": "cobranca",
+      "displayName": "Cobrança pt-BR",
+      "entry": "index.mjs"
+    }
+  },
+  "private": true
+}

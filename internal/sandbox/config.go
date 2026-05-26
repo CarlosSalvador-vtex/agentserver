@@ -272,10 +272,14 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 	type pluginEntry struct {
 		Enabled bool `json:"enabled"`
 	}
+	type pluginInstall struct {
+		Source      string `json:"source"`      // "local" for ConfigMap-mounted skills
+		InstallPath string `json:"installPath"`
+		Version     string `json:"version,omitempty"`
+	}
 	type whatsappChannel struct {
-		Enabled    bool     `json:"enabled"`
-		AllowFrom  []string `json:"allowFrom,omitempty"`
-		SessionDir string   `json:"sessionDir,omitempty"`
+		Enabled   bool     `json:"enabled"`
+		AllowFrom []string `json:"allowFrom,omitempty"`
 	}
 	type config struct {
 		Gateway struct {
@@ -292,7 +296,8 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 			Providers map[string]provider `json:"providers"`
 		} `json:"models,omitempty"`
 		Plugins *struct {
-			Entries map[string]pluginEntry `json:"entries"`
+			Entries  map[string]pluginEntry   `json:"entries"`
+			Installs map[string]pluginInstall `json:"installs,omitempty"`
 		} `json:"plugins,omitempty"`
 		Channels *struct {
 			Whatsapp *whatsappChannel `json:"whatsapp,omitempty"`
@@ -341,22 +346,34 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 
 	// Plugins. If WhatsApp is enabled but the caller didn't list the
 	// "whatsapp" plugin explicitly, add it implicitly so the channel
-	// adapter is loaded.
+	// adapter is loaded. Each enabled plugin also gets a matching
+	// installs entry pointing at the on-disk path the sandbox mount
+	// produced — OpenClaw's plugin loader ignores `entries.<name>`
+	// without a corresponding `installs.<name>` record ("stale config
+	// entry" warning) and silently drops it on save.
 	plugins := map[string]pluginEntry{}
+	installs := map[string]pluginInstall{}
 	for _, p := range opts.EnabledPlugins {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
 		plugins[p] = pluginEntry{Enabled: true}
+		installs[p] = pluginInstall{
+			Source:      "path",
+			InstallPath: "/home/node/.openclaw/extensions/" + p,
+			Version:     "0.0.0",
+		}
 	}
+	// WhatsApp lives in the bundled extensions dir, not in plugins/.
 	if len(opts.WhatsappAllowed) > 0 {
 		plugins["whatsapp"] = pluginEntry{Enabled: true}
 	}
 	if len(plugins) > 0 {
 		c.Plugins = &struct {
-			Entries map[string]pluginEntry `json:"entries"`
-		}{Entries: plugins}
+			Entries  map[string]pluginEntry   `json:"entries"`
+			Installs map[string]pluginInstall `json:"installs,omitempty"`
+		}{Entries: plugins, Installs: installs}
 	}
 
 	// WhatsApp channel.
@@ -371,9 +388,8 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 			Whatsapp *whatsappChannel `json:"whatsapp,omitempty"`
 		}{
 			Whatsapp: &whatsappChannel{
-				Enabled:    true,
-				AllowFrom:  allow,
-				SessionDir: "/home/node/.openclaw/whatsapp",
+				Enabled:   true,
+				AllowFrom: allow,
 			},
 		}
 	}

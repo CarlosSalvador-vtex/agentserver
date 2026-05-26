@@ -1419,7 +1419,10 @@ func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([
 	case "hermes":
 		mountRoot = "/opt/data/skills/personal"
 	case "openclaw":
-		mountRoot = "/home/node/.openclaw/plugins"
+		// OpenClaw discovers plugins under ~/.openclaw/extensions/ (where the
+		// bundled openclaw-weixin lives), NOT ~/.openclaw/plugins/ — the
+		// latter exists as a metadata cache but the loader scans extensions/.
+		mountRoot = "/home/node/.openclaw/extensions"
 	default:
 		return nil, nil, fmt.Errorf("skill mounts not supported for sandbox type %q", platform)
 	}
