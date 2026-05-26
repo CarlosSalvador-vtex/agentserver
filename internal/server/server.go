@@ -209,13 +209,10 @@ func (s *Server) Router() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// WhatsApp Cloud webhook — public, identity enforced by hub.verify_token.
-	// Reverse-proxied to the imbridge service (where the actual handler lives)
-	// so deployments split across pods still work. When IMBridgeURL is empty,
-	// the proxy short-circuits to localhost:8080 which is fine for in-process
-	// mode (single binary serves both).
-	r.Get("/webhook/whatsapp", s.imBridgeProxy)
-	r.Post("/webhook/whatsapp", s.imBridgeProxy)
+	// WhatsApp Cloud webhook is wired below, inside the
+	// `if s.IMBridgeURL != ""` block, because s.imBridgeProxy is
+	// constructed there. Registering at this point would capture a nil
+	// HandlerFunc and panic on first request.
 
 	// Internal API for LLM proxy token validation (no cookie auth).
 	r.Post("/internal/validate-proxy-token", s.handleValidateProxyToken)
@@ -319,6 +316,11 @@ func (s *Server) Router() http.Handler {
 		// Internal API for NanoClaw pods to send IM replies (auth via bridge secret).
 		r.Post("/api/internal/nanoclaw/{id}/im/send", s.imBridgeProxy)
 		r.Post("/api/internal/nanoclaw/{id}/weixin/send", s.imBridgeProxy) // legacy alias
+
+		// WhatsApp Cloud webhook — public (auth enforced by hub.verify_token).
+		// Reverse-proxied to the imbridge service where the handler lives.
+		r.Get("/webhook/whatsapp", s.imBridgeProxy)
+		r.Post("/webhook/whatsapp", s.imBridgeProxy)
 	}
 
 	// Codex routing path: WeChat (and other channels) with routing_mode="codex"
