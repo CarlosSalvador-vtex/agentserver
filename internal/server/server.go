@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/codexauth"
 	"github.com/agentserver/agentserver/internal/db"
@@ -188,6 +189,12 @@ func (s *Server) Router() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+
+	// Prometheus scrape endpoint (no auth). Exposes default Go runtime
+	// metrics plus playground + composition counters/histograms registered
+	// in playground_metrics.go and sandbox/metrics.go via promauto against
+	// prometheus.DefaultRegisterer. See improvements.md #6.
+	r.Handle("/metrics", promhttp.Handler())
 
 	// WhatsApp Cloud webhook is wired below, inside the
 	// `if s.IMBridgeURL != ""` block, because s.imBridgeProxy is

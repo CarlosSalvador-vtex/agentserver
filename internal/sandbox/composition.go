@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,7 +85,15 @@ type ResolvedComposition struct {
 
 // ResolveComposition turns a stored sandbox_compositions row into the
 // K8s objects + payloads the pod spec builder consumes.
-func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, platform string) (*ResolvedComposition, error) {
+func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, platform string) (resolved *ResolvedComposition, err error) {
+	start := time.Now()
+	defer func() {
+		result := "ok"
+		if err != nil {
+			result = "error"
+		}
+		observeCompositionResolve(result, time.Since(start).Seconds())
+	}()
 	comp, err := m.db.GetSandboxComposition(sandboxID)
 	if err != nil {
 		return nil, fmt.Errorf("load composition: %w", err)
@@ -95,7 +104,7 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, 
 		return &ResolvedComposition{}, nil
 	}
 
-	resolved := &ResolvedComposition{}
+	resolved = &ResolvedComposition{}
 
 	// --- Soul ---
 	if comp.SoulRef.Valid {

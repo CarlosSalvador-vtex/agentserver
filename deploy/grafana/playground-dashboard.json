@@ -1,0 +1,122 @@
+{
+  "uid": "agentserver-playground",
+  "title": "Agentserver — Playground",
+  "tags": ["agentserver", "playground"],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Drafts — created / patched / archived / promoted (per kind)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (kind, action) (rate(playground_drafts_total[5m]))",
+          "legendFormat": "{{kind}} · {{action}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Dry-run latency P50/P95/P99 — by kind",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (kind, le) (rate(playground_dryrun_duration_seconds_bucket[5m])))",
+          "legendFormat": "P50 · {{kind}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (kind, le) (rate(playground_dryrun_duration_seconds_bucket[5m])))",
+          "legendFormat": "P95 · {{kind}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (kind, le) (rate(playground_dryrun_duration_seconds_bucket[5m])))",
+          "legendFormat": "P99 · {{kind}}",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Dry-run outcomes (rate, by kind+result)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (kind, result) (rate(playground_dryrun_duration_seconds_count[5m]))",
+          "legendFormat": "{{kind}} · {{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Promote outcomes (1h)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (kind, result) (increase(playground_promote_total[1h]))",
+          "legendFormat": "{{kind}} · {{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "thresholds" } }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Composition resolve latency P95/P99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (result, le) (rate(sandbox_composition_resolve_duration_seconds_bucket[5m])))",
+          "legendFormat": "P95 · {{result}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (result, le) (rate(sandbox_composition_resolve_duration_seconds_bucket[5m])))",
+          "legendFormat": "P99 · {{result}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Test-sandbox spawns (rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(playground_test_sandbox_total[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    }
+  ]
+}

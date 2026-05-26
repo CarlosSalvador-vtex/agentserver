@@ -122,6 +122,7 @@ func (s *Server) handleSkillDraftTestSandbox(w http.ResponseWriter, r *http.Requ
 		log.Printf("playground test sandbox: register %s: %v", sbx.ID, err)
 	}
 
+	RecordTestSandboxResult("ok")
 	expiresAt := time.Now().Add(playgroundTestSandboxTTL).UTC().Format(time.RFC3339)
 	writeJSON(w, http.StatusOK, playgroundTestSandboxResponse{
 		SandboxID: sbx.ID,
