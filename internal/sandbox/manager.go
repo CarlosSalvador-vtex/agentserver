@@ -636,9 +636,13 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 
 	// Skill ConfigMaps (cobrança, etc.) — mounted under
 	// /opt/data/skills/personal/<name>/ for hermes or
-	// /home/node/.openclaw/plugins/<name>/ for openclaw. The replicate +
-	// mount helpers walk Config.SkillConfigMaps; non-matching sandbox
-	// types skip silently.
+	// /home/agent/.openclaw/extensions/<name>/ for openclaw. Two paths
+	// feed this:
+	//   1. Env-driven SkillConfigMaps (chart-level): the historical
+	//      global skill list. Mounted via skillVolumesAndMounts.
+	//   2. Composition-driven (playground): per-sandbox refs in
+	//      sandbox_compositions. ResolveComposition materializes
+	//      ephemeral ConfigMaps + builds the vol/mount payload directly.
 	if opts.SandboxType == "hermes" || opts.SandboxType == "openclaw" {
 		if err := m.replicateSkillConfigMaps(ctx, ns); err != nil {
 			return "", fmt.Errorf("replicate skill configmaps: %w", err)
@@ -649,6 +653,26 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		}
 		volumes = append(volumes, skillVols...)
 		volumeMounts = append(volumeMounts, skillMounts...)
+
+		// Composition (playground) — apply draft soul + skill mounts on
+		// top of the env-driven ones. Best-effort: failures are logged
+		// and don't abort sandbox creation (the sandbox can still boot
+		// without the composition; user re-creates if needed).
+		resolved, err := m.ResolveComposition(ctx, id, ns, opts.SandboxType)
+		if err != nil {
+			log.Printf("composition resolve for %s: %v (continuing without)", id, err)
+		} else if resolved != nil {
+			for i := range resolved.EphemeralConfigMaps {
+				cm := resolved.EphemeralConfigMaps[i]
+				if _, err := m.clientset.CoreV1().ConfigMaps(ns).Create(ctx, &cm, metav1.CreateOptions{}); err != nil {
+					if !k8serrors.IsAlreadyExists(err) {
+						log.Printf("apply ephemeral configmap %s/%s: %v", ns, cm.Name, err)
+					}
+				}
+			}
+			volumes = append(volumes, resolved.ExtraVolumes...)
+			volumeMounts = append(volumeMounts, resolved.ExtraMounts...)
+		}
 	}
 
 	// Determine the home directory to seed from: openclaw uses /home/node,
