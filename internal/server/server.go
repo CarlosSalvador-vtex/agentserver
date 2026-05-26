@@ -463,6 +463,11 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/api/playground/souls/{id}", s.handleArchiveSoulDraft)
 		r.Post("/api/playground/souls/{id}/promote", s.handlePromoteSoulDraft)
 		r.Post("/api/playground/souls/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSoulDraftDryRun))
+		// Git-pinned templates (improvements.md picker gap a). Hardcoded
+		// registry today; #17 tenant catalog moves to DB.
+		r.Get("/api/templates/skills", s.handleListSkillTemplates)
+		r.Get("/api/templates/souls", s.handleListSoulTemplates)
+		r.Get("/api/templates/skill", s.handleGetSkillTemplate)
 		r.Get("/api/workspaces/quota", s.handleGetWorkspacesQuota)
 		r.Get("/api/workspaces/{id}", s.handleGetWorkspace)
 		r.Patch("/api/workspaces/{id}", s.handleRenameWorkspace)
