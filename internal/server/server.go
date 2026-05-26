@@ -24,6 +24,7 @@ import (
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
 	"github.com/agentserver/agentserver/internal/process"
+	"github.com/agentserver/agentserver/internal/sandbox"
 	"github.com/agentserver/agentserver/internal/sbxstore"
 	"github.com/agentserver/agentserver/internal/secrets"
 	"github.com/agentserver/agentserver/internal/shortid"
@@ -917,9 +918,9 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 			subID = sbx.ID
 		}
 		switch sbx.Type {
-		case "openclaw":
+		case sandbox.SandboxTypeOpenclaw.String():
 			resp.OpenclawURL = "https://" + s.OpenclawSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "hermes":
+		case sandbox.SandboxTypeHermes.String():
 			resp.HermesURL = "https://" + s.HermesSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		}
 	}
@@ -963,7 +964,7 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 
 // attachIMBindings fetches and attaches IM channel records to a sandbox response.
 func (s *Server) attachIMBindings(resp *sandboxResponse) {
-	if resp.Type != "openclaw" {
+	if resp.Type != sandbox.SandboxTypeOpenclaw.String() {
 		return
 	}
 	// Return only the channel bound to THIS sandbox.
@@ -1750,9 +1751,9 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	}
 	sandboxType := in.Type
 	if sandboxType == "" {
-		sandboxType = "openclaw"
+		sandboxType = sandbox.SandboxTypeOpenclaw.String()
 	}
-	if sandboxType != "openclaw" && sandboxType != "hermes" {
+	if !(sandbox.SandboxType(sandboxType).Valid()) {
 		return nil, &provisionError{
 			Code:    "invalid_type",
 			Status:  http.StatusBadRequest,
@@ -1841,7 +1842,7 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	if err != nil {
 		return nil, fmt.Errorf("generate proxy token: %w", err)
 	}
-	if sandboxType == "openclaw" {
+	if sandboxType == sandbox.SandboxTypeOpenclaw.String() {
 		openclawToken, err = generatePassword()
 		if err != nil {
 			return nil, fmt.Errorf("generate openclaw token: %w", err)

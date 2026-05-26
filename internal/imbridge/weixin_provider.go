@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/agentserver/agentserver/internal/sandbox"
 	"github.com/agentserver/agentserver/internal/weixin"
 )
 
@@ -20,7 +21,7 @@ const (
 // WeixinProvider implements Provider for WeChat via iLink API.
 type WeixinProvider struct{}
 
-func (p *WeixinProvider) Name() string      { return "weixin" }
+func (p *WeixinProvider) Name() string { return sandbox.ProviderWeixin.String() }
 func (p *WeixinProvider) JIDSuffix() string { return "@im.wechat" }
 
 func (p *WeixinProvider) Poll(ctx context.Context, creds *Credentials, cursor string) (*PollResult, error) {

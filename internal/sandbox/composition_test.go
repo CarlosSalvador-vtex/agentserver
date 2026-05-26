@@ -1,6 +1,9 @@
 package sandbox
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseCompositionRef(t *testing.T) {
 	tests := []struct {
@@ -47,6 +50,18 @@ func TestParseCompositionRef(t *testing.T) {
 					got, tt.kind, tt.name, tt.sha, tt.uuid)
 			}
 		})
+	}
+}
+
+func TestPrependOpenclawSoulHint(t *testing.T) {
+	out := prependOpenclawSoulHint(map[string]string{
+		"prompt.md": "# Skill\nDo things.",
+	})
+	if !strings.Contains(out["prompt.md"], "/home/agent/.openclaw/soul.md") {
+		t.Fatalf("prompt.md missing soul hint: %q", out["prompt.md"])
+	}
+	if !strings.HasSuffix(out["prompt.md"], "# Skill\nDo things.") {
+		t.Fatalf("prompt.md should preserve original body")
 	}
 }
 

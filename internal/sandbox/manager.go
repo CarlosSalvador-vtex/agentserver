@@ -321,7 +321,7 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 	sandboxName := "agent-sandbox-" + shortID(id)
 	ns := opts.Namespace
 
-	if !Valid(opts.SandboxType) {
+	if !SandboxType(opts.SandboxType).Valid() {
 		return "", fmt.Errorf("unsupported sandbox type %q: must be openclaw or hermes", opts.SandboxType)
 	}
 
@@ -370,7 +370,7 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 	var containerArgs []string
 
 	switch opts.SandboxType {
-	case TypeOpenclaw:
+	case SandboxTypeOpenclaw.String():
 		if m.cfg.OpenclawImage == "" {
 			return "", fmt.Errorf("OPENCLAW_IMAGE not configured: set the environment variable to the openclaw container image")
 		}
@@ -449,7 +449,13 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		if opts.OpenclawToken != "" {
 			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCLAW_GATEWAY_TOKEN", Value: opts.OpenclawToken})
 		}
-	case TypeHermes:
+		if composition.SoulBody != "" {
+			containerEnv = append(containerEnv,
+				corev1.EnvVar{Name: "OPENCLAW_SOUL_FILE", Value: "/home/agent/.openclaw/soul.md"},
+				corev1.EnvVar{Name: "AGENTSERVER_SOUL_BODY", Value: composition.SoulBody},
+			)
+		}
+	case SandboxTypeHermes.String():
 		if m.cfg.HermesImage == "" {
 			return "", fmt.Errorf("HERMES_IMAGE not configured: set the environment variable to the hermes-agent container image (ghcr.io/nousresearch/hermes-agent)")
 		}
@@ -481,7 +487,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// directory at /opt/data (mirrors `-v ~/.hermes:/opt/data` from upstream
 	// docs); all other sandbox types use the user's home directory.
 	sessionMountPath := "/home/agent"
-	if opts.SandboxType == TypeHermes {
+	if opts.SandboxType == SandboxTypeHermes.String() {
 		sessionMountPath = "/opt/data"
 	}
 	volumeMounts := []corev1.VolumeMount{
@@ -514,7 +520,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// Soul body for hermes lands at /opt/data/SOUL.md (uppercase, the
 	// HERMES_HOME convention — hermes-agent auto-loads it as persona on
 	// every turn). See soulMountPath in composition.go.
-	if opts.SandboxType == TypeHermes && m.cfg.HermesConfigMapName != "" {
+	if opts.SandboxType == SandboxTypeHermes.String() && m.cfg.HermesConfigMapName != "" {
 		volumes = append(volumes, corev1.Volume{
 			Name: "hermes-config",
 			VolumeSource: corev1.VolumeSource{
@@ -545,7 +551,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	//   2. Composition-driven (playground): per-sandbox refs in
 	//      sandbox_compositions. ResolveComposition materializes
 	//      ephemeral ConfigMaps + builds the vol/mount payload directly.
-	if opts.SandboxType == TypeHermes || opts.SandboxType == TypeOpenclaw {
+	if opts.SandboxType == SandboxTypeHermes.String() || opts.SandboxType == SandboxTypeOpenclaw.String() {
 		if err := m.replicateSkillConfigMaps(ctx, ns); err != nil {
 			return "", fmt.Errorf("replicate skill configmaps: %w", err)
 		}
@@ -576,7 +582,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// Determine the home directory to seed from: openclaw uses /home/node,
 	// all other images use /home/agent.
 	seedHome := "/home/agent"
-	if opts.SandboxType == TypeOpenclaw {
+	if opts.SandboxType == SandboxTypeOpenclaw.String() {
 		seedHome = "/home/node"
 	}
 	initScript := fmt.Sprintf(`
@@ -630,7 +636,7 @@ chown -R 1000:1000 /mnt/session-data
 	}
 
 	workingDir := "/home/agent/projects"
-	if opts.SandboxType == TypeOpenclaw {
+	if opts.SandboxType == SandboxTypeOpenclaw.String() {
 		workingDir = "/app"
 	}
 
@@ -703,7 +709,7 @@ chown -R 1000:1000 /mnt/session-data
 	}
 
 	var serviceAccountName string
-	if opts.SandboxType == TypeHermes && m.cfg.HermesServiceAccountRoleArn != "" {
+	if opts.SandboxType == SandboxTypeHermes.String() && m.cfg.HermesServiceAccountRoleArn != "" {
 		if err := m.ensureHermesServiceAccount(ctx, ns); err != nil {
 			return "", fmt.Errorf("ensure hermes ServiceAccount: %w", err)
 		}
@@ -956,11 +962,11 @@ func (m *Manager) runtimeClassName() *string {
 
 func (m *Manager) runtimeClassNameFor(sandboxType string) *string {
 	switch sandboxType {
-	case TypeOpenclaw:
+	case SandboxTypeOpenclaw.String():
 		if m.cfg.OpenclawRuntimeClassName != "" {
 			return strPtr(m.cfg.OpenclawRuntimeClassName)
 		}
-	case TypeHermes:
+	case SandboxTypeHermes.String():
 		if m.cfg.HermesRuntimeClassName != "" {
 			return strPtr(m.cfg.HermesRuntimeClassName)
 		}
@@ -1312,9 +1318,9 @@ func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([
 	}
 	var mountRoot string
 	switch platform {
-	case TypeHermes:
+	case SandboxTypeHermes.String():
 		mountRoot = "/opt/data/skills/personal"
-	case TypeOpenclaw:
+	case SandboxTypeOpenclaw.String():
 		// OpenClaw discovers plugins under ~/.openclaw/extensions/. The
 		// upstream openclaw image runs as user `agent` (warning at boot:
 		// "discovered non-bundled plugins may auto-load: openclaw-weixin
