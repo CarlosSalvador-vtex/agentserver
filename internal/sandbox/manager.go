@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"log"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -374,7 +375,26 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 			cfgAPIKey = opts.BYOKAPIKey
 			cfgModels = opts.BYOKModels
 		}
-		openclawCfg := BuildOpenclawConfig(cfgBaseURL, cfgAPIKey, opts.OpenclawToken, cfgModels)
+		// Surface enabled skill plugins (one entry per skill ConfigMap) so the
+		// openclaw plugin host loads them on startup. WhatsApp allowlist is
+		// taken from the env (HERMES_WHATSAPP_ALLOWED reused for openclaw
+		// when set on the agentserver pod).
+		var skillPlugins []string
+		for name := range m.cfg.SkillConfigMaps {
+			skillPlugins = append(skillPlugins, name)
+		}
+		var openclawWA []string
+		if m.cfg.OpenclawWhatsappAllowed != "" {
+			for _, n := range strings.Split(m.cfg.OpenclawWhatsappAllowed, ",") {
+				if t := strings.TrimSpace(n); t != "" {
+					openclawWA = append(openclawWA, t)
+				}
+			}
+		}
+		openclawCfg := BuildOpenclawConfig(cfgBaseURL, cfgAPIKey, opts.OpenclawToken, cfgModels, OpenclawConfigOptions{
+			EnabledPlugins:  skillPlugins,
+			WhatsappAllowed: openclawWA,
+		})
 		// Merge our gateway/models config into the image's existing openclaw.json
 		// (which contains plugin install metadata) instead of overwriting it.
 		containerCmd = []string{"sh", "-c", `mkdir -p ~/.openclaw && node -e "
@@ -520,6 +540,15 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			// can hit the gateway without configuring a messaging platform.
 			corev1.EnvVar{Name: "GATEWAY_ALLOW_ALL_USERS", Value: "true"},
 		)
+		// WHATSAPP_ALLOWED_USERS — comma-separated E.164 list. When set,
+		// hermes routes WA messages from these numbers; QR pairing happens
+		// once via the dashboard subdomain. Session persists on the
+		// session-data PVC under /opt/data/whatsapp.
+		if m.cfg.HermesWhatsappAllowed != "" {
+			containerEnv = append(containerEnv,
+				corev1.EnvVar{Name: "WHATSAPP_ALLOWED_USERS", Value: m.cfg.HermesWhatsappAllowed},
+			)
+		}
 		// GLM_API_KEY drives the zai/glm-5.1 fallback provider configured
 		// in config.yaml. Bedrock is primary (IRSA via ServiceAccount),
 		// GLM kicks in if Bedrock fails.
@@ -603,6 +632,23 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 			SubPath:   "config.yaml",
 			ReadOnly:  true,
 		})
+	}
+
+	// Skill ConfigMaps (cobrança, etc.) — mounted under
+	// /opt/data/skills/personal/<name>/ for hermes or
+	// /home/node/.openclaw/plugins/<name>/ for openclaw. The replicate +
+	// mount helpers walk Config.SkillConfigMaps; non-matching sandbox
+	// types skip silently.
+	if opts.SandboxType == "hermes" || opts.SandboxType == "openclaw" {
+		if err := m.replicateSkillConfigMaps(ctx, ns); err != nil {
+			return "", fmt.Errorf("replicate skill configmaps: %w", err)
+		}
+		skillVols, skillMounts, err := m.skillVolumesAndMounts(ctx, opts.SandboxType)
+		if err != nil {
+			return "", fmt.Errorf("build skill mounts: %w", err)
+		}
+		volumes = append(volumes, skillVols...)
+		volumeMounts = append(volumeMounts, skillMounts...)
 	}
 
 	// Determine the home directory to seed from: openclaw uses /home/node,
@@ -1298,21 +1344,32 @@ func (m *Manager) ensureHermesServiceAccount(ctx context.Context, namespace stri
 }
 
 // replicateHermesConfigMap copies the cluster-wide hermes config map from the
-// agentserver release namespace into the workspace namespace so the sandbox
-// pod can mount it. ConfigMaps are namespace-scoped, so without this every
-// workspace ns would need its own copy.
+// agentserver release namespace into the workspace namespace. Thin wrapper
+// over the generic replicateConfigMap.
 func (m *Manager) replicateHermesConfigMap(ctx context.Context, targetNS string) error {
+	return m.replicateConfigMap(ctx, m.cfg.HermesConfigMapName, targetNS)
+}
+
+// replicateConfigMap copies a ConfigMap from the agentserver release
+// namespace into the workspace namespace so the sandbox pod can mount it.
+// ConfigMaps are namespace-scoped, so without this every workspace ns would
+// need its own copy. Idempotent — on existing target it overwrites
+// Data/BinaryData. Empty name is a no-op (logs + returns nil).
+func (m *Manager) replicateConfigMap(ctx context.Context, name, targetNS string) error {
+	if name == "" {
+		return nil
+	}
 	srcNS := m.cfg.AgentserverNamespace
 	if srcNS == "" {
 		srcNS = "default"
 	}
-	src, err := m.clientset.CoreV1().ConfigMaps(srcNS).Get(ctx, m.cfg.HermesConfigMapName, metav1.GetOptions{})
+	src, err := m.clientset.CoreV1().ConfigMaps(srcNS).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("get source configmap %s/%s: %w", srcNS, m.cfg.HermesConfigMapName, err)
+		return fmt.Errorf("get source configmap %s/%s: %w", srcNS, name, err)
 	}
 	dst := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      m.cfg.HermesConfigMapName,
+			Name:      name,
 			Namespace: targetNS,
 			Labels:    map[string]string{labelManagedBy: labelValue},
 		},
@@ -1331,4 +1388,110 @@ func (m *Manager) replicateHermesConfigMap(ctx context.Context, targetNS string)
 	existing.BinaryData = dst.BinaryData
 	_, err = m.clientset.CoreV1().ConfigMaps(targetNS).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
+}
+
+// replicateSkillConfigMaps copies every skill ConfigMap declared in
+// Config.SkillConfigMaps into the target namespace. Failures on individual
+// skills are returned as the first non-nil error — the caller decides
+// whether to abort sandbox creation or proceed.
+func (m *Manager) replicateSkillConfigMaps(ctx context.Context, targetNS string) error {
+	for skillName, cmName := range m.cfg.SkillConfigMaps {
+		if err := m.replicateConfigMap(ctx, cmName, targetNS); err != nil {
+			return fmt.Errorf("replicate skill %q configmap %q: %w", skillName, cmName, err)
+		}
+	}
+	return nil
+}
+
+// skillVolumesAndMounts builds Volume + VolumeMount entries for every skill
+// ConfigMap declared in Config.SkillConfigMaps, scoped to the given platform.
+// Files inside a skill ConfigMap use "__" as the slash separator (K8s data
+// key rule); this helper maps each key back to its nested path under the
+// mount root via items[].path.
+//
+// platform must be "hermes" or "openclaw" — drives the on-disk parent dir.
+func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	if len(m.cfg.SkillConfigMaps) == 0 {
+		return nil, nil, nil
+	}
+	var mountRoot string
+	switch platform {
+	case "hermes":
+		mountRoot = "/opt/data/skills/personal"
+	case "openclaw":
+		// OpenClaw discovers plugins under ~/.openclaw/extensions/ (where the
+		// bundled openclaw-weixin lives), NOT ~/.openclaw/plugins/ — the
+		// latter exists as a metadata cache but the loader scans extensions/.
+		mountRoot = "/home/node/.openclaw/extensions"
+	default:
+		return nil, nil, fmt.Errorf("skill mounts not supported for sandbox type %q", platform)
+	}
+
+	srcNS := m.cfg.AgentserverNamespace
+	if srcNS == "" {
+		srcNS = "default"
+	}
+
+	var vols []corev1.Volume
+	var mounts []corev1.VolumeMount
+	// Deterministic iteration order so manifests don't churn under
+	// `kubectl diff` from one create to the next.
+	names := make([]string, 0, len(m.cfg.SkillConfigMaps))
+	for n := range m.cfg.SkillConfigMaps {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	for _, skillName := range names {
+		cmName := m.cfg.SkillConfigMaps[skillName]
+		// Read the ConfigMap keys so we know which files to mount. Read
+		// from the release namespace (always present) rather than the
+		// workspace ns (race with replicateConfigMap).
+		src, err := m.clientset.CoreV1().ConfigMaps(srcNS).Get(ctx, cmName, metav1.GetOptions{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("read skill configmap %s/%s: %w", srcNS, cmName, err)
+		}
+		if len(src.Data) == 0 {
+			continue
+		}
+		volName := fmt.Sprintf("skill-%s", skillName)
+		items := make([]corev1.KeyToPath, 0, len(src.Data))
+		for key := range src.Data {
+			// Restore "/" from the "__" encoding used in ConfigMap keys.
+			path := strings.ReplaceAll(key, "__", "/")
+			items = append(items, corev1.KeyToPath{Key: key, Path: path})
+		}
+		sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+		vols = append(vols, corev1.Volume{
+			Name: volName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+					Items:                items,
+				},
+			},
+		})
+		// Per-file subPath mount so the parent directory on the PVC stays
+		// writable (state/ subdir + agreements.log). SubPath must match
+		// item.Path (the nested layout K8s materializes inside the volume),
+		// NOT item.Key (the flat ConfigMap data key with "__" encoding).
+		// Using item.Key as SubPath made K8s create empty directories at
+		// the mount target instead of mounting the file.
+		for _, item := range items {
+			mounts = append(mounts, corev1.VolumeMount{
+				Name:      volName,
+				MountPath: fmt.Sprintf("%s/%s/%s", mountRoot, skillName, item.Path),
+				SubPath:   item.Path,
+				ReadOnly:  true,
+			})
+		}
+	}
+	return vols, mounts, nil
+}
+
+// ensureOpenclawDeps replicates skill ConfigMaps into the workspace namespace
+// for an OpenClaw sandbox. Mirrors ensureHermesServiceAccount but without the
+// ServiceAccount + IRSA branch (openclaw doesn't currently need IRSA).
+func (m *Manager) ensureOpenclawDeps(ctx context.Context, namespace string) error {
+	return m.replicateSkillConfigMaps(ctx, namespace)
 }

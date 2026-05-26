@@ -102,6 +102,10 @@ sandbox:
     runtimeClassName: ""
     subdomainPrefix: "claw"  # subdomain: {prefix}-{sessionID}.{baseDomain}
     weixinEnabled: false     # Install and enable the official WeChat channel plugin
+    # WhatsApp allowlist (E.164 phone numbers). When non-empty, the openclaw
+    # config injection sets channels.whatsapp.allowFrom and enables the
+    # bundled "whatsapp" plugin.
+    whatsappAllowedUsers: []
   claudecode:
     image: ""                # e.g. ghcr.io/agentserver/claudecode-agent:main
     runtimeClassName: ""
@@ -120,6 +124,9 @@ sandbox:
     image: ""                # e.g. ghcr.io/nousresearch/hermes-agent:latest
     runtimeClassName: ""
     subdomainPrefix: "hermes" # subdomain: {prefix}-{sandboxID}.{baseDomain}
+    # WhatsApp allowlist (E.164). Injected as WHATSAPP_ALLOWED_USERS env in
+    # the hermes pod; first-time pairing via dashboard QR.
+    whatsappAllowedUsers: []
     # IRSA role ARN to attach to the auto-created "hermes" ServiceAccount in
     # each workspace namespace (gives the sandbox pod Bedrock access).
     serviceAccountRoleArn: ""
@@ -135,6 +142,19 @@ sandbox:
     enabled: false
     # CIDR ranges to deny egress to (internal/private networks).
     denyCIDRs: []
+  # Custom skills delivered into every sandbox pod via ConfigMap-mount.
+  # Files live under deploy/helm/agentserver/skills/<name>/ in the chart;
+  # the skills-configmap.yaml template emits one ConfigMap per enabled
+  # entry, and the agentserver replicates each into the workspace
+  # namespace at sandbox-create time. Mount paths per platform:
+  #   hermes:   /opt/data/skills/personal/<name>/<file>
+  #   openclaw: /home/node/.openclaw/plugins/<name>/<file>
+  skills: {}
+  # Example:
+  # skills:
+  #   cobranca:
+  #     enabled: true
+  #     platforms: [hermes, openclaw]   # informational; mounts always happen
 
 agentSandbox:
   # Set to false to skip installing the agent-sandbox controller (if already installed cluster-wide)

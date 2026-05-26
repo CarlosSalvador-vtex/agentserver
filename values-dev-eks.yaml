@@ -3,7 +3,7 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: hermes-bedrock
+  tag: cobranca
   pullPolicy: Always
 
 llmproxy:
@@ -64,6 +64,9 @@ sandbox:
   openclaw:
     # Pin by digest for reproducibility (current :latest = sha 1c03752...)
     image: "ghcr.io/agentserver/openclaw-agent@sha256:1c03752715d7739093a764e5d4fea097f970ad315201ce6c9b4d7e903ada6a5d"
+    # WhatsApp pairing — same number used for Hermes.
+    whatsappAllowedUsers:
+      - "+5527996073736"
   hermes:
     # GHCR repo is gated (403); Docker Hub public mirror works
     image: "docker.io/nousresearch/hermes-agent:main"
@@ -86,6 +89,17 @@ sandbox:
           provider: zai
       agent:
         max_turns: 80
+    # WhatsApp pairing (E.164). One-time QR scan via dashboard subdomain.
+    whatsappAllowedUsers:
+      - "+5527996073736"
+  # Cobrança skill — text-only MVP for pt-BR debt-collection sims (LGPD-safe).
+  # Assets live in deploy/helm/agentserver/skills/cobranca/; the
+  # skills-configmap.yaml template renders them into a ConfigMap which the
+  # sandbox manager mounts inside every new OpenClaw + Hermes pod.
+  skills:
+    cobranca:
+      enabled: true
+      platforms: [hermes, openclaw]
   # Applied to every sandbox pod template so they can schedule on tainted nodes
   tolerations:
     - key: "internal-workers"
