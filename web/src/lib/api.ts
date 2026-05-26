@@ -190,6 +190,49 @@ export async function getWorkspacesQuota(): Promise<components['schemas']['Works
   return apiFetch<components['schemas']['WorkspaceQuotaResponse']>({ method: 'GET', path: '/api/workspaces/quota' })
 }
 
+// Multi-channel routing (PR #3/#4) — strategy + auto-bind
+
+export type ChannelRoutingStrategy = 'shared' | 'per_agent' | 'hybrid'
+
+export async function getWorkspaceRoutingStrategy(
+  workspaceId: string,
+): Promise<{ strategy: ChannelRoutingStrategy }> {
+  return apiFetch<{ strategy: ChannelRoutingStrategy }>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/routing-strategy`,
+  })
+}
+
+export async function updateWorkspaceRoutingStrategy(
+  workspaceId: string,
+  strategy: ChannelRoutingStrategy,
+): Promise<{ strategy: ChannelRoutingStrategy }> {
+  return apiFetch<{ strategy: ChannelRoutingStrategy }>({
+    method: 'PUT',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/routing-strategy`,
+    body: { strategy },
+  })
+}
+
+export interface AutoBindResponse {
+  sandbox_id: string
+  channel_id: string
+  strategy: ChannelRoutingStrategy
+  reused: boolean
+}
+
+export async function autoBindChannel(
+  workspaceId: string,
+  channelId: string,
+  opts?: { sandbox_type?: string; name?: string },
+): Promise<AutoBindResponse> {
+  return apiFetch<AutoBindResponse>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/channels/${encodeURIComponent(channelId)}/auto-bind`,
+    body: opts ?? {},
+  })
+}
+
 // Workspace member API
 
 export async function listMembers(workspaceId: string): Promise<WorkspaceMember[]> {

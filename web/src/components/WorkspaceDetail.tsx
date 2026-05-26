@@ -38,6 +38,10 @@ import {
   listWorkspaceIMChannels,
   deleteWorkspaceIMChannel,
   updateWorkspaceIMChannel,
+  getWorkspaceRoutingStrategy,
+  updateWorkspaceRoutingStrategy,
+  autoBindChannel,
+  type ChannelRoutingStrategy,
   listCredentialBindings,
   createCredentialBinding,
   deleteCredentialBinding,
@@ -865,12 +869,44 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
   const [showTelegramConfig, setShowTelegramConfig] = useState(false)
   const [showMatrixConfig, setShowMatrixConfig] = useState(false)
   const [confirmDeleteChannel, setConfirmDeleteChannel] = useState<IMChannel | null>(null)
+  const [strategy, setStrategy] = useState<ChannelRoutingStrategy | null>(null)
+  const [bindingChannelId, setBindingChannelId] = useState<string | null>(null)
+  const [bindResult, setBindResult] = useState<{ channelId: string; message: string; ok: boolean } | null>(null)
 
   const loadChannels = useCallback(() => {
     listWorkspaceIMChannels(workspaceId).then(r => setImChannels(r.channels || [])).catch(() => {})
   }, [workspaceId])
 
   useEffect(() => { loadChannels() }, [loadChannels])
+  useEffect(() => {
+    getWorkspaceRoutingStrategy(workspaceId)
+      .then((r) => setStrategy(r.strategy))
+      .catch(() => setStrategy('shared'))
+  }, [workspaceId])
+
+  const handleAutoBind = async (channel: IMChannel) => {
+    setBindingChannelId(channel.id)
+    setBindResult(null)
+    try {
+      const r = await autoBindChannel(workspaceId, channel.id)
+      setBindResult({
+        channelId: channel.id,
+        ok: true,
+        message: r.reused
+          ? `Bound to existing sandbox ${r.sandbox_id.slice(0, 8)}…`
+          : `Provisioned sandbox ${r.sandbox_id.slice(0, 8)}… (status: creating)`,
+      })
+      loadChannels()
+    } catch (e) {
+      setBindResult({
+        channelId: channel.id,
+        ok: false,
+        message: e instanceof Error ? e.message : 'Auto-bind failed',
+      })
+    } finally {
+      setBindingChannelId(null)
+    }
+  }
 
   // Provider-token → display metadata. Unknown providers fall through
   // to a neutral grey so a future provider added server-side without
@@ -934,12 +970,13 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
                     <th className="w-44 px-3 py-2 text-left font-medium">Routing</th>
                     <th className="w-24 px-3 py-2 text-left font-medium">@mention</th>
                     <th className="w-44 px-3 py-2 text-left font-medium">Bound at</th>
-                    <th className="w-16 px-3 py-2 text-right font-medium">Actions</th>
+                    <th className="w-32 px-3 py-2 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {imChannels.map((ch, i) => {
                     const meta = providerMeta[ch.provider] ?? { label: ch.provider, badge: 'bg-gray-500/10 text-gray-400' }
+                    const autoBindDisabled = strategy === 'hybrid' || bindingChannelId === ch.id
                     return (
                       <tr
                         key={ch.id}
@@ -995,15 +1032,37 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
                         <td className="px-3 py-2 text-[var(--muted-foreground)]">
                           {new Date(ch.bound_at).toLocaleString()}
                         </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            onClick={() => setConfirmDeleteChannel(ch)}
-                            className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--destructive)] transition-colors"
-                            aria-label="Delete channel"
-                            title="Delete channel"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => handleAutoBind(ch)}
+                              disabled={autoBindDisabled}
+                              className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-orange-400 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--muted-foreground)]"
+                              aria-label="Auto-bind to sandbox"
+                              title={
+                                strategy === 'hybrid'
+                                  ? 'Hybrid mode — use the sandbox binding API instead'
+                                  : 'Auto-bind to a sandbox (provisions one if needed)'
+                              }
+                            >
+                              <Plus size={14} />
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteChannel(ch)}
+                              className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--destructive)] transition-colors"
+                              aria-label="Delete channel"
+                              title="Delete channel"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          {bindResult && bindResult.channelId === ch.id && (
+                            <div
+                              className={`mt-1 text-[10px] ${bindResult.ok ? 'text-green-400' : 'text-red-400'}`}
+                            >
+                              {bindResult.message}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )
@@ -1057,33 +1116,98 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
   )
 }
 
+const STRATEGY_DESCRIPTIONS: Record<ChannelRoutingStrategy, string> = {
+  shared:
+    'All IM channels in this workspace route to a single shared sandbox. Lowest cost — best when channels share the same agent persona.',
+  per_agent:
+    'Each channel gets its own dedicated sandbox. Use when different numbers/handles need different personas (e.g. sales vs support).',
+  hybrid:
+    'No automatic provisioning. Operators manually bind channels to sandboxes via the channel list. Use for advanced multi-persona setups.',
+}
+
 function SettingsTab({ workspace }: { workspace: Workspace }) {
+  const [strategy, setStrategy] = useState<ChannelRoutingStrategy | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getWorkspaceRoutingStrategy(workspace.id)
+      .then((r) => setStrategy(r.strategy))
+      .catch(() => setStrategy('shared'))
+  }, [workspace.id])
+
+  const handleStrategyChange = async (next: ChannelRoutingStrategy) => {
+    setSaving(true)
+    setError(null)
+    try {
+      const r = await updateWorkspaceRoutingStrategy(workspace.id, next)
+      setStrategy(r.strategy)
+      setSavedAt(Date.now())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update strategy')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <div className="max-w-2xl">
-      <h3 className="text-base font-semibold text-[var(--foreground)] mb-4">Workspace Settings</h3>
+    <div className="max-w-2xl flex flex-col gap-6">
+      <div>
+        <h3 className="text-base font-semibold text-[var(--foreground)] mb-4">Workspace Settings</h3>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] px-5 py-3">
+            <Settings size={14} className="text-[var(--muted-foreground)]" />
+            <span className="text-sm font-medium text-[var(--foreground)]">Workspace Info</span>
+          </div>
+          <div className="px-5 py-4 flex flex-col gap-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-[var(--muted-foreground)]">Name</span>
+              <span className="text-[var(--foreground)]">{workspace.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[var(--muted-foreground)]">ID</span>
+              <span className="text-[var(--foreground)] font-mono text-xs">{workspace.id}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[var(--muted-foreground)]">Created</span>
+              <span className="text-[var(--foreground)]">{new Date(workspace.created_at).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+          To rename this workspace, use the pencil icon next to the name in the Overview tab.
+        </p>
+      </div>
+
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]">
         <div className="flex items-center gap-2 border-b border-[var(--border)] px-5 py-3">
-          <Settings size={14} className="text-[var(--muted-foreground)]" />
-          <span className="text-sm font-medium text-[var(--foreground)]">Workspace Info</span>
+          <MessageSquare size={14} className="text-[var(--muted-foreground)]" />
+          <span className="text-sm font-medium text-[var(--foreground)]">Channel Routing</span>
         </div>
         <div className="px-5 py-4 flex flex-col gap-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-[var(--muted-foreground)]">Name</span>
-            <span className="text-[var(--foreground)]">{workspace.name}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[var(--muted-foreground)]">ID</span>
-            <span className="text-[var(--foreground)] font-mono text-xs">{workspace.id}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[var(--muted-foreground)]">Created</span>
-            <span className="text-[var(--foreground)]">{new Date(workspace.created_at).toLocaleString()}</span>
-          </div>
+          <label className="flex flex-col gap-2">
+            <span className="text-[var(--muted-foreground)]">Strategy</span>
+            <select
+              className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              value={strategy ?? 'shared'}
+              disabled={saving || strategy === null}
+              onChange={(e) => handleStrategyChange(e.target.value as ChannelRoutingStrategy)}
+            >
+              <option value="shared">Shared — 1 sandbox for all channels</option>
+              <option value="per_agent">Per-agent — 1 sandbox per channel</option>
+              <option value="hybrid">Hybrid — manual binding</option>
+            </select>
+          </label>
+          {strategy && (
+            <p className="text-xs text-[var(--muted-foreground)]">{STRATEGY_DESCRIPTIONS[strategy]}</p>
+          )}
+          {savedAt && !error && (
+            <span className="text-xs text-green-500">Saved.</span>
+          )}
+          {error && <span className="text-xs text-red-400">{error}</span>}
         </div>
       </div>
-      <p className="mt-3 text-xs text-[var(--muted-foreground)]">
-        To rename this workspace, use the pencil icon next to the name in the Overview tab.
-      </p>
     </div>
   )
 }
