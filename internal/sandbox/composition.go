@@ -332,14 +332,16 @@ func BuildHermesConfigOverride(sandboxID, namespace, baseConfigYAML, soulBody st
 		return corev1.ConfigMap{}, corev1.Volume{}, corev1.VolumeMount{}, false
 	}
 	// Hermes registers personas via the top-level `personalities` dict
-	// and selects the active one via the `personality` field (see
-	// /opt/hermes/hermes_cli/config.py line 1561). We register a
-	// "playground-soul" persona pointing at the soul body and switch
-	// to it. The base config keeps its existing `personality` (default
-	// "kawaii") overridden by ours via last-wins YAML parsing.
+	// (config.py line 1561) and selects the active one via
+	// `display.personality` (config.py line 1088, the field whose value
+	// `hermes config show` prints under "◆ Display → Personality").
+	// We register a "playground-soul" persona pointing at the soul body
+	// and override display.personality to it. The base config never
+	// sets display.personality, so a flat append works without needing
+	// to merge nested keys.
 	indented := indentSoulForYAML(soulBody)
 	overlay := baseConfigYAML +
-		"\npersonality: playground-soul\n" +
+		"\ndisplay:\n  personality: playground-soul\n" +
 		"personalities:\n" +
 		"  playground-soul:\n" +
 		"    description: Soul body injected by playground composition\n" +
