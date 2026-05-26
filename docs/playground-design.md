@@ -549,3 +549,330 @@ Same pattern for skill `openclaw.plugin.json` if it gains fields.
 - [ ] Out-of-scope (section 14) accepted
 
 After sign-off, PR #14 can start.
+
+---
+
+## Appendix A — Alternatives considered
+
+Each subsection captures the options weighed for a single decision in
+section 3, the trade-offs, and what we'd lose by reverting. Use this
+when someone six months from now asks "why didn't you do X?" — the
+answer lives here instead of triggering a re-debate.
+
+### A.1 MVP storage shape
+
+**Decision:** Promote (DB drafts → git production via PR).
+
+**Rejected — Option Iceberg (everything in git, UI as thin shell):**
+
+| ✅ | ❌ |
+|---|---|
+| Zero new storage | Latency: every save = commit + helm upgrade |
+| Audit + history grátis via git log | Gate-keepers (PR review) for every iteration |
+| No DB schema to maintain | Web IDE writing to a live repo is operationally risky |
+| Production = source of truth always | Frustrating draft experience (lose work on conflict) |
+
+Why-not: kills the iteration loop the playground exists to enable.
+A skill author wants to try a phrase, see the response, tweak, try
+again — Iceberg forces a git round-trip per attempt. Useful only if
+the playground is occasional + senior-only.
+
+Revert if: usage stays low (<5 authors total), DB pressure becomes
+real, or compliance demands every change be git-tracked from second
+zero.
+
+**Rejected — Option Live (DB only, no git promotion):**
+
+| ✅ | ❌ |
+|---|---|
+| Fastest iteration | Production reads from DB, not git |
+| Single source of truth (DB) | No code review on skill prompts |
+| Trivial multi-tenant scoping later | No audit trail outside DB |
+| | Backup + migration story heavier |
+
+Why-not: production-grade skills (LGPD-sensitive prompts, regulated
+content) need code review. Living entirely in DB means a single PATCH
+endpoint with the right role can push a malicious prompt into every
+sandbox. Promote gate exists to prevent that.
+
+Revert if: skills become per-tenant configuration (i.e. cobranca-acme
+vs cobranca-bcd-bank), making global-git review the wrong granularity.
+Then Live makes more sense; tenant ownership replaces git review.
+
+### A.2 Refinement model
+
+**Decision:** Snapshot default + opt-in `track_upstream` boolean.
+
+**Rejected — Patch by default (track upstream):**
+
+| ✅ | ❌ |
+|---|---|
+| Upstream improvements flow free to all envs | Surprise breakage when upstream ships incompatible change |
+| Storage cheap (one canonical version + N diffs) | 3-way merge conflicts when upstream + local both edit same line |
+| Always on the latest security/legal disclaimer text | Per-tenant testing burden grows with template velocity |
+
+Why-not: SaaS B2B customers expect static behavior between explicit
+upgrades. Auto-flowing prompt edits violates that contract. Worse, a
+LGPD-relevant edit upstream could change refuse_patterns in a tenant's
+production agent without their consent.
+
+Revert if: a regulatory body mandates a centrally-updated disclaimer
+that must propagate to every tenant within hours of publish. Then
+patch model becomes a feature, not a footgun.
+
+**Rejected — Snapshot only (no track at all):**
+
+| ✅ | ❌ |
+|---|---|
+| Maximum predictability | Stuck on stale templates forever unless manually re-snapshot |
+| Simplest mental model | Big skill catalog rot over time |
+| | Wastes upstream improvements |
+
+Why-not: opt-in `track_upstream=true` adds <10 LOC and gives the same
+predictability default + an escape hatch for sandboxes that explicitly
+want to follow upstream. No reason to omit it.
+
+### A.3 Soul granularity
+
+**Decision:** Structured frontmatter + body markdown.
+
+**Rejected — Prompt puro (minimal frontmatter, body-only behavior):**
+
+| ✅ | ❌ |
+|---|---|
+| Maximum author flexibility | No validation possible |
+| No schema migration burden | UI must be raw editor (no form) |
+| Authors who know what they want move fast | Easy to ship contradictory rules (`max_turns: 5` in body + 50 in another section) |
+
+Why-not: structured frontmatter unlocks the form-driven UI in section
+8.3, which is most of the playground's value to non-prompt-engineer
+users. Pure prompt assumes every author is an expert; we want to
+support marketing + ops folks editing personas, not just engineers.
+
+Revert if: research shows form UI confuses authors who'd rather write
+prose. Then frontmatter shrinks to `id + version + body` and the form
+disappears. But you keep validation infrastructure for the few fields
+that remain.
+
+**Rejected — Rich schema with presets + composable voices:**
+
+```yaml
+voice:
+  preset: formal-pt-br-corporate     # reference to a registry
+  overrides:
+    tone_examples: [paciente]
+constraints:
+  inherit_from: standard-cobranca
+  override:
+    max_turns: 30
+```
+
+| ✅ | ❌ |
+|---|---|
+| Drier — 1 preset, N souls reusing it | Premature abstraction without 10+ souls to compose |
+| Centralized brand voice | Yet another registry to manage (voice presets, constraint presets) |
+| Consistency across tenant family of souls | Authors learning curve doubles |
+
+Why-not: presets become valuable when you have 20+ souls sharing
+common voices. At MVP scale (5-10 souls total across the system) the
+duplication cost is small + the abstraction cost is large.
+
+Revert if: catalog grows past 30 souls and copy-paste-divergence
+becomes a maintenance problem. Add a presets layer then; current
+schema is forward-compatible (presets can be a new top-level
+frontmatter field added in `schema: v2`).
+
+### A.4 Tenant scope
+
+**Decision:** Global system templates only for MVP.
+
+**Rejected — Tenant-scoped + system:**
+
+| ✅ | ❌ |
+|---|---|
+| Tenant A can't see Tenant B's templates | DB has tenant_id column on every draft; promote gate logic per scope |
+| Per-tenant skill catalogs naturally emerge | UI needs scope picker (global vs my workspace's) |
+| Production-realistic from day 1 | More LOC, more test surface |
+
+Why-not: real multi-tenant playground is a 6-month product, not a
+2-week MVP. Cutting tenant scope removes ~30% of complexity. Skills
+in MVP are tools the platform builds + offers to all tenants
+(cobranca for billing automation across the platform), not
+tenant-authored IP.
+
+Revert if: a tenant requests private skill authoring. Add
+`tenant_id NULL = system` column on drafts, scope rules in handlers,
+filter in the UI. Migration is straightforward (no data loss).
+
+**Rejected — Tenant + share opt-in (gradual marketplace):**
+
+| ✅ | ❌ |
+|---|---|
+| Best long-term shape | Most LOC, most product surface |
+| Network effect: tenants share useful skills | Moderation policy, abuse review, ratings UX |
+| | Legal review on cross-tenant content sharing |
+
+Why-not: marketplace dynamics + cross-tenant content moderation are a
+separate product. Build the tenant-scoped substrate first (A.4
+rejected option), then evolve to share opt-in as v3.
+
+### A.5 Test mode
+
+**Decision:** Hybrid — dry-run via llmproxy default, ephemeral
+sandbox on demand.
+
+**Rejected — Ephemeral sandbox only:**
+
+| ✅ | ❌ |
+|---|---|
+| Maximum fidelity (real pod, real tool exec) | Each test = 30-60s pod boot |
+| Catches mount path bugs, plugin loader bugs | Cluster resource pressure (3 pods × N users) |
+| | Iteration loop slow → playground feels heavyweight |
+
+Why-not: 90% of skill iteration is "did the LLM say the right thing?"
+which dry-run answers in 2-5s. Pod boot is overkill until you need to
+validate tool execution (mark_agreement writing JSONL to disk, etc.).
+
+Revert if: dry-run misses bugs that only show up in real pod (e.g.
+configMap mount race). Dry-run is currently bug-free at the layer it
+covers — if that changes, force ephemeral-only.
+
+**Rejected — LLM-direct only (no ephemeral fallback):**
+
+| ✅ | ❌ |
+|---|---|
+| Cheapest, fastest, simplest | Never validates real tool exec |
+| No K8s dependency in the playground | Skill bugs surface only in production |
+| | Plugin loader behavior untested |
+
+Why-not: tool side-effects (file writes, network calls, etc.) matter.
+A skill that writes to `state/agreements.log` needs to be validated
+end-to-end before promote, or you ship broken tools to production.
+
+Revert if: tools become side-effect-free transformers (read-only).
+Then mock execution is sufficient + ephemeral isn't worth the
+cluster cost.
+
+### A.6 Soul scope
+
+**Decision:** Separate entity, composed by ref into sandbox.
+
+**Rejected — Soul as workspace metadata:**
+
+| ✅ | ❌ |
+|---|---|
+| 1 workspace = 1 brand identity (simpler mental model) | Can't A/B test souls in the same workspace |
+| Soul lives in `workspaces` table, no new entity | Reuse across workspaces requires copy-paste |
+| | Skills carry implicit persona via prompt overlap |
+
+Why-not: a single workspace may run cobranca-agent + suporte-agent +
+vendas-agent, each with a different persona. Forcing them to share one
+soul collapses three personas into a least-common-denominator
+"brand voice," which loses specificity.
+
+Revert if: tenants only ever run one agent personality. Empirically
+unlikely (multi-channel routing PR #3 already supports the "N
+channels, N personas" shape).
+
+**Rejected — Soul as a file inside a "primary" skill:**
+
+```
+skill cobranca/
+  soul.md             ← persona lives here
+  prompt.md           ← flow lives here
+  index.mjs
+```
+
+| ✅ | ❌ |
+|---|---|
+| Minimal new concept (skill ships its own identity) | Persona reuse across skills impossible |
+| Composition simplifies (just pick the primary skill) | Soul becomes versioned with skill — change persona = bump skill version |
+| | Same Júlia voice across cobranca + escalation requires duplication |
+
+Why-not: this collapses identity into capability. The whole point of
+the soul/skill split is that "Júlia" is a brand voice usable across
+many tools. Putting soul inside skill defeats the value proposition.
+
+Revert if: only ever 1 skill per sandbox in practice. Then composition
+simplifies + collapsing makes sense. But the multi-channel routing
+work already enables multi-skill sandboxes, so the split has runway.
+
+### A.7 Promote authorization
+
+**Decision:** `maintainer` + `owner` roles can promote.
+
+**Rejected — Owner only:**
+
+| ✅ | ❌ |
+|---|---|
+| Tightest gate — only top role pushes to prod | Bottleneck: 1 owner per workspace blocks all promotes |
+| Audit simplest (single accountable role) | Doesn't scale beyond solo workspace owners |
+
+Why-not: even small teams have multiple maintainers handling routine
+prompt work. Routing every promote through the workspace owner
+creates a queue of pending PRs.
+
+Revert if: a workspace becomes regulated (LGPD audit, SOC2 scope) and
+needs single-point accountability. Restrict role then; default
+`maintainer+` is enough for development.
+
+**Rejected — Any member promotes (git review is the gate):**
+
+| ✅ | ❌ |
+|---|---|
+| Maximum dev velocity | PRs spam the repo with unreviewed promotes |
+| Trusts code review fully | First-time authors don't know what's promote-worthy |
+| | Easy to bypass review intent by self-merging on Github |
+
+Why-not: the promote button creates pressure to review. If anyone can
+click it, every draft becomes a PR, and reviewers drown in noise. The
+in-product gate is what makes the git-review gate work — it's a funnel.
+
+Revert if: review culture is strong + GitHub branch protection rules
+enforce mandatory review. Then promote button bypasses nothing
+because the merge gate catches it. But for MVP, two gates > one.
+
+### A.8 What `soul.md` body looks like — composition style
+
+(Not in the brainstorm directly but related; captured here so the
+choice isn't lost.)
+
+**Decision implicit:** body is freeform markdown.
+
+**Rejected — body as structured behavior tree (YAML):**
+
+```yaml
+greeting: "Olá! Sou a {{name}}, da {{tenant.creditor}}."
+clarify_identity:
+  ask: "Para sua segurança, poderia confirmar o sobrenome?"
+  on_refuse: handoff_to_human
+debt_lookup:
+  trigger_when: cpf_provided
+  call: lookup_debt
+```
+
+| ✅ | ❌ |
+|---|---|
+| Deterministic flow | LLM agents aren't behavior trees — fights the model's strengths |
+| Easy to test | Loses naturalness of prompt-driven personality |
+| | 5x the schema surface to maintain |
+
+Why-not: LLM agents work best when given a persona + tools + freedom.
+Behavior trees are the wrong abstraction (they fit deterministic
+state machines, not generative agents). Stick with prose.
+
+Revert if: research shows our LLMs reliably follow YAML flows better
+than prose personas. Currently the opposite is true.
+
+---
+
+## Appendix B — Decision review log
+
+When a decision in this doc is revisited (someone proposes a different
+shape after reading), update this table:
+
+| Date | Decision (section) | New direction | Reason | PR/discussion |
+|---|---|---|---|---|
+| 2026-05-26 | All initial decisions | (initial) | Brainstorm session | This doc |
+| | | | | |
+
