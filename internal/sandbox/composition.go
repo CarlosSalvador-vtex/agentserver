@@ -182,14 +182,18 @@ func extractSoulConstraints(fm map[string]interface{}) map[string]interface{} {
 }
 
 // soulMountPath returns the in-pod path where soul.md lands for each
-// platform. Both agents read this file at boot to layer the persona on
-// top of their default system prompt.
+// platform. Hermes has a literal SOUL.md convention at HERMES_HOME
+// (=/opt/data per the image's entrypoint env); the doctor + main
+// command both reference $HERMES_HOME/SOUL.md as the persona file
+// the agent auto-loads on every turn. OpenClaw doesn't have an
+// equivalent convention; we mount at ~/.openclaw/soul.md and rely on
+// the skill's prompt.md / register hook to read it if needed.
 func soulMountPath(platform string) string {
 	switch platform {
 	case "openclaw":
 		return "/home/agent/.openclaw/soul.md"
 	case "hermes":
-		return "/opt/agent/soul.md"
+		return "/opt/data/SOUL.md"
 	default:
 		return ""
 	}
@@ -314,83 +318,9 @@ func safePrefix(s string) string {
 	return s
 }
 
-// BuildHermesConfigOverride returns a per-sandbox ConfigMap + volume +
-// mount that override the cluster-wide hermes-config with one carrying
-// the soul body injected as agent.system_prompt. Returns zero values
-// when soulBody is empty (caller falls back to the global config).
-//
-// The base config is the raw config.yaml string from the cluster-wide
-// hermes-config ConfigMap; we append (or replace) the agent.system_prompt
-// key without parsing YAML — a simple text-level append is enough
-// because the chart-rendered base never sets agent.system_prompt.
-//
-// Mount path stays /opt/data/config.yaml (same as the global config);
-// manager.go uses this override volume when present and skips the
-// global volume to avoid two mounts at the same path.
-func BuildHermesConfigOverride(sandboxID, namespace, baseConfigYAML, soulBody string) (corev1.ConfigMap, corev1.Volume, corev1.VolumeMount, bool) {
-	if soulBody == "" {
-		return corev1.ConfigMap{}, corev1.Volume{}, corev1.VolumeMount{}, false
-	}
-	// Hermes registers personas via the top-level `personalities` dict
-	// (config.py line 1561) and selects the active one via
-	// `display.personality` (config.py line 1088, the field whose value
-	// `hermes config show` prints under "◆ Display → Personality").
-	// We register a "playground-soul" persona pointing at the soul body
-	// and override display.personality to it. The base config never
-	// sets display.personality, so a flat append works without needing
-	// to merge nested keys.
-	indented := indentSoulForYAML(soulBody)
-	overlay := baseConfigYAML +
-		"\ndisplay:\n  personality: playground-soul\n" +
-		"personalities:\n" +
-		"  playground-soul:\n" +
-		"    description: Soul body injected by playground composition\n" +
-		"    system_prompt: |\n" + indented + "\n"
-
-	cmName := "agentserver-draft-" + safePrefix(sandboxID) + "-hermes-config"
-	cm := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cmName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"agentserver.io/ephemeral":  "true",
-				"agentserver.io/sandbox-id": sandboxID,
-				"agentserver.io/draft-kind": "hermes-config",
-			},
-		},
-		Data: map[string]string{"config.yaml": overlay},
-	}
-	vol := corev1.Volume{
-		Name: "hermes-config-override",
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
-				Items: []corev1.KeyToPath{
-					{Key: "config.yaml", Path: "config.yaml"},
-				},
-			},
-		},
-	}
-	mount := corev1.VolumeMount{
-		Name:      "hermes-config-override",
-		MountPath: "/opt/data/config.yaml",
-		SubPath:   "config.yaml",
-		ReadOnly:  true,
-	}
-	return cm, vol, mount, true
-}
-
-// indentSoulForYAML indents each line of the soul body by 6 spaces so
-// it nests under `personalities.<name>.system_prompt: |` correctly.
-// Empty lines stay empty (no trailing whitespace) which keeps strict
-// YAML parsers happy.
-func indentSoulForYAML(body string) string {
-	lines := strings.Split(body, "\n")
-	for i, line := range lines {
-		if line == "" {
-			continue
-		}
-		lines[i] = "      " + line
-	}
-	return strings.Join(lines, "\n")
-}
+// Hermes config.yaml override was the original strategy for soul
+// injection — emit display.personality + personalities.<name>.
+// E2E proved that path superfluous: the upstream hermes-agent image
+// auto-loads $HERMES_HOME/SOUL.md (=/opt/data/SOUL.md) on every turn
+// as the canonical persona file. Mounting our soul.md there directly
+// (see soulMountPath) is enough; no config rewrite needed.
