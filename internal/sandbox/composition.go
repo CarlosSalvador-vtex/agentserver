@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -190,17 +191,16 @@ func extractSoulConstraints(fm map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// soulMountPath returns the in-pod path where soul.md lands for each
-// platform. Hermes has a literal SOUL.md convention at HERMES_HOME
-// (=/opt/data per the image's entrypoint env); the doctor + main
-// command both reference $HERMES_HOME/SOUL.md as the persona file
-// the agent auto-loads on every turn. OpenClaw doesn't have an
-// equivalent convention; we mount at ~/.openclaw/soul.md and rely on
-// the skill's prompt.md / register hook to read it if needed.
+// soulMountPath returns the in-pod path where the soul file lands for each
+// platform. Both Hermes and OpenClaw auto-load SOUL.md from their respective
+// workspace dirs on every turn — no hook or skill instruction required.
+//
+// OpenClaw workspace dir: ~/.openclaw/workspace/ (resolveDefaultAgentWorkspaceDir).
+// The file is listed in VALID_BOOTSTRAP_NAMES and loaded by loadWorkspaceBootstrapFiles.
 func soulMountPath(platform string) string {
 	switch platform {
 	case SandboxTypeOpenclaw.String():
-		return "/home/agent/.openclaw/soul.md"
+		return "/home/agent/.openclaw/workspace/SOUL.md"
 	case SandboxTypeHermes.String():
 		return "/opt/data/SOUL.md"
 	default:
@@ -221,6 +221,8 @@ func buildSoulConfigMapAndMount(sandboxID, namespace string, soul *db.SoulDraft,
 	}
 	body := "---\n" + string(fmJSON) + "\n---\n\n" + soul.Body
 	cmName := fmt.Sprintf("agentserver-draft-%s-soul-%s", safePrefix(sandboxID), safePrefix(soul.ID))
+	// Key matches target filename so SubPath works for both platforms.
+	soulKey := filepath.Base(path)
 	cm := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
@@ -232,7 +234,7 @@ func buildSoulConfigMapAndMount(sandboxID, namespace string, soul *db.SoulDraft,
 				"agentserver.io/draft-id":   soul.ID,
 			},
 		},
-		Data: map[string]string{"soul.md": body},
+		Data: map[string]string{soulKey: body},
 	}
 	vol := corev1.Volume{
 		Name: "soul-md",
@@ -240,7 +242,7 @@ func buildSoulConfigMapAndMount(sandboxID, namespace string, soul *db.SoulDraft,
 			ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
 				Items: []corev1.KeyToPath{
-					{Key: "soul.md", Path: "soul.md"},
+					{Key: soulKey, Path: soulKey},
 				},
 			},
 		},
@@ -248,7 +250,7 @@ func buildSoulConfigMapAndMount(sandboxID, namespace string, soul *db.SoulDraft,
 	mount := corev1.VolumeMount{
 		Name:      "soul-md",
 		MountPath: path,
-		SubPath:   "soul.md",
+		SubPath:   soulKey,
 		ReadOnly:  true,
 	}
 	return cm, vol, mount, nil
@@ -324,28 +326,12 @@ func buildSkillConfigMapAndMounts(sandboxID, namespace string, skill *db.SkillDr
 // safePrefix returns the first 8 chars of s, or all of s when shorter,
 // for use as a stable prefix in K8s object names that must stay under
 // 63 chars after concatenation.
-const openclawSoulHint = `# Persona (agentserver)
-Before every reply, read the soul file at /home/agent/.openclaw/soul.md (or OPENCLAW_SOUL_FILE / AGENTSERVER_SOUL_BODY env) and answer in that persona.
 
-`
-
-// prependOpenclawSoulHint copies skill files and prepends the soul-read
-// instruction to prompt.md so OpenClaw skills pick up playground souls.
+// prependOpenclawSoulHint is a no-op: openclaw auto-loads
+// ~/.openclaw/workspace/SOUL.md (DEFAULT_SOUL_FILENAME) as a bootstrap
+// file on every turn — no manual read instruction in prompt.md needed.
 func prependOpenclawSoulHint(files map[string]string) map[string]string {
-	if len(files) == 0 {
-		return files
-	}
-	out := make(map[string]string, len(files))
-	for path, content := range files {
-		out[path] = content
-	}
-	for path, content := range files {
-		if path == "prompt.md" {
-			out[path] = openclawSoulHint + content
-			return out
-		}
-	}
-	return out
+	return files
 }
 
 func safePrefix(s string) string {
