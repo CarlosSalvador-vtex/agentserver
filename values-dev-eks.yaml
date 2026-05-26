@@ -3,7 +3,7 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: sprint4-final
+  tag: sprint4-done
   pullPolicy: Always
 
 llmproxy:
