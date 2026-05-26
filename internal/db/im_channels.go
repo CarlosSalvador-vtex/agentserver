@@ -387,11 +387,15 @@ func (db *DB) GetSandboxForChannel(channelID string) (sandboxID, podIP, bridgeSe
 		return
 	}
 	var metadataJSON []byte
+	var bridgeSecretNull sql.NullString
 	err = db.QueryRow(
 		`SELECT id, pod_ip, nanoclaw_bridge_secret, metadata FROM sandboxes
 		WHERE im_channel_id = $1 AND status = 'running' AND pod_ip != ''`,
 		channelID,
-	).Scan(&sandboxID, &podIP, &bridgeSecret, &metadataJSON)
+	).Scan(&sandboxID, &podIP, &bridgeSecretNull, &metadataJSON)
+	if bridgeSecretNull.Valid {
+		bridgeSecret = bridgeSecretNull.String
+	}
 	if err == nil && len(metadataJSON) > 0 {
 		var meta map[string]interface{}
 		if json.Unmarshal(metadataJSON, &meta) == nil {
