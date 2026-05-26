@@ -331,10 +331,19 @@ func BuildHermesConfigOverride(sandboxID, namespace, baseConfigYAML, soulBody st
 	if soulBody == "" {
 		return corev1.ConfigMap{}, corev1.Volume{}, corev1.VolumeMount{}, false
 	}
-	// YAML multi-line string with the `|` block scalar so embedded
-	// markdown (headers, lists) survives intact.
+	// Hermes registers personas via the top-level `personalities` dict
+	// and selects the active one via the `personality` field (see
+	// /opt/hermes/hermes_cli/config.py line 1561). We register a
+	// "playground-soul" persona pointing at the soul body and switch
+	// to it. The base config keeps its existing `personality` (default
+	// "kawaii") overridden by ours via last-wins YAML parsing.
 	indented := indentSoulForYAML(soulBody)
-	overlay := baseConfigYAML + "\nagent:\n  system_prompt: |\n" + indented + "\n"
+	overlay := baseConfigYAML +
+		"\npersonality: playground-soul\n" +
+		"personalities:\n" +
+		"  playground-soul:\n" +
+		"    description: Soul body injected by playground composition\n" +
+		"    system_prompt: |\n" + indented + "\n"
 
 	cmName := "agentserver-draft-" + safePrefix(sandboxID) + "-hermes-config"
 	cm := corev1.ConfigMap{
@@ -369,9 +378,9 @@ func BuildHermesConfigOverride(sandboxID, namespace, baseConfigYAML, soulBody st
 	return cm, vol, mount, true
 }
 
-// indentSoulForYAML indents each line of the soul body by 4 spaces so
-// it nests under `system_prompt: |` correctly in YAML block scalar
-// syntax. Empty lines stay empty (no trailing whitespace) which keeps
+// indentSoulForYAML indents each line of the soul body by 6 spaces so
+// it nests under `personalities.<name>.system_prompt: |` correctly.
+// Empty lines stay empty (no trailing whitespace) which keeps strict
 // YAML parsers happy.
 func indentSoulForYAML(body string) string {
 	lines := strings.Split(body, "\n")
@@ -379,7 +388,7 @@ func indentSoulForYAML(body string) string {
 		if line == "" {
 			continue
 		}
-		lines[i] = "    " + line
+		lines[i] = "      " + line
 	}
 	return strings.Join(lines, "\n")
 }
