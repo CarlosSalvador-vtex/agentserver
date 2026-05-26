@@ -228,6 +228,18 @@ export function SandboxList({
                 <span className="shrink-0 rounded bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-400">
                   claude
                 </span>
+              ) : sbx.type === 'hermes' ? (
+                <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                  hermes
+                </span>
+              ) : sbx.type === 'jupyter' ? (
+                <span className="shrink-0 rounded bg-pink-500/15 px-1.5 py-0.5 text-[10px] font-medium text-pink-400">
+                  jupyter
+                </span>
+              ) : sbx.type === 'nanoclaw' ? (
+                <span className="shrink-0 rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-400">
+                  nano
+                </span>
               ) : (
                 <span className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
                   code
