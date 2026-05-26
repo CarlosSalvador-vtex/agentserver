@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Save, Play, Send, ArrowLeft, Loader2, Plus, X, FileDiff } from 'lucide-react'
+import { Save, Play, Send, ArrowLeft, Loader2, Plus, X, FileDiff, History } from 'lucide-react'
 import {
   getPlaygroundSkill,
   patchPlaygroundSkill,
@@ -12,6 +12,7 @@ import {
   type Workspace,
 } from '../lib/api'
 import { PromotedDiff } from './PromotedDiff'
+import { DraftAuditTimeline } from './DraftAuditTimeline'
 
 export function PlaygroundSkillEditor() {
   const { id } = useParams<{ id: string }>()
@@ -28,7 +29,7 @@ export function PlaygroundSkillEditor() {
   const [soulRef, setSoulRef] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
-  const [view, setView] = useState<'files' | 'diff'>('files')
+  const [view, setView] = useState<'files' | 'diff' | 'audit'>('files')
 
   useEffect(() => {
     listWorkspaces()
@@ -198,16 +199,16 @@ export function PlaygroundSkillEditor() {
 
         {/* Editor */}
         <main className="flex flex-1 flex-col">
-          {draft.status === 'promoted' && draft.promoted_commit && (
-            <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/50 px-3 py-1.5">
-              <button
-                onClick={() => setView('files')}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium ${
-                  view === 'files' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
-                }`}
-              >
-                Files
-              </button>
+          <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/50 px-3 py-1.5">
+            <button
+              onClick={() => setView('files')}
+              className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                view === 'files' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+              }`}
+            >
+              Files
+            </button>
+            {draft.status === 'promoted' && draft.promoted_commit && (
               <button
                 onClick={() => setView('diff')}
                 className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
@@ -217,8 +218,17 @@ export function PlaygroundSkillEditor() {
               >
                 <FileDiff size={11} /> Diff vs promoted
               </button>
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => setView('audit')}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
+                view === 'audit' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+              }`}
+              title="Audit timeline"
+            >
+              <History size={11} /> Audit
+            </button>
+          </div>
           {view === 'diff' && draft.promoted_commit ? (
             <div className="flex-1 overflow-auto">
               <PromotedDiff
@@ -226,6 +236,10 @@ export function PlaygroundSkillEditor() {
                 skillName={draft.name}
                 draftFiles={files}
               />
+            </div>
+          ) : view === 'audit' ? (
+            <div className="flex-1 overflow-auto">
+              <DraftAuditTimeline kind="skills" draftID={draft.id} />
             </div>
           ) : activeFile ? (
             <textarea

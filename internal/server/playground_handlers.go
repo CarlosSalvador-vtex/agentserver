@@ -117,6 +117,7 @@ func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	RecordDraftAction("skill", "created")
+	_ = s.DB.AppendDraftAuditEvent("skill", draft.ID, userID, "created", map[string]interface{}{"name": draft.Name})
 	writeJSON(w, http.StatusCreated, summarizeSkill(draft))
 }
 
@@ -172,6 +173,7 @@ func (s *Server) handlePatchSkillDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	RecordDraftAction("skill", "patched")
+	_ = s.DB.AppendDraftAuditEvent("skill", id, userID, "patched", map[string]interface{}{"files_count": len(req.Files)})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -192,6 +194,7 @@ func (s *Server) handleArchiveSkillDraft(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	RecordDraftAction("skill", "archived")
+	_ = s.DB.AppendDraftAuditEvent("skill", id, userID, "archived", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -256,6 +259,7 @@ func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	RecordDraftAction("soul", "created")
+	_ = s.DB.AppendDraftAuditEvent("soul", draft.ID, userID, "created", map[string]interface{}{"name": draft.Name})
 	writeJSON(w, http.StatusCreated, summarizeSoul(draft))
 }
 
@@ -317,6 +321,7 @@ func (s *Server) handlePatchSoulDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	RecordDraftAction("soul", "patched")
+	_ = s.DB.AppendDraftAuditEvent("soul", id, userID, "patched", nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -337,6 +342,7 @@ func (s *Server) handleArchiveSoulDraft(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	RecordDraftAction("soul", "archived")
+	_ = s.DB.AppendDraftAuditEvent("soul", id, userID, "archived", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
