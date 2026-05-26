@@ -596,6 +596,31 @@ export async function workspaceMatrixConfigure(workspaceId: string, homeserverUr
   })
 }
 
+// Workspace-level WhatsApp Cloud (Meta) configure
+export interface WhatsAppConfigureResponse {
+  connected: boolean
+  channel_id: string
+  bot_id: string
+  webhook_hint?: string
+}
+
+export async function workspaceWhatsAppConfigure(
+  workspaceId: string,
+  phoneNumberID: string,
+  accessToken: string,
+  baseURL?: string,
+): Promise<WhatsAppConfigureResponse> {
+  return apiFetch<WhatsAppConfigureResponse>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/whatsapp/configure`,
+    body: {
+      phone_number_id: phoneNumberID,
+      access_token: accessToken,
+      base_url: baseURL ?? '',
+    },
+  })
+}
+
 // Sandbox channel binding
 export async function bindSandboxToChannel(sandboxId: string, channelId: string): Promise<void> {
   await apiFetch<void>({

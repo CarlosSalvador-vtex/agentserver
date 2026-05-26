@@ -67,6 +67,7 @@ import { TracesTab, TRACES_PER_PAGE } from './SandboxDetail'
 import { WeixinLoginModal } from './WeixinLoginModal'
 import { TelegramConfigModal } from './TelegramConfigModal'
 import { MatrixConfigModal } from './MatrixConfigModal'
+import { WhatsAppConfigModal } from './WhatsAppConfigModal'
 import CodexTokensPanel from './CodexTokensPanel'
 import RemoteExecutorsPanel from './RemoteExecutorsPanel'
 import OperationsPanel from './OperationsPanel'
@@ -868,6 +869,7 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
   const [showWeixinLogin, setShowWeixinLogin] = useState(false)
   const [showTelegramConfig, setShowTelegramConfig] = useState(false)
   const [showMatrixConfig, setShowMatrixConfig] = useState(false)
+  const [showWhatsAppConfig, setShowWhatsAppConfig] = useState(false)
   const [confirmDeleteChannel, setConfirmDeleteChannel] = useState<IMChannel | null>(null)
   const [strategy, setStrategy] = useState<ChannelRoutingStrategy | null>(null)
   const [bindingChannelId, setBindingChannelId] = useState<string | null>(null)
@@ -915,6 +917,7 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
     weixin: { label: 'WeChat', badge: 'bg-green-500/10 text-green-400' },
     telegram: { label: 'Telegram', badge: 'bg-blue-500/10 text-blue-400' },
     matrix: { label: 'Matrix', badge: 'bg-purple-500/10 text-purple-400' },
+    whatsapp: { label: 'WhatsApp', badge: 'bg-emerald-500/10 text-emerald-400' },
   }
 
   return (
@@ -951,6 +954,13 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
             >
               <Hash size={11} />
               Matrix
+            </button>
+            <button
+              onClick={() => setShowWhatsAppConfig(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+            >
+              <MessageSquare size={11} />
+              WhatsApp
             </button>
           </div>
         </div>
@@ -1109,6 +1119,13 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
         <MatrixConfigModal
           workspaceId={workspaceId}
           onClose={() => setShowMatrixConfig(false)}
+          onConnected={() => { loadChannels() }}
+        />
+      )}
+      {showWhatsAppConfig && (
+        <WhatsAppConfigModal
+          workspaceId={workspaceId}
+          onClose={() => setShowWhatsAppConfig(false)}
           onConnected={() => { loadChannels() }}
         />
       )}
