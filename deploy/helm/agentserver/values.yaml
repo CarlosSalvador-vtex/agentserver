@@ -269,11 +269,14 @@ internal:
   apiSecret: ""
 
 # WhatsApp Cloud (Meta) integration.
-# webhookVerifyToken is the shared secret used in the GET /webhook/whatsapp
-# handshake. Set this AND the same value in the Meta App Dashboard's webhook
-# verify_token field. When empty, webhook verification is disabled (dev only).
+# webhookVerifyToken: shared secret for the GET /webhook/whatsapp handshake
+#   (must match Meta App Dashboard → Webhooks → Verify Token).
+# appSecret: Meta App Secret used to verify the X-Hub-Signature-256 header on
+#   every webhook POST. PRODUCTION MUST SET THIS — empty disables signature
+#   verification, which is dev-only behavior.
 whatsapp:
   webhookVerifyToken: ""
+  appSecret: ""
 
 # HMAC pepper for workspace API key storage hashes (SECRETS_PEPPER env var).
 # Set to a 32-byte random hex string; generate with: openssl rand -hex 32
