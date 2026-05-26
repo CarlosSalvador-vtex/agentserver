@@ -339,7 +339,7 @@ export interface SandboxCompositionInput {
 export async function createSandbox(
   workspaceId: string,
   name?: string,
-  type?: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes',
+  type?: 'openclaw' | 'hermes',
   cpu?: number,
   memory?: number,
   idleTimeout?: number,
@@ -348,7 +348,7 @@ export async function createSandbox(
 ): Promise<Sandbox> {
   const body: SandboxCreateRequest & { composition?: SandboxCompositionInput } = {
     name: name || 'New Sandbox',
-    type: type || 'opencode',
+    type: type || 'openclaw',
     ...(cpu !== undefined && { cpu }),
     ...(memory !== undefined && { memory }),
     ...(idleTimeout !== undefined && { idle_timeout: idleTimeout }),

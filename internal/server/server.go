@@ -42,10 +42,7 @@ type Server struct {
 	TunnelRegistry   *tunnel.Registry
 	StaticFS         fs.FS
 	BaseDomains              []string // e.g. ["agentserver.dev", "agent.cs.ac.cn"] (first is primary)
-	OpencodeSubdomainPrefix  string   // e.g. "code" — subdomain: code-{id}.{baseDomain}
 	OpenclawSubdomainPrefix    string // e.g. "claw" — subdomain: claw-{id}.{baseDomain}
-	ClaudeCodeSubdomainPrefix  string // e.g. "claude" — subdomain: claude-{id}.{baseDomain}
-	JupyterSubdomainPrefix     string // e.g. "jupyter" — subdomain: jupyter-{id}.{baseDomain}
 	HermesSubdomainPrefix      string // e.g. "hermes" — subdomain: hermes-{id}.{baseDomain}
 	PasswordAuthEnabled      bool   // when false, /api/auth/login and /api/auth/register are not registered
 	LLMProxyURL              string // base URL for the llmproxy service (e.g. "http://agentserver-llmproxy:8081")
@@ -118,26 +115,11 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		}
 	}
 
-	opcodePrefix := os.Getenv("OPENCODE_SUBDOMAIN_PREFIX")
-	if opcodePrefix == "" {
-		opcodePrefix = "code"
-	}
 	openclawPrefix := os.Getenv("OPENCLAW_SUBDOMAIN_PREFIX")
 	if openclawPrefix == "" {
 		openclawPrefix = "claw"
 	}
-	claudecodePrefix := os.Getenv("CLAUDECODE_SUBDOMAIN_PREFIX")
-	if claudecodePrefix == "" {
-		claudecodePrefix = "claude"
-	}
-	jupyterPrefix := os.Getenv("JUPYTER_SUBDOMAIN_PREFIX")
-	if jupyterPrefix == "" {
-		jupyterPrefix = "jupyter"
-	}
 	hermesPrefix := os.Getenv("HERMES_SUBDOMAIN_PREFIX")
-	if hermesPrefix == "" {
-		hermesPrefix = "hermes"
-	}
 
 	s := &Server{
 		Auth:                      a,
@@ -150,10 +132,7 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		TunnelRegistry:            tunnelReg,
 		StaticFS:                  staticFS,
 		BaseDomains:               baseDomains,
-		OpencodeSubdomainPrefix:   opcodePrefix,
 		OpenclawSubdomainPrefix:   openclawPrefix,
-		ClaudeCodeSubdomainPrefix: claudecodePrefix,
-		JupyterSubdomainPrefix:    jupyterPrefix,
 		HermesSubdomainPrefix:     hermesPrefix,
 		PasswordAuthEnabled:       passwordAuthEnabled,
 		deviceFlows:               make(map[string]*pendingDeviceFlow),
@@ -313,10 +292,6 @@ func (s *Server) Router() http.Handler {
 	// IM bridge routes: proxy to standalone imbridge service when configured.
 	if s.IMBridgeURL != "" {
 		s.imBridgeProxy = newReverseProxy(s.IMBridgeURL)
-		// Internal API for NanoClaw pods to send IM replies (auth via bridge secret).
-		r.Post("/api/internal/nanoclaw/{id}/im/send", s.imBridgeProxy)
-		r.Post("/api/internal/nanoclaw/{id}/weixin/send", s.imBridgeProxy) // legacy alias
-
 		// WhatsApp Cloud webhook — public (auth enforced by hub.verify_token).
 		// Reverse-proxied to the imbridge service where the handler lives.
 		r.Get("/webhook/whatsapp", s.imBridgeProxy)
@@ -944,20 +919,8 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 		switch sbx.Type {
 		case "openclaw":
 			resp.OpenclawURL = "https://" + s.OpenclawSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "nanoclaw":
-			// NanoClaw has no Web UI — no URL to generate
-		case "claudecode":
-			resp.ClaudeCodeURL = "https://" + s.ClaudeCodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "jupyter":
-			resp.JupyterURL = "https://" + s.JupyterSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		case "hermes":
 			resp.HermesURL = "https://" + s.HermesSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		case "custom":
-			// Custom agents use the opencode subdomain prefix (code-{id}.domain)
-			// but skip SPA fallback in the proxy handler.
-			resp.CustomURL = "https://" + s.OpencodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
-		default: // "opencode"
-			resp.OpencodeURL = "https://" + s.OpencodeSubdomainPrefix + "-" + subID + "." + domain + "/auth?token=" + authToken
 		}
 	}
 	if sbx.LastActivityAt != nil {
@@ -1000,7 +963,7 @@ func (s *Server) toSandboxResponse(r *http.Request, sbx *sbxstore.Sandbox, authT
 
 // attachIMBindings fetches and attaches IM channel records to a sandbox response.
 func (s *Server) attachIMBindings(resp *sandboxResponse) {
-	if resp.Type != "openclaw" && resp.Type != "nanoclaw" {
+	if resp.Type != "openclaw" {
 		return
 	}
 	// Return only the channel bound to THIS sandbox.
@@ -1787,13 +1750,13 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	}
 	sandboxType := in.Type
 	if sandboxType == "" {
-		sandboxType = "opencode"
+		sandboxType = "openclaw"
 	}
-	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" && sandboxType != "hermes" {
+	if sandboxType != "openclaw" && sandboxType != "hermes" {
 		return nil, &provisionError{
 			Code:    "invalid_type",
 			Status:  http.StatusBadRequest,
-			Message: "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, jupyter, or hermes",
+			Message: "invalid sandbox type: must be openclaw or hermes",
 		}
 	}
 	if in.CPU != nil {
@@ -1855,18 +1818,10 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 		wsNamespace = ws.K8sNamespace.String
 	}
 
-	// Ensure workspace drive exists. Jupyter sandboxes are intentionally
-	// isolated to their own session-data PVC (no shared workspace drive),
-	// so skip provisioning for that type — see design spec
-	// docs/superpowers/specs/2026-05-19-jupyter-sandbox-type-design.md
-	// ("Non-goals: Mounting workspace-drive in jupyter sandboxes").
 	var workspaceVolumes []process.VolumeMount
-	if sandboxType != "jupyter" {
-		workspaceVolumes, err = s.DriveManager.EnsureDrive(ctx, wsID, wsNamespace)
-		if err != nil {
-			log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
-			// Non-fatal: sandbox can still work without workspace drive.
-		}
+	workspaceVolumes, err = s.DriveManager.EnsureDrive(ctx, wsID, wsNamespace)
+	if err != nil {
+		log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
 	}
 
 	id := uuid.New().String()
@@ -1886,23 +1841,10 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 	if err != nil {
 		return nil, fmt.Errorf("generate proxy token: %w", err)
 	}
-	switch sandboxType {
-	case "openclaw":
+	if sandboxType == "openclaw" {
 		openclawToken, err = generatePassword()
 		if err != nil {
 			return nil, fmt.Errorf("generate openclaw token: %w", err)
-		}
-	case "nanoclaw":
-		// NanoClaw uses a bridge secret instead of openclaw/opencode tokens.
-		// The bridge secret is stored separately after sandbox creation.
-	case "claudecode":
-		// Claude Code only uses proxyToken (as ANTHROPIC_API_KEY).
-	case "jupyter":
-		// Jupyter Server uses proxyToken as its built-in JUPYTER_TOKEN.
-	default: // "opencode"
-		opencodeToken, err = generatePassword()
-		if err != nil {
-			return nil, fmt.Errorf("generate opencode token: %w", err)
 		}
 	}
 
@@ -1921,17 +1863,6 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 		return nil, fmt.Errorf("create sandbox: %w", createErr)
 	}
 
-	// Generate and store bridge secret for nanoclaw sandboxes.
-	if sandboxType == "nanoclaw" {
-		bridgeSecret, err := generatePassword()
-		if err != nil {
-			return nil, fmt.Errorf("generate nanoclaw bridge secret: %w", err)
-		}
-		if err := s.DB.UpdateSandboxNanoclawBridgeSecret(id, bridgeSecret); err != nil {
-			log.Printf("failed to store nanoclaw bridge secret: %v", err)
-		}
-		sbx.NanoclawBridgeSecret = bridgeSecret
-	}
 
 	// Build start options.
 	startOpts := process.StartOptions{
@@ -1943,20 +1874,6 @@ func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provision
 		OpenclawToken:    openclawToken,
 		CPU:              cpuMillis,
 		Memory:           memBytes,
-	}
-	if sandboxType == "nanoclaw" {
-		startOpts.NanoclawBridgeSecret = sbx.NanoclawBridgeSecret
-		startOpts.SandboxID = id
-		startOpts.WorkspaceID = wsID
-		startOpts.AssistantName = sbx.MetadataString("assistant_name")
-	}
-	if sandboxType == "claudecode" {
-		startOpts.SandboxID = id
-		startOpts.WorkspaceID = wsID
-	}
-	if sandboxType == "jupyter" {
-		startOpts.SandboxID = id
-		startOpts.WorkspaceID = wsID
 	}
 	// Priority: modelserver > BYOK > platform default
 	if msConn != nil {
@@ -2183,13 +2100,6 @@ func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Unbind sandbox from its IM channel (poller keeps running at channel level).
-	if sbx.Type == "nanoclaw" {
-		if err := s.DB.UnbindSandboxFromChannel(id); err != nil {
-			log.Printf("failed to unbind sandbox %s from IM channel: %v", id, err)
-		}
-	}
-
 	if err := s.Sandboxes.Delete(id); err != nil {
 		log.Printf("failed to delete sandbox %s: %v", id, err)
 		http.Error(w, "failed to delete sandbox", http.StatusInternalServerError)
@@ -2326,13 +2236,6 @@ func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Sandboxes.UpdateActivity(id)
 		s.Sandboxes.UpdateStatus(id, sbxstore.StatusRunning)
-
-		// Restart IM bridge pollers for nanoclaw sandboxes after resume.
-		// The Pod has a new IP; notify imbridge to restart pollers.
-		sbxNow, ok := s.Sandboxes.Get(id)
-		if ok && sbxNow.Type == "nanoclaw" && s.IMBridgeURL != "" {
-			go s.notifyIMBridgePollerRestore(id)
-		}
 
 		// WeChat credentials for openclaw sandboxes persist on PVC across
 		// pause/resume, and the config merge preserves plugin metadata.

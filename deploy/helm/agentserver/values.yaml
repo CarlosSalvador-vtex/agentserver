@@ -88,15 +88,9 @@ sandbox:
   workspaceStorageClassName: ""
   # Size of the session PVC for each sandbox pod.
   sessionStorageSize: "5Gi"
-  opencode:
-    image: ghcr.io/agentserver/opencode-agent:latest
-    runtimeClassName: ""  # e.g. "gvisor" for gVisor isolation
-    subdomainPrefix: "code"  # subdomain: {prefix}-{sessionID}.{baseDomain}
-    # Opencode config injected into sandbox pods via OPENCODE_CONFIG_CONTENT.
-    # Accepts any valid opencode.json fields as structured YAML.
-    # The LLM proxy baseURL (provider.anthropic.options.baseURL) is auto-injected
-    # from the llmproxy service URL at deploy time.
-    config: {}
+  # LLM proxy config injected as OPENCODE_CONFIG_CONTENT for openclaw/hermes sandboxes.
+  llmProxyConfig: {}
+
   openclaw:
     image: ""
     runtimeClassName: ""
@@ -106,20 +100,6 @@ sandbox:
     # config injection sets channels.whatsapp.allowFrom and enables the
     # bundled "whatsapp" plugin.
     whatsappAllowedUsers: []
-  claudecode:
-    image: ""                # e.g. ghcr.io/agentserver/claudecode-agent:main
-    runtimeClassName: ""
-    subdomainPrefix: "claude" # subdomain: {prefix}-{sessionID}.{baseDomain}
-  jupyter:
-    image: ""                # e.g. ghcr.io/agentserver/agentserver-jupyter:main
-    runtimeClassName: ""
-    subdomainPrefix: "jupyter" # subdomain: {prefix}-{sandboxID}.{baseDomain}
-  nanoclaw:
-    image: ""                # e.g. ghcr.io/agentserver/nanoclaw-agent:v1.2.42
-    runtimeClassName: ""
-    weixinEnabled: false     # Enable WeChat channel via agentserver bridge
-    bridgeBaseUrl: ""        # agentserver internal URL for NanoClaw pod callbacks (e.g. "http://agentserver.agentserver.svc:8080")
-    model: ""                # Claude Code model override (e.g. "claude-opus-4-6")
   hermes:
     image: ""                # e.g. ghcr.io/nousresearch/hermes-agent:latest
     runtimeClassName: ""

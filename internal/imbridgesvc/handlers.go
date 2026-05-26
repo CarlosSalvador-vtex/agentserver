@@ -29,126 +29,6 @@ type imBindingResponse struct {
 }
 
 // ---------------------------------------------------------------------------
-// NanoClaw outbound messages (POST /api/internal/nanoclaw/{id}/im/send)
-// ---------------------------------------------------------------------------
-
-func (s *Server) handleNanoclawIMSend(w http.ResponseWriter, r *http.Request) {
-	sandboxID := chi.URLParam(r, "id")
-
-	sbx, ok := s.sandboxes.Get(sandboxID)
-	if !ok {
-		http.Error(w, "sandbox not found", http.StatusNotFound)
-		return
-	}
-	if sbx.Type != "nanoclaw" {
-		http.Error(w, "not a nanoclaw sandbox", http.StatusBadRequest)
-		return
-	}
-
-	authHeader := r.Header.Get("Authorization")
-	expectedAuth := "Bearer " + sbx.NanoclawBridgeSecret
-	if sbx.NanoclawBridgeSecret == "" || authHeader != expectedAuth {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse request — supports JSON (text) and multipart/form-data (media).
-	var reqMeta struct {
-		BotID      string `json:"bot_id"`
-		ToUserID   string `json:"to_user_id"`
-		Text       string `json:"text"`
-		ProviderID string `json:"provider"`
-	}
-	var mediaData []byte
-
-	ct := r.Header.Get("Content-Type")
-	if strings.HasPrefix(ct, "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			http.Error(w, "invalid multipart body", http.StatusBadRequest)
-			return
-		}
-		metaPart := r.FormValue("meta")
-		if metaPart != "" {
-			if err := json.Unmarshal([]byte(metaPart), &reqMeta); err != nil {
-				http.Error(w, "invalid meta JSON", http.StatusBadRequest)
-				return
-			}
-		}
-		if file, _, err := r.FormFile("media"); err == nil {
-			defer file.Close()
-			mediaData, err = io.ReadAll(file)
-			if err != nil {
-				http.Error(w, "failed to read media file", http.StatusBadRequest)
-				return
-			}
-		}
-	} else {
-		if err := json.NewDecoder(r.Body).Decode(&reqMeta); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-	}
-
-	if reqMeta.ToUserID == "" {
-		http.Error(w, "to_user_id is required", http.StatusBadRequest)
-		return
-	}
-	if reqMeta.Text == "" && len(mediaData) == 0 {
-		http.Error(w, "text or media is required", http.StatusBadRequest)
-		return
-	}
-
-	channel, err := s.db.GetIMChannelForSandbox(sandboxID)
-	if err != nil {
-		http.Error(w, "no IM channel bound to this sandbox", http.StatusNotFound)
-		return
-	}
-
-	var provider imbridge.Provider
-	if reqMeta.ProviderID != "" {
-		provider = s.bridge.GetProvider(reqMeta.ProviderID)
-	}
-	if provider == nil {
-		provider = s.bridge.FindProviderByJID(reqMeta.ToUserID)
-	}
-	if provider == nil {
-		provider = s.bridge.GetProvider(channel.Provider)
-	}
-	if provider == nil {
-		http.Error(w, "unknown IM provider", http.StatusBadRequest)
-		return
-	}
-	userID := reqMeta.ToUserID
-
-	meta, _ := s.db.GetAllChannelMeta(channel.ID, userID)
-	s.bridge.StopTyping(channel.ID, userID)
-
-	creds := &imbridge.Credentials{ChannelID: channel.ID, BotID: channel.BotID, BotToken: channel.BotToken, BaseURL: channel.BaseURL}
-
-	if len(mediaData) > 0 {
-		isp, ok := provider.(imbridge.ImageSendProvider)
-		if !ok {
-			http.Error(w, "image sending not supported for provider: "+provider.Name(), http.StatusBadRequest)
-			return
-		}
-		if err := isp.SendImage(r.Context(), creds, userID, mediaData, reqMeta.Text, meta); err != nil {
-			log.Printf("nanoclaw im send image: failed sandbox=%s to=%s: %v", sandboxID, userID, err)
-			http.Error(w, "failed to send image: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-	} else {
-		if err := provider.Send(r.Context(), creds, userID, reqMeta.Text, meta); err != nil {
-			log.Printf("nanoclaw im send: failed sandbox=%s provider=%s to=%s: %v", sandboxID, provider.Name(), userID, err)
-			http.Error(w, "failed to send message", http.StatusBadGateway)
-			return
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
-}
-
-// ---------------------------------------------------------------------------
 // Stateless CC outbound messages (POST /api/internal/imbridge/send)
 // ---------------------------------------------------------------------------
 
@@ -317,8 +197,8 @@ func (s *Server) handleIMWeixinQRStart(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireWorkspaceMember(w, r, sbx.WorkspaceID); !ok {
 		return
 	}
-	if sbx.Type != "openclaw" && sbx.Type != "nanoclaw" {
-		http.Error(w, "weixin login is only available for openclaw and nanoclaw sandboxes", http.StatusBadRequest)
+	if sbx.Type != "openclaw" {
+		http.Error(w, "weixin login is only available for openclaw sandboxes", http.StatusBadRequest)
 		return
 	}
 	if sbx.Status != "running" {
@@ -352,8 +232,8 @@ func (s *Server) handleIMWeixinQRWait(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireWorkspaceMember(w, r, sbx.WorkspaceID); !ok {
 		return
 	}
-	if sbx.Type != "openclaw" && sbx.Type != "nanoclaw" {
-		http.Error(w, "weixin login is only available for openclaw and nanoclaw sandboxes", http.StatusBadRequest)
+	if sbx.Type != "openclaw" {
+		http.Error(w, "weixin login is only available for openclaw sandboxes", http.StatusBadRequest)
 		return
 	}
 	if sbx.Status != "running" {
@@ -474,40 +354,8 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, sandboxID string, re
 		return fmt.Errorf("empty bot ID from ilink response")
 	}
 
-	sbx, ok := s.sandboxes.Get(sandboxID)
-	if !ok {
+	if _, ok := s.sandboxes.Get(sandboxID); !ok {
 		return fmt.Errorf("sandbox %s not found", sandboxID)
-	}
-
-	if sbx.Type == "nanoclaw" {
-		// NanoClaw: store credentials in workspace IM channels (bridge mode).
-		baseURL := result.BaseURL
-		if baseURL == "" {
-			baseURL = wp.DefaultBaseURL()
-		}
-		channelID, err := s.db.CreateIMChannel(sbx.WorkspaceID, "weixin", accountID, result.UserID)
-		if err != nil {
-			return fmt.Errorf("create IM channel: %w", err)
-		}
-		if err := s.db.SaveIMChannelCredentials(channelID, result.Token, baseURL); err != nil {
-			return fmt.Errorf("save channel credentials: %w", err)
-		}
-		if err := s.db.BindSandboxToChannel(sandboxID, channelID); err != nil {
-			return fmt.Errorf("bind sandbox to channel: %w", err)
-		}
-		s.bridge.StartPoller(imbridge.BridgeBinding{
-			Provider: wp,
-			Credentials: imbridge.Credentials{
-				ChannelID: channelID,
-				BotID:     accountID,
-				BotToken:  result.Token,
-				BaseURL:   baseURL,
-			},
-			ChannelID:   channelID,
-			Cursor:      "",
-			WorkspaceID: sbx.WorkspaceID,
-		})
-		return nil
 	}
 
 	// Openclaw: the standalone imbridge service does not have K8s exec access,
@@ -974,8 +822,8 @@ func (s *Server) handleUpdateWorkspaceIMChannel(w http.ResponseWriter, r *http.R
 		// stateless_cc is no longer accepted — the agentserver endpoint
 		// it pointed to (POST /api/workspaces/{id}/im/inbound) was
 		// removed in the #135 purge.
-		if mode != "nanoclaw" && mode != "codex" {
-			http.Error(w, "invalid routing_mode: must be nanoclaw or codex", http.StatusBadRequest)
+		if mode != "codex" {
+			http.Error(w, "invalid routing_mode: must be codex", http.StatusBadRequest)
 			return
 		}
 		if err := s.db.UpdateIMChannelRoutingMode(channelID, mode); err != nil {

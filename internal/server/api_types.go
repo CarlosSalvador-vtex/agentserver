@@ -135,7 +135,7 @@ type LLMConfigUpsertResponse struct {
 // All fields except name are optional and fall back to workspace/server defaults.
 type SandboxCreateRequest struct {
 	Name        string                 `json:"name" validate:"required" example:"my-sandbox"`
-	Type        string                 `json:"type" example:"opencode"`    // optional; default "opencode"
+	Type        string                 `json:"type" example:"openclaw"`    // optional; default "openclaw"
 	CPU         *int                   `json:"cpu"`                        // optional; millicores, e.g. 500 or 2000
 	Memory      *int64                 `json:"memory"`                     // optional; bytes, e.g. 536870912 (512Mi)
 	IdleTimeout *int                   `json:"idle_timeout"`               // optional; seconds
@@ -215,7 +215,7 @@ type IMChannelListResponse struct {
 
 // IMChannelPatchRequest is the body for PATCH /api/workspaces/{id}/im/channels/{channelId}.
 // Both fields are optional — only the supplied keys are applied.
-// routing_mode must be "nanoclaw" or "codex".
+// routing_mode must be "codex".
 type IMChannelPatchRequest struct {
 	RequireMention *bool   `json:"require_mention" extensions:"x-nullable=true"`
 	RoutingMode    *string `json:"routing_mode" extensions:"x-nullable=true" example:"codex"`
@@ -325,10 +325,10 @@ type CodexTokenListItem struct {
 // --- Agent Discovery ---
 
 // AgentRegisterRequest is the body for POST /api/agent/register.
-// type defaults to "opencode" when omitted; valid values: opencode, claudecode, custom.
+// type defaults to "custom" when omitted; valid value: custom.
 type AgentRegisterRequest struct {
 	Name string `json:"name" example:"Local Agent"`
-	Type string `json:"type" example:"opencode"` // optional; defaults to "opencode"
+	Type string `json:"type" example:"custom"` // optional; defaults to "custom"
 } // @name AgentRegisterRequest
 
 // AgentRegisterResponse is returned (201) by POST /api/agent/register.
@@ -743,7 +743,7 @@ type AdminSandboxItem struct {
 	ID             string  `json:"id" validate:"required"`
 	Name           string  `json:"name" validate:"required"`
 	WorkspaceID    string  `json:"workspace_id" validate:"required"`
-	Type           string  `json:"type" validate:"required" example:"opencode"`
+	Type           string  `json:"type" validate:"required" example:"openclaw"`
 	Status         string  `json:"status" validate:"required" example:"running"`
 	CreatedAt      string  `json:"created_at" validate:"required"`
 	LastActivityAt *string `json:"last_activity_at,omitempty" extensions:"x-nullable=true"`

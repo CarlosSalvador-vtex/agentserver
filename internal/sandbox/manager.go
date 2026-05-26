@@ -321,6 +321,10 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 	sandboxName := "agent-sandbox-" + shortID(id)
 	ns := opts.Namespace
 
+	if !Valid(opts.SandboxType) {
+		return "", fmt.Errorf("unsupported sandbox type %q: must be openclaw or hermes", opts.SandboxType)
+	}
+
 	// Composition resolution — read once at the top so the openclaw
 	// config emitter and the skill mount block both consume the same
 	// snapshot. Best-effort: failure logs + returns empty so the
@@ -360,19 +364,17 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 	}
 
 	// Select image, port, and command based on sandbox type.
-	sandboxImage := m.cfg.Image
-	containerPort := m.cfg.OpencodePort
-	if containerPort == 0 {
-		containerPort = 4096
-	}
+	var sandboxImage string
+	var containerPort int
 	var containerCmd []string
 	var containerArgs []string
 
 	switch opts.SandboxType {
-	case "openclaw":
-		if m.cfg.OpenclawImage != "" {
-			sandboxImage = m.cfg.OpenclawImage
+	case TypeOpenclaw:
+		if m.cfg.OpenclawImage == "" {
+			return "", fmt.Errorf("OPENCLAW_IMAGE not configured: set the environment variable to the openclaw container image")
 		}
+		sandboxImage = m.cfg.OpenclawImage
 		containerPort = m.cfg.OpenclawPort
 		if containerPort == 0 {
 			containerPort = 18789
@@ -447,171 +449,43 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		if opts.OpenclawToken != "" {
 			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCLAW_GATEWAY_TOKEN", Value: opts.OpenclawToken})
 		}
-	case "claudecode":
-		if m.cfg.ClaudeCodeImage == "" {
-			return "", fmt.Errorf("CLAUDECODE_IMAGE not configured: set the environment variable to the claudecode container image (build with Dockerfile.claudecode)")
-		}
-		sandboxImage = m.cfg.ClaudeCodeImage
-		containerPort = m.cfg.ClaudeCodePort
-
-		// ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY are already injected by
-		// the common LLM provider block above (with /v1 stripped).
-
-		// MCP bridge config: agentserver URL + auth for discover_agents/delegate_task
-		agentserverURL := m.cfg.AgentServerInternalURL
-		if agentserverURL == "" {
-			agentserverURL = "http://agentserver:8080"
-		}
-		containerEnv = append(containerEnv,
-			corev1.EnvVar{Name: "AGENTSERVER_URL", Value: agentserverURL},
-			corev1.EnvVar{Name: "AGENTSERVER_TOKEN", Value: opts.ProxyToken},
-			corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
-			corev1.EnvVar{Name: "AGENTSERVER_SANDBOX_ID", Value: opts.SandboxID},
-		)
-	case "nanoclaw":
-		if m.cfg.NanoclawImage == "" {
-			return "", fmt.Errorf("NANOCLAW_IMAGE not configured: set the environment variable to the nanoclaw container image (build with Dockerfile.nanoclaw)")
-		}
-		sandboxImage = m.cfg.NanoclawImage
-		containerPort = 3002 // Health/bridge endpoint
-		imBridgeURL := ""
-		bridgeSecret := ""
-		if m.cfg.NanoclawIMBridgeEnabled && opts.NanoclawBridgeSecret != "" {
-			bridgeSecret = opts.NanoclawBridgeSecret
-			if m.cfg.NanoclawBridgeBaseURL != "" && opts.SandboxID != "" {
-				imBridgeURL = m.cfg.NanoclawBridgeBaseURL + "/api/internal/nanoclaw/" + opts.SandboxID + "/im/send"
-			}
-		}
-		// NanoClaw uses the Anthropic SDK (via Claude Code) which appends
-		// /v1/messages to ANTHROPIC_BASE_URL. The proxyBaseURL from opencode
-		// config already includes /v1 (opencode appends /messages directly).
-		// Use the raw LLM proxy URL without path for NanoClaw.
-		nanoclawProxyURL := strings.TrimSuffix(proxyBaseURL, "/v1")
-		nanoclawCfg := BuildNanoclawConfig(
-			nanoclawProxyURL, opts.ProxyToken, opts.AssistantName,
-			imBridgeURL, bridgeSecret,
-			opts.BYOKBaseURL, opts.BYOKAPIKey,
-			m.cfg.GeminiProxyBaseURL,
-		)
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: "NANOCLAW_CONFIG_CONTENT", Value: nanoclawCfg})
-		// NANOCLAW_NO_CONTAINER must be a real env var (not just in .env file)
-		// because container-runtime.ts reads process.env before NanoClaw's
-		// readEnvFile() has a chance to parse the .env file.
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: "NANOCLAW_NO_CONTAINER", Value: "true"})
-		if m.cfg.NanoclawModel != "" {
-			containerEnv = append(containerEnv, corev1.EnvVar{Name: "ANTHROPIC_MODEL", Value: m.cfg.NanoclawModel})
-		}
-		// MCP bridge config: agentserver URL + auth for discover_agents/delegate_task
-		agentserverURL := m.cfg.AgentServerInternalURL
-		if agentserverURL == "" {
-			agentserverURL = "http://agentserver:8080"
-		}
-		containerEnv = append(containerEnv,
-			corev1.EnvVar{Name: "AGENTSERVER_URL", Value: agentserverURL},
-			corev1.EnvVar{Name: "AGENTSERVER_TOKEN", Value: opts.ProxyToken},
-			corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
-			corev1.EnvVar{Name: "AGENTSERVER_SANDBOX_ID", Value: opts.SandboxID},
-		)
-	case "jupyter":
-		if m.cfg.JupyterImage == "" {
-			return "", fmt.Errorf("JUPYTER_IMAGE not configured: set the environment variable to the jupyter container image (build with Dockerfile.jupyter)")
-		}
-		sandboxImage = m.cfg.JupyterImage
-		containerPort = m.cfg.JupyterPort
-
-		// Jupyter Server picks up JUPYTER_TOKEN as the built-in token
-		// (defense in depth — actual access control is the sandboxproxy
-		// jupyter-token cookie). NOTEBOOK_BASE_URL=/ keeps absolute
-		// URLs rooted at the subdomain (matches the vhost convention).
-		containerEnv = append(containerEnv,
-			corev1.EnvVar{Name: "JUPYTER_TOKEN", Value: opts.ProxyToken},
-			corev1.EnvVar{Name: "NOTEBOOK_BASE_URL", Value: "/"},
-			corev1.EnvVar{Name: "JUPYTER_ROOT_DIR", Value: "/home/agent"},
-		)
-		// agentserver Python SDK (bundled in the jupyter image) reads
-		// these to dial the codex-exec-gateway REST API.
-		// Without them `ctx.envs()` etc. fail with ECONNREFUSED on
-		// the SDK's localhost default.
-		if m.cfg.CodexExecGatewayURL != "" {
-			containerEnv = append(containerEnv,
-				corev1.EnvVar{Name: "AGENTSERVER_GATEWAY_URL", Value: m.cfg.CodexExecGatewayURL},
-				corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_TOKEN", Value: opts.ProxyToken},
-				corev1.EnvVar{Name: "AGENTSERVER_WORKSPACE_ID", Value: opts.WorkspaceID},
-			)
-		}
-	case "hermes":
+	case TypeHermes:
 		if m.cfg.HermesImage == "" {
 			return "", fmt.Errorf("HERMES_IMAGE not configured: set the environment variable to the hermes-agent container image (ghcr.io/nousresearch/hermes-agent)")
 		}
 		sandboxImage = m.cfg.HermesImage
 		containerPort = m.cfg.HermesPort
 
-		// Don't override Command — hermes-agent's image entrypoint is /init
-		// (s6 supervisor). Pass `gateway run` as Args so s6 routes it to the
-		// hermes CLI on $PATH (set up by the entrypoint). Direct Command
-		// override fails with `exec: "gateway": executable file not found`.
 		containerArgs = []string{"gateway", "run"}
 
 		containerEnv = append(containerEnv,
 			corev1.EnvVar{Name: "AWS_REGION", Value: "us-east-1"},
 			corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
 			corev1.EnvVar{Name: "HERMES_DASHBOARD", Value: "1"},
-			// Embedded chat tab in the dashboard (otherwise the only chat
-			// path is via Discord/Telegram). Requires the pty + web extras
-			// which are already in the upstream image.
 			corev1.EnvVar{Name: "HERMES_DASHBOARD_TUI", Value: "1"},
-			// Skip the per-user allowlist check so the embedded chat tab
-			// can hit the gateway without configuring a messaging platform.
 			corev1.EnvVar{Name: "GATEWAY_ALLOW_ALL_USERS", Value: "true"},
 		)
-		// WHATSAPP_ALLOWED_USERS — comma-separated E.164 list. When set,
-		// hermes routes WA messages from these numbers; QR pairing happens
-		// once via the dashboard subdomain. Session persists on the
-		// session-data PVC under /opt/data/whatsapp.
 		if m.cfg.HermesWhatsappAllowed != "" {
 			containerEnv = append(containerEnv,
 				corev1.EnvVar{Name: "WHATSAPP_ALLOWED_USERS", Value: m.cfg.HermesWhatsappAllowed},
 			)
 		}
-		// GLM_API_KEY drives the zai/glm-5.1 fallback provider configured
-		// in config.yaml. Bedrock is primary (IRSA via ServiceAccount),
-		// GLM kicks in if Bedrock fails.
 		if m.cfg.HermesGLMAPIKey != "" {
 			containerEnv = append(containerEnv,
 				corev1.EnvVar{Name: "GLM_API_KEY", Value: m.cfg.HermesGLMAPIKey},
 			)
 		}
-	default: // "opencode"
-		if opts.OpencodeToken != "" {
-			containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCODE_SERVER_PASSWORD", Value: opts.OpencodeToken})
-		}
-		// Merge LLM provider config into OPENCODE_CONFIG_CONTENT.
-		apiKey, overrideURL := opts.ProxyToken, ""
-		if opts.BYOKBaseURL != "" {
-			apiKey = opts.BYOKAPIKey
-			overrideURL = opts.BYOKBaseURL
-		}
-		opcodeConfig := BuildOpencodeConfig(m.cfg.OpencodeConfigContent, apiKey, overrideURL)
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: "OPENCODE_CONFIG_CONTENT", Value: opcodeConfig})
 	}
 
 	// Volume mounts for the main container. Hermes-agent expects its data
 	// directory at /opt/data (mirrors `-v ~/.hermes:/opt/data` from upstream
 	// docs); all other sandbox types use the user's home directory.
 	sessionMountPath := "/home/agent"
-	if opts.SandboxType == "hermes" {
+	if opts.SandboxType == TypeHermes {
 		sessionMountPath = "/opt/data"
 	}
 	volumeMounts := []corev1.VolumeMount{
 		{Name: "session-data", MountPath: sessionMountPath},
-	}
-	// NanoClaw: persist store (SQLite DB) and data (IPC/sessions) on PVC
-	// so they survive pause/resume.
-	if opts.SandboxType == "nanoclaw" {
-		volumeMounts = append(volumeMounts,
-			corev1.VolumeMount{Name: "session-data", MountPath: "/app/store", SubPath: "nanoclaw/store"},
-			corev1.VolumeMount{Name: "session-data", MountPath: "/app/data", SubPath: "nanoclaw/data"},
-		)
 	}
 	var volumes []corev1.Volume
 
@@ -640,7 +514,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// Soul body for hermes lands at /opt/data/SOUL.md (uppercase, the
 	// HERMES_HOME convention — hermes-agent auto-loads it as persona on
 	// every turn). See soulMountPath in composition.go.
-	if opts.SandboxType == "hermes" && m.cfg.HermesConfigMapName != "" {
+	if opts.SandboxType == TypeHermes && m.cfg.HermesConfigMapName != "" {
 		volumes = append(volumes, corev1.Volume{
 			Name: "hermes-config",
 			VolumeSource: corev1.VolumeSource{
@@ -671,7 +545,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	//   2. Composition-driven (playground): per-sandbox refs in
 	//      sandbox_compositions. ResolveComposition materializes
 	//      ephemeral ConfigMaps + builds the vol/mount payload directly.
-	if opts.SandboxType == "hermes" || opts.SandboxType == "openclaw" {
+	if opts.SandboxType == TypeHermes || opts.SandboxType == TypeOpenclaw {
 		if err := m.replicateSkillConfigMaps(ctx, ns); err != nil {
 			return "", fmt.Errorf("replicate skill configmaps: %w", err)
 		}
@@ -702,7 +576,7 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 	// Determine the home directory to seed from: openclaw uses /home/node,
 	// all other images use /home/agent.
 	seedHome := "/home/agent"
-	if opts.SandboxType == "openclaw" {
+	if opts.SandboxType == TypeOpenclaw {
 		seedHome = "/home/node"
 	}
 	initScript := fmt.Sprintf(`
@@ -714,8 +588,6 @@ if [ ! -f /mnt/session-data/.initialized ]; then
 fi
 # Ensure projects directory exists (workspace PVC mount point)
 mkdir -p /mnt/session-data/projects
-# NanoClaw persistent directories (store for SQLite DB, data for IPC/sessions)
-mkdir -p /mnt/session-data/nanoclaw/store /mnt/session-data/nanoclaw/data
 # chown after mkdir so all directories are owned by UID 1000
 chown -R 1000:1000 /mnt/session-data
 `, seedHome, seedHome)
@@ -758,10 +630,7 @@ chown -R 1000:1000 /mnt/session-data
 	}
 
 	workingDir := "/home/agent/projects"
-	switch opts.SandboxType {
-	case "openclaw":
-		workingDir = "/app"
-	case "nanoclaw":
+	if opts.SandboxType == TypeOpenclaw {
 		workingDir = "/app"
 	}
 
@@ -826,19 +695,6 @@ chown -R 1000:1000 /mnt/session-data
 			},
 		},
 	}
-	if opts.SandboxType == "nanoclaw" {
-		mainContainer.ReadinessProbe = &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path: "/health",
-					Port: intstr.FromInt32(int32(containerPort)),
-				},
-			},
-			InitialDelaySeconds: 5,
-			PeriodSeconds:       5,
-			FailureThreshold:    30,
-		}
-	}
 	if len(containerCmd) > 0 {
 		mainContainer.Command = containerCmd
 	}
@@ -847,7 +703,7 @@ chown -R 1000:1000 /mnt/session-data
 	}
 
 	var serviceAccountName string
-	if opts.SandboxType == "hermes" && m.cfg.HermesServiceAccountRoleArn != "" {
+	if opts.SandboxType == TypeHermes && m.cfg.HermesServiceAccountRoleArn != "" {
 		if err := m.ensureHermesServiceAccount(ctx, ns); err != nil {
 			return "", fmt.Errorf("ensure hermes ServiceAccount: %w", err)
 		}
@@ -1100,21 +956,13 @@ func (m *Manager) runtimeClassName() *string {
 
 func (m *Manager) runtimeClassNameFor(sandboxType string) *string {
 	switch sandboxType {
-	case "openclaw":
+	case TypeOpenclaw:
 		if m.cfg.OpenclawRuntimeClassName != "" {
 			return strPtr(m.cfg.OpenclawRuntimeClassName)
 		}
-	case "nanoclaw":
-		if m.cfg.NanoclawRuntimeClassName != "" {
-			return strPtr(m.cfg.NanoclawRuntimeClassName)
-		}
-	case "claudecode":
-		if m.cfg.ClaudeCodeRuntimeClassName != "" {
-			return strPtr(m.cfg.ClaudeCodeRuntimeClassName)
-		}
-	case "jupyter":
-		if m.cfg.JupyterRuntimeClassName != "" {
-			return strPtr(m.cfg.JupyterRuntimeClassName)
+	case TypeHermes:
+		if m.cfg.HermesRuntimeClassName != "" {
+			return strPtr(m.cfg.HermesRuntimeClassName)
 		}
 	}
 	return m.runtimeClassName()
@@ -1464,9 +1312,9 @@ func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([
 	}
 	var mountRoot string
 	switch platform {
-	case "hermes":
+	case TypeHermes:
 		mountRoot = "/opt/data/skills/personal"
-	case "openclaw":
+	case TypeOpenclaw:
 		// OpenClaw discovers plugins under ~/.openclaw/extensions/. The
 		// upstream openclaw image runs as user `agent` (warning at boot:
 		// "discovered non-bundled plugins may auto-load: openclaw-weixin

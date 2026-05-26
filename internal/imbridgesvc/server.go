@@ -41,10 +41,6 @@ func (s *Server) Routes() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Internal API: NanoClaw pods send outbound IM messages (auth via bridge secret).
-	r.Post("/api/internal/nanoclaw/{id}/im/send", s.handleNanoclawIMSend)
-	r.Post("/api/internal/nanoclaw/{id}/weixin/send", s.handleNanoclawIMSend) // legacy alias
-
 	// Internal API: agentserver notifies imbridge of lifecycle events.
 	r.Post("/api/internal/imbridge/pollers/{sandboxId}/restore", s.handleRestorePollers)
 	r.Post("/api/internal/imbridge/pollers/{channelId}/stop", s.handleStopPoller)
@@ -86,13 +82,7 @@ func (s *Server) Routes() http.Handler {
 		// Legacy sandbox-level IM routes.
 		r.Post("/api/sandboxes/{id}/im/weixin/qr-start", s.handleIMWeixinQRStart)
 		r.Post("/api/sandboxes/{id}/im/weixin/qr-wait", s.handleIMWeixinQRWait)
-		r.Post("/api/sandboxes/{id}/im/telegram/configure", s.handleIMTelegramConfigure)
-		r.Delete("/api/sandboxes/{id}/im/telegram", s.handleIMTelegramDisconnect)
-		r.Post("/api/sandboxes/{id}/im/matrix/configure", s.handleIMMatrixConfigure)
-		r.Delete("/api/sandboxes/{id}/im/matrix", s.handleIMMatrixDisconnect)
 		r.Get("/api/sandboxes/{id}/im/bindings", s.handleListIMBindings)
-		r.Post("/api/sandboxes/{id}/weixin/qr-start", s.handleIMWeixinQRStart)
-		r.Post("/api/sandboxes/{id}/weixin/qr-wait", s.handleIMWeixinQRWait)
 	})
 
 	return r

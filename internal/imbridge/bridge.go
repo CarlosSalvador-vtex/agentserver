@@ -52,7 +52,7 @@ type BridgeBinding struct {
 	ChannelID   string // workspace_im_channels.id
 	Cursor      string
 	WorkspaceID string // workspace that owns this channel
-	RoutingMode string // "nanoclaw" (default) or "codex"
+	RoutingMode string // "codex" (default) or legacy "nanoclaw"
 }
 
 // pollerEntry tracks an active poller so the bridge can both cancel it and
@@ -70,7 +70,6 @@ type Bridge struct {
 	agentserverURL   string
 	providers        map[string]Provider
 	pollers          map[string]pollerEntry // key: channelID
-	registeredGroups map[string]string      // key: "sandboxID:chatJID" → cached settings hash
 	channelMention   map[string]bool        // key: channelID → require_mention setting
 	channelRouting   map[string]string      // key: channelID → routing_mode (runtime override of binding)
 	typingSessions   map[string]func()      // key: "channelID:userID" → cancel func
@@ -94,7 +93,6 @@ func NewBridge(db BridgeDB, resolver SandboxResolver, exec ExecCommander, provid
 		agentserverURL:   agentserverURL,
 		providers:        pm,
 		pollers:          make(map[string]pollerEntry),
-		registeredGroups: make(map[string]string),
 		channelMention:   make(map[string]bool),
 		channelRouting:   make(map[string]string),
 		typingSessions:   make(map[string]func()),
@@ -409,12 +407,8 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 }
 
 // forwardMessage routes an inbound message based on the binding's RoutingMode.
-// "codex" forwards to agentserver's codex-app-gateway path; all other
-// values (including empty, for backward compatibility) forward to
-// NanoClaw. "stateless_cc" used to route to a since-removed agentserver
-// /api/workspaces/{id}/im/inbound handler (purged in #135); that route
-// is no longer accepted by the API and any DB row still carrying it
-// falls through to NanoClaw here.
+// "codex" (and empty/default) forwards to agentserver's codex-app-gateway
+// path. Legacy "nanoclaw" routing mode is no longer supported.
 // DispatchInbound feeds a single inbound message into the same forward
 // pipeline used by polling providers. Used by push-based providers
 // (e.g. WhatsApp Cloud webhook handlers) that can't sit inside the
@@ -457,12 +451,10 @@ func (b *Bridge) forwardMessage(ctx context.Context, binding BridgeBinding, msg 
 	if mode == "" {
 		mode = binding.RoutingMode
 	}
-	switch mode {
-	case "codex":
-		return b.forwardToCodex(ctx, binding, msg)
-	default: // "nanoclaw", "stateless_cc" (legacy), or empty
-		return b.forwardToNanoClaw(ctx, binding, msg)
+	if mode == "nanoclaw" {
+		log.Printf("imbridge: routing_mode=nanoclaw is deprecated for channel=%s; using codex", binding.ChannelID)
 	}
+	return b.forwardToCodex(ctx, binding, msg)
 }
 
 // forwardToCodex POSTs the inbound message to agentserver's
@@ -519,184 +511,6 @@ func (b *Bridge) forwardToCodex(ctx context.Context, binding BridgeBinding, msg 
 		return false, fmt.Errorf("codex inbound: status %d", resp.StatusCode)
 	}
 	return true, nil
-}
-
-// forwardToNanoClaw sends a message to the NanoClaw pod's bridge HTTP endpoint.
-// Returns (true, nil) if forwarded, (false, nil) if skipped (e.g. not mentioned), or (false, err) on failure.
-func (b *Bridge) forwardToNanoClaw(ctx context.Context, binding BridgeBinding, msg InboundMessage) (bool, error) {
-	// Resolve which sandbox is bound to this channel.
-	sandboxID, podIP, bridgeSecret, assistantName, err := b.db.GetSandboxForChannel(binding.ChannelID)
-	if err != nil {
-		return false, fmt.Errorf("resolve sandbox for channel %s: %w", binding.ChannelID, err)
-	}
-	if podIP == "" {
-		return false, fmt.Errorf("sandbox %s has no PodIP (pod may be down or paused)", sandboxID)
-	}
-
-	// Skip messages in group chats that don't mention the bot (when require_mention is enabled).
-	if b.getChannelRequireMention(binding.ChannelID) && msg.IsGroup && msg.Metadata["mentioned"] != "true" {
-		log.Printf("imbridge: skipping group message (not mentioned) channel=%s from=%s", binding.ChannelID, msg.FromUserID)
-		return false, nil
-	}
-
-	b.ensureGroupRegistered(ctx, sandboxID, msg.FromUserID, assistantName)
-
-	if err := b.ensureChatRegistered(ctx, podIP, bridgeSecret, msg.FromUserID, msg.SenderName, binding.Provider.Name(), msg.IsGroup); err != nil {
-		log.Printf("imbridge: failed to register chat %s: %v (continuing anyway)", msg.FromUserID, err)
-	}
-
-	payload := map[string]interface{}{
-		"id":          fmt.Sprintf("im-%d", time.Now().UnixMilli()),
-		"chat_jid":    msg.FromUserID,
-		"sender":      msg.FromUserID,
-		"sender_name": msg.SenderName,
-		"content":     msg.Text,
-		"timestamp":   time.Now().UTC().Format(time.RFC3339),
-		"provider":    binding.Provider.Name(),
-	}
-	if len(msg.MediaData) > 0 {
-		payload["media_data"] = base64.StdEncoding.EncodeToString(msg.MediaData)
-		payload["media_type"] = msg.MediaType
-		if msg.MediaFilename != "" {
-			payload["media_filename"] = msg.MediaFilename
-		}
-	}
-	if msg.QuotedText != "" || len(msg.QuotedMediaData) > 0 {
-		if msg.QuotedText != "" {
-			payload["quoted_content"] = msg.QuotedText
-		}
-		if msg.QuotedSender != "" {
-			payload["quoted_sender"] = msg.QuotedSender
-		}
-		if len(msg.QuotedMediaData) > 0 {
-			payload["quoted_media_data"] = base64.StdEncoding.EncodeToString(msg.QuotedMediaData)
-			payload["quoted_media_type"] = msg.QuotedMediaType
-			if msg.QuotedMediaFilename != "" {
-				payload["quoted_media_filename"] = msg.QuotedMediaFilename
-			}
-		}
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return false, fmt.Errorf("marshal message: %w", err)
-	}
-
-	url := fmt.Sprintf("http://%s:3002/message", podIP)
-	ctx, cancel := context.WithTimeout(ctx, forwardTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+bridgeSecret)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("forward to nanoclaw: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("nanoclaw returned status %d", resp.StatusCode)
-	}
-	return true, nil
-}
-
-// ensureChatRegistered sends a /metadata request to register the chat JID.
-func (b *Bridge) ensureChatRegistered(ctx context.Context, podIP, bridgeSecret, chatJID, chatName, provider string, isGroup bool) error {
-	meta := map[string]interface{}{
-		"chat_jid":  chatJID,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"name":      chatName,
-		"is_group":  isGroup,
-		"provider":  provider,
-	}
-	body, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("marshal metadata: %w", err)
-	}
-
-	url := fmt.Sprintf("http://%s:3002/metadata", podIP)
-	ctx, cancel := context.WithTimeout(ctx, forwardTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+bridgeSecret)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("register chat metadata: %w", err)
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// ensureGroupRegistered registers a chat JID as a NanoClaw group via IPC.
-// assistantName is used as the trigger name; defaults to "Andy" if empty.
-// Re-registers if the settings (e.g. requireMention) have changed.
-func (b *Bridge) ensureGroupRegistered(ctx context.Context, sandboxID, chatJID, assistantName string) {
-	if b.exec == nil {
-		return
-	}
-	if assistantName == "" {
-		assistantName = "Andy"
-	}
-
-	// Cache includes settings so changes trigger re-registration.
-	key := sandboxID + ":" + chatJID
-	settingsHash := "v2:" + assistantName
-	b.mu.Lock()
-	if b.registeredGroups[key] == settingsHash {
-		b.mu.Unlock()
-		return
-	}
-	b.registeredGroups[key] = settingsHash
-	b.mu.Unlock()
-
-	folderName := sanitizeFolder(chatJID)
-
-	// Use json.Marshal to safely encode the payload (avoids shell injection via chatJID).
-	ipcData, _ := json.Marshal(map[string]interface{}{
-		"type":            "register_group",
-		"jid":             chatJID,
-		"name":            chatJID,
-		"folder":          folderName,
-		"trigger":         assistantName,
-		"requiresTrigger": false,
-	})
-	b64 := base64.StdEncoding.EncodeToString(ipcData)
-
-	script := fmt.Sprintf(
-		`mkdir -p /app/data/ipc/main/tasks && echo %s | base64 -d > /app/data/ipc/main/tasks/register-%s.json`,
-		b64, folderName)
-
-	if _, err := b.exec.ExecSimple(ctx, sandboxID, []string{"sh", "-c", script}); err != nil {
-		log.Printf("imbridge: failed to register group %s in sandbox %s: %v", chatJID, sandboxID, err)
-		b.mu.Lock()
-		delete(b.registeredGroups, key)
-		b.mu.Unlock()
-	}
-}
-
-// sanitizeFolder converts a JID to a filesystem-safe folder name.
-func sanitizeFolder(jid string) string {
-	var out []byte
-	for _, c := range []byte(jid) {
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
-			out = append(out, c)
-		default:
-			out = append(out, '-')
-		}
-	}
-	return "im-" + string(out)
 }
 
 // sleepCtx sleeps for the given duration or until the context is cancelled.

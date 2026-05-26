@@ -8,7 +8,7 @@ interface CreateSandboxModalProps {
   onClose: () => void
   onCreate: (
     name: string,
-    type: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes',
+    type: 'openclaw' | 'hermes',
     cpu?: number,
     memory?: number,
     idleTimeout?: number,
@@ -20,7 +20,7 @@ interface CreateSandboxModalProps {
 
 export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }: CreateSandboxModalProps) {
   const [name, setName] = useState('New Sandbox')
-  const [sandboxType, setSandboxType] = useState<'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes'>('openclaw')
+  const [sandboxType, setSandboxType] = useState<'openclaw' | 'hermes'>('openclaw')
   const [defaults, setDefaults] = useState<WorkspaceSandboxDefaults | null>(null)
   const [loadingDefaults, setLoadingDefaults] = useState(true)
 
@@ -31,7 +31,6 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
   // Idle timeout in minutes (display), stored as seconds internally
   const [timeoutMinutes, setTimeoutMinutes] = useState<string>('')
 
-  const [assistantName, setAssistantName] = useState('')
   const [composition, setComposition] = useState<SandboxCompositionInput | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
 
@@ -101,9 +100,6 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
     const resources = validate()
     if (!resources) return
     const metadata: Record<string, unknown> = {}
-    if (sandboxType === 'nanoclaw' && assistantName.trim()) {
-      metadata.assistant_name = assistantName.trim()
-    }
     onCreate(name, sandboxType, resources.cpu, resources.memory, resources.idleTimeout, Object.keys(metadata).length > 0 ? metadata : undefined, composition ?? undefined)
   }
 
@@ -161,24 +157,6 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
               </button>
             </div>
           </div>
-
-          {sandboxType === 'nanoclaw' && (
-            <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1">
-                Assistant Name
-                <span className="ml-1 text-xs font-normal text-[var(--muted-foreground)]">
-                  default: Andy
-                </span>
-              </label>
-              <input
-                type="text"
-                value={assistantName}
-                onChange={(e) => setAssistantName(e.target.value)}
-                placeholder="Andy"
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-          )}
 
           {loadingDefaults ? (
             <div className="flex items-center justify-center gap-2 py-3 text-sm text-[var(--muted-foreground)]">

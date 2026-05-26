@@ -106,7 +106,7 @@ spec:
             {{- /* Build OPENCODE_CONFIG_CONTENT with llmproxy baseURL merged in.
                  Users can override baseURL via sandbox.opencode.config.provider.anthropic.options.baseURL */}}
             {{- $llmproxyURL := printf "http://%s-llmproxy.%s.svc:%v/v1" .Release.Name .Release.Namespace (int .Values.llmproxy.port) }}
-            {{- $opcodeBase := deepCopy .Values.sandbox.opencode.config }}
+            {{- $opcodeBase := deepCopy .Values.sandbox.llmProxyConfig }}
             {{- $proxyOpts := dict "baseURL" $llmproxyURL }}
             {{- $proxyProvider := dict "options" $proxyOpts }}
             {{- $providerBlock := dict "anthropic" $proxyProvider }}
@@ -115,7 +115,7 @@ spec:
             - name: OPENCODE_CONFIG_CONTENT
               value: {{ $opcodeBase | toJson | quote }}
             - name: AGENT_IMAGE
-              value: {{ .Values.sandbox.opencode.image | quote }}
+              value: {{ .Values.sandbox.openclaw.image | default "" | quote }}
             {{- if .Values.sandbox.tolerations }}
             - name: SANDBOX_TOLERATIONS
               value: {{ .Values.sandbox.tolerations | toJson | quote }}
@@ -156,10 +156,6 @@ spec:
             - name: NETWORKPOLICY_DENY_CIDRS
               value: {{ join "," .Values.sandbox.networkPolicy.denyCIDRs | quote }}
             {{- end }}
-            {{- if .Values.sandbox.opencode.runtimeClassName }}
-            - name: RUNTIME_CLASS
-              value: {{ .Values.sandbox.opencode.runtimeClassName | quote }}
-            {{- end }}
             {{- if .Values.sandbox.openclaw.runtimeClassName }}
             - name: OPENCLAW_RUNTIME_CLASS
               value: {{ .Values.sandbox.openclaw.runtimeClassName | quote }}
@@ -167,22 +163,6 @@ spec:
             {{- if .Values.sandbox.openclaw.weixinEnabled }}
             - name: OPENCLAW_WEIXIN_ENABLED
               value: "true"
-            {{- end }}
-            {{- if .Values.sandbox.claudecode.image }}
-            - name: CLAUDECODE_IMAGE
-              value: {{ .Values.sandbox.claudecode.image | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.claudecode.runtimeClassName }}
-            - name: CLAUDECODE_RUNTIME_CLASS
-              value: {{ .Values.sandbox.claudecode.runtimeClassName | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.jupyter.image }}
-            - name: JUPYTER_IMAGE
-              value: {{ .Values.sandbox.jupyter.image | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.jupyter.runtimeClassName }}
-            - name: JUPYTER_RUNTIME_CLASS
-              value: {{ .Values.sandbox.jupyter.runtimeClassName | quote }}
             {{- end }}
             {{- if .Values.sandbox.hermes.image }}
             - name: HERMES_IMAGE
@@ -253,33 +233,6 @@ spec:
                   name: {{ .Release.Name }}-codex-gateway
                   key: inbound-hmac-secret
             {{- end }}
-            {{- if .Values.sandbox.claudecode.image }}
-            - name: AGENTSERVER_INTERNAL_URL
-              value: {{ printf "http://%s.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.service.port) | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.image }}
-            - name: NANOCLAW_IMAGE
-              value: {{ .Values.sandbox.nanoclaw.image | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.runtimeClassName }}
-            - name: NANOCLAW_RUNTIME_CLASS
-              value: {{ .Values.sandbox.nanoclaw.runtimeClassName | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.weixinEnabled }}
-            - name: NANOCLAW_WEIXIN_ENABLED
-              value: "true"
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.model }}
-            - name: NANOCLAW_MODEL
-              value: {{ .Values.sandbox.nanoclaw.model | quote }}
-            {{- end }}
-            {{- if .Values.sandbox.nanoclaw.bridgeBaseUrl }}
-            - name: NANOCLAW_BRIDGE_BASE_URL
-              value: {{ .Values.sandbox.nanoclaw.bridgeBaseUrl | quote }}
-            {{- else if .Values.sandbox.nanoclaw.image }}
-            - name: NANOCLAW_BRIDGE_BASE_URL
-              value: {{ printf "http://%s-imbridge.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.imbridge.port) | quote }}
-            {{- end }}
             - name: IMBRIDGE_URL
               value: {{ printf "http://%s-imbridge.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.imbridge.port) | quote }}
             {{- if .Values.internal.apiSecret }}
@@ -341,14 +294,10 @@ spec:
             - name: AGENTSERVER_COOKIE_DOMAIN
               value: {{ printf ".%s" .Values.platform.domain | quote }}
             {{- end }}
-            - name: OPENCODE_SUBDOMAIN_PREFIX
-              value: {{ .Values.sandbox.opencode.subdomainPrefix | default "code" | quote }}
             - name: OPENCLAW_SUBDOMAIN_PREFIX
               value: {{ .Values.sandbox.openclaw.subdomainPrefix | default "claw" | quote }}
-            - name: CLAUDECODE_SUBDOMAIN_PREFIX
-              value: {{ .Values.sandbox.claudecode.subdomainPrefix | default "claude" | quote }}
-            - name: JUPYTER_SUBDOMAIN_PREFIX
-              value: {{ .Values.sandbox.jupyter.subdomainPrefix | default "jupyter" | quote }}
+            - name: HERMES_SUBDOMAIN_PREFIX
+              value: {{ .Values.sandbox.hermes.subdomainPrefix | default "hermes" | quote }}
             - name: LLMPROXY_URL
               value: {{ printf "http://%s-llmproxy.%s.svc:%v" .Release.Name .Release.Namespace (int .Values.llmproxy.port) | quote }}
             {{- if and .Values.platform.domain (or .Values.platform.auth.oidc.github.enabled .Values.platform.auth.oidc.generic.enabled) }}

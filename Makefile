@@ -63,13 +63,6 @@ sdk-test:
 sdk-lint:
 	cd sdk/python && .venv/bin/ruff check . && .venv/bin/ruff format --check .
 
-jupyter-image:
-	docker build -f Dockerfile.jupyter -t agentserver-jupyter:dev .
-
-jupyter-smoke: jupyter-image
-	mkdir -p notebook/smoke-workspace
-	docker compose -f notebook/docker-compose.smoke.yml up --build
-
 # OpenAPI: generate docs/api/openapi.{yaml,json} from swaggo annotations
 # on internal/server handler funcs. Source of truth for the frontend
 # TypeScript codegen.
