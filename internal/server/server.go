@@ -461,6 +461,7 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/api/playground/skills/{id}", s.handlePatchSkillDraft)
 		r.Delete("/api/playground/skills/{id}", s.handleArchiveSkillDraft)
 		r.Post("/api/playground/skills/{id}/promote", s.handlePromoteSkillDraft)
+		r.Post("/api/playground/skills/{id}/dry-run", s.handleSkillDraftDryRun)
 		r.Get("/api/playground/souls", s.handleListSoulDrafts)
 		r.Post("/api/playground/souls", s.handleCreateSoulDraft)
 		r.Get("/api/playground/souls/{id}", s.handleGetSoulDraft)
@@ -2037,6 +2038,22 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		log.Printf("provision sandbox: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Persist composition (if any). Best-effort: a missing composition
+	// row just means the sandbox boots without playground refs (legacy
+	// behavior). Failure to persist is logged but does not abort the
+	// create response — the sandbox itself is already up.
+	if req.Composition != nil {
+		if err := s.DB.CreateSandboxComposition(
+			sbx.ID,
+			req.Composition.Soul,
+			req.Composition.Skills,
+			req.Composition.Config,
+			req.Composition.TrackUpstream,
+		); err != nil {
+			log.Printf("persist composition for %s: %v", sbx.ID, err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
