@@ -208,6 +208,29 @@ spec:
             - name: HERMES_SA_ROLE_ARN
               value: {{ .Values.sandbox.hermes.serviceAccountRoleArn | quote }}
             {{- end }}
+            {{- if .Values.sandbox.hermes.whatsappAllowedUsers }}
+            - name: HERMES_WHATSAPP_ALLOWED
+              value: {{ join "," .Values.sandbox.hermes.whatsappAllowedUsers | quote }}
+            {{- end }}
+            {{- if .Values.sandbox.openclaw.whatsappAllowedUsers }}
+            - name: OPENCLAW_WHATSAPP_ALLOWED
+              value: {{ join "," .Values.sandbox.openclaw.whatsappAllowedUsers | quote }}
+            {{- end }}
+            {{- $skillCMs := list -}}
+            {{- range $name, $skill := .Values.sandbox.skills -}}
+              {{- if $skill.enabled -}}
+                {{- $skillCMs = append $skillCMs (printf "%s=%s-skill-%s" $name $.Release.Name $name) -}}
+              {{- end -}}
+            {{- end -}}
+            {{- if $skillCMs }}
+            # Comma-separated <skillName>=<configMapName> pairs. The sandbox
+            # manager parses this, replicates each ConfigMap into the
+            # workspace namespace at sandbox-create time, and mounts the
+            # files under /opt/data/skills/personal/<name>/ (hermes) or
+            # /home/node/.openclaw/plugins/<name>/ (openclaw).
+            - name: SANDBOX_SKILL_CONFIGMAPS
+              value: {{ join "," $skillCMs | quote }}
+            {{- end }}
             {{- if .Values.codexExecGateway.enabled }}
             - name: CODEX_EXEC_GATEWAY_URL
               value: "http://{{ .Release.Name }}-codex-exec-gateway.{{ .Release.Namespace }}.svc:{{ .Values.codexExecGateway.port }}"
