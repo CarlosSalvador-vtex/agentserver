@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -514,6 +515,8 @@ func (s *Server) Router() http.Handler {
 			// Multi-channel routing strategy (shared|per_agent|hybrid).
 			r.Get("/api/workspaces/{id}/routing-strategy", s.imBridgeProxy)
 			r.Put("/api/workspaces/{id}/routing-strategy", s.imBridgeProxy)
+			// Auto-provision-and-bind (server-side; needs k8s, not proxied).
+			r.Post("/api/workspaces/{id}/im/channels/{channelId}/auto-bind", s.handleChannelAutoBind)
 			// Legacy sandbox-level IM routes (un-annotated, proxied directly).
 			r.Post("/api/sandboxes/{id}/im/weixin/qr-start", s.imBridgeProxy)
 			r.Post("/api/sandboxes/{id}/im/weixin/qr-wait", s.imBridgeProxy)
@@ -1675,116 +1678,143 @@ func (s *Server) handleListSandboxes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-//	@Summary     Create a sandbox in a workspace
-//	@Description Validates type / CPU / memory / idle_timeout / quota / budget. Returns 201 immediately with status="provisioning"; container starts asynchronously.
-//	@Tags        Sandboxes
-//	@Accept      json
-//	@Produce     json
-//	@Param       wid   path      string                true  "Workspace id"
-//	@Param       body  body      SandboxCreateRequest  true  "Create payload"
-//	@Success     201   {object}  Sandbox
-//	@Failure     400   {string}  string  "validation error (type/cpu/memory/idle_timeout)"
-//	@Failure     403   {string}  string  "insufficient role / quota / budget"
-//	@Failure     500   {string}  string  "internal error"
-//	@Security    CookieAuth
-//	@Router      /api/workspaces/{wid}/sandboxes [post]
-func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
-	wsID := chi.URLParam(r, "wid")
-	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer", "developer") {
-		return
-	}
+// provisionInput is the post-parsed, post-auth payload accepted by
+// provisionSandbox. It mirrors SandboxCreateRequest but is decoupled
+// from HTTP so non-user-driven callers (e.g. the IM channel
+// auto-binder) can request a sandbox via the same code path.
+type provisionInput struct {
+	Name        string
+	Type        string
+	CPU         *int
+	Memory      *int64
+	IdleTimeout *int
+	Metadata    map[string]interface{}
+}
 
+// provisionError is a typed error returned by provisionSandbox so HTTP
+// callers can map it to an appropriate status code without parsing
+// string messages.
+type provisionError struct {
+	Code    string
+	Status  int
+	Message string
+	Detail  map[string]interface{}
+}
+
+func (e *provisionError) Error() string { return e.Message }
+
+// writeProvisionError writes a *provisionError as a JSON HTTP response.
+func writeProvisionError(w http.ResponseWriter, pe *provisionError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(pe.Status)
+	body := map[string]interface{}{"error": pe.Code, "message": pe.Message}
+	for k, v := range pe.Detail {
+		body[k] = v
+	}
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// provisionSandbox runs the full sandbox creation pipeline: quota +
+// budget check, default resolution, token generation, in-memory store
+// record, and an async container start in a goroutine. Returns the
+// freshly-created sandbox with Status="creating"; the goroutine
+// populates pod_ip and flips status to "running" later.
+//
+// Callers are expected to have already authorized the request (role
+// check on the workspace). Validation failures surface as
+// *provisionError values that map cleanly to HTTP status codes via
+// writeProvisionError.
+func (s *Server) provisionSandbox(ctx context.Context, wsID string, in provisionInput) (*sbxstore.Sandbox, error) {
 	// Quota check.
 	allowed, current, max, err := s.checkSandboxQuota(wsID)
 	if err != nil {
-		log.Printf("failed to check sandbox quota: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("check sandbox quota: %w", err)
 	}
 	if !allowed {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":   "quota_exceeded",
-			"message": fmt.Sprintf("Sandbox limit reached (%d/%d). Contact an admin to increase your quota.", current, max),
-			"quota":   map[string]int{"current": current, "max": max},
-		})
-		return
+		return nil, &provisionError{
+			Code:    "quota_exceeded",
+			Status:  http.StatusForbidden,
+			Message: fmt.Sprintf("Sandbox limit reached (%d/%d). Contact an admin to increase your quota.", current, max),
+			Detail:  map[string]interface{}{"quota": map[string]int{"current": current, "max": max}},
+		}
 	}
 
 	// Resolve effective workspace defaults.
 	wd, err := s.effectiveWorkspaceDefaults(wsID)
 	if err != nil {
-		log.Printf("failed to get workspace defaults: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("get workspace defaults: %w", err)
 	}
 
 	cpuMillis := wd.MaxSandboxCPU   // already int millicores
 	memBytes := wd.MaxSandboxMemory // already int64 bytes
 
-	var req SandboxCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.Name = "New Sandbox"
+	if in.Name == "" {
+		in.Name = "New Sandbox"
 	}
-	if req.Name == "" {
-		req.Name = "New Sandbox"
-	}
-	sandboxType := req.Type
+	sandboxType := in.Type
 	if sandboxType == "" {
 		sandboxType = "opencode"
 	}
 	if sandboxType != "opencode" && sandboxType != "openclaw" && sandboxType != "nanoclaw" && sandboxType != "claudecode" && sandboxType != "jupyter" && sandboxType != "hermes" {
-		http.Error(w, "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, jupyter, or hermes", http.StatusBadRequest)
-		return
-	}
-	// Override resource values if user provided them, with validation.
-	if req.CPU != nil {
-		if *req.CPU <= 0 || *req.CPU > wd.MaxSandboxCPU {
-			http.Error(w, fmt.Sprintf("cpu must be between 1 and %d millicores", wd.MaxSandboxCPU), http.StatusBadRequest)
-			return
+		return nil, &provisionError{
+			Code:    "invalid_type",
+			Status:  http.StatusBadRequest,
+			Message: "invalid sandbox type: must be opencode, openclaw, nanoclaw, claudecode, jupyter, or hermes",
 		}
-		cpuMillis = *req.CPU
 	}
-	if req.Memory != nil {
-		if *req.Memory <= 0 || *req.Memory > wd.MaxSandboxMemory {
-			http.Error(w, fmt.Sprintf("memory must be between 1 and %d bytes", wd.MaxSandboxMemory), http.StatusBadRequest)
-			return
+	if in.CPU != nil {
+		if *in.CPU <= 0 || *in.CPU > wd.MaxSandboxCPU {
+			return nil, &provisionError{
+				Code:    "invalid_cpu",
+				Status:  http.StatusBadRequest,
+				Message: fmt.Sprintf("cpu must be between 1 and %d millicores", wd.MaxSandboxCPU),
+			}
 		}
-		memBytes = *req.Memory
+		cpuMillis = *in.CPU
+	}
+	if in.Memory != nil {
+		if *in.Memory <= 0 || *in.Memory > wd.MaxSandboxMemory {
+			return nil, &provisionError{
+				Code:    "invalid_memory",
+				Status:  http.StatusBadRequest,
+				Message: fmt.Sprintf("memory must be between 1 and %d bytes", wd.MaxSandboxMemory),
+			}
+		}
+		memBytes = *in.Memory
 	}
 	var idleTimeout *int
-	if req.IdleTimeout != nil {
-		if *req.IdleTimeout < 0 || (wd.MaxIdleTimeout > 0 && (*req.IdleTimeout == 0 || *req.IdleTimeout > wd.MaxIdleTimeout)) {
-			http.Error(w, fmt.Sprintf("idle_timeout must be between 1 and %d seconds", wd.MaxIdleTimeout), http.StatusBadRequest)
-			return
+	if in.IdleTimeout != nil {
+		if *in.IdleTimeout < 0 || (wd.MaxIdleTimeout > 0 && (*in.IdleTimeout == 0 || *in.IdleTimeout > wd.MaxIdleTimeout)) {
+			return nil, &provisionError{
+				Code:    "invalid_idle_timeout",
+				Status:  http.StatusBadRequest,
+				Message: fmt.Sprintf("idle_timeout must be between 1 and %d seconds", wd.MaxIdleTimeout),
+			}
 		}
-		idleTimeout = req.IdleTimeout
+		idleTimeout = in.IdleTimeout
 	}
 
 	// Check workspace resource budget.
 	budgetOk, err := s.checkWorkspaceResourceBudget(wsID, cpuMillis, memBytes)
 	if err != nil {
-		log.Printf("failed to check workspace resource budget: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("check workspace resource budget: %w", err)
 	}
 	if !budgetOk {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":   "resource_budget_exceeded",
-			"message": "Workspace resource budget exceeded. Delete or pause existing sandboxes to free resources.",
-		})
-		return
+		return nil, &provisionError{
+			Code:    "resource_budget_exceeded",
+			Status:  http.StatusForbidden,
+			Message: "Workspace resource budget exceeded. Delete or pause existing sandboxes to free resources.",
+		}
 	}
 
 	// Look up workspace namespace.
 	ws, err := s.DB.GetWorkspace(wsID)
 	if err != nil || ws == nil {
-		log.Printf("failed to get workspace %s: %v", wsID, err)
-		http.Error(w, "workspace not found", http.StatusNotFound)
-		return
+		return nil, &provisionError{
+			Code:    "workspace_not_found",
+			Status:  http.StatusNotFound,
+			Message: "workspace not found",
+		}
 	}
 	var wsNamespace string
 	if ws.K8sNamespace.Valid {
@@ -1798,7 +1828,7 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	// ("Non-goals: Mounting workspace-drive in jupyter sandboxes").
 	var workspaceVolumes []process.VolumeMount
 	if sandboxType != "jupyter" {
-		workspaceVolumes, err = s.DriveManager.EnsureDrive(r.Context(), wsID, wsNamespace)
+		workspaceVolumes, err = s.DriveManager.EnsureDrive(ctx, wsID, wsNamespace)
 		if err != nil {
 			log.Printf("failed to ensure workspace drive for %s: %v", wsID, err)
 			// Non-fatal: sandbox can still work without workspace drive.
@@ -1820,15 +1850,13 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	var opencodeToken, openclawToken string
 	proxyToken, err := generatePassword()
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("generate proxy token: %w", err)
 	}
 	switch sandboxType {
 	case "openclaw":
 		openclawToken, err = generatePassword()
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("generate openclaw token: %w", err)
 		}
 	case "nanoclaw":
 		// NanoClaw uses a bridge secret instead of openclaw/opencode tokens.
@@ -1837,12 +1865,10 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		// Claude Code only uses proxyToken (as ANTHROPIC_API_KEY).
 	case "jupyter":
 		// Jupyter Server uses proxyToken as its built-in JUPYTER_TOKEN.
-		// No opencodeToken needed.
 	default: // "opencode"
 		opencodeToken, err = generatePassword()
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("generate opencode token: %w", err)
 		}
 	}
 
@@ -1851,25 +1877,21 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	var sbx *sbxstore.Sandbox
 	var createErr error
 	for attempts := 0; attempts < 3; attempts++ {
-		sbx, createErr = s.Sandboxes.Create(id, wsID, req.Name, sandboxType, sandboxName, opencodeToken, proxyToken, openclawToken, sid, cpuMillis, memBytes, idleTimeout, req.Metadata)
+		sbx, createErr = s.Sandboxes.Create(id, wsID, in.Name, sandboxType, sandboxName, opencodeToken, proxyToken, openclawToken, sid, cpuMillis, memBytes, idleTimeout, in.Metadata)
 		if createErr == nil {
 			break
 		}
 		sid = shortid.Generate()
 	}
 	if createErr != nil {
-		log.Printf("failed to create sandbox: %v", createErr)
-		http.Error(w, "failed to create sandbox", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("create sandbox: %w", createErr)
 	}
 
 	// Generate and store bridge secret for nanoclaw sandboxes.
 	if sandboxType == "nanoclaw" {
 		bridgeSecret, err := generatePassword()
 		if err != nil {
-			log.Printf("failed to generate nanoclaw bridge secret: %v", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("generate nanoclaw bridge secret: %w", err)
 		}
 		if err := s.DB.UpdateSandboxNanoclawBridgeSecret(id, bridgeSecret); err != nil {
 			log.Printf("failed to store nanoclaw bridge secret: %v", err)
@@ -1904,7 +1926,6 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 	// Priority: modelserver > BYOK > platform default
 	if msConn != nil {
-		// Modelserver connection: sandbox routes through llmproxy (no BYOK injection)
 		startOpts.CustomModels = make([]process.LLMModel, len(msConn.Models))
 		for i, m := range msConn.Models {
 			startOpts.CustomModels[i] = process.LLMModel{ID: m.ID, Name: m.Name}
@@ -1921,7 +1942,6 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 	// Start container asynchronously.
 	go func() {
 		var podIP string
-		// Use StartContainerWithIP if available (K8s backend) to get the pod IP.
 		if sc, ok := s.ProcessManager.(interface {
 			StartContainerWithIP(string, process.StartOptions) (string, error)
 		}); ok {
@@ -1946,6 +1966,52 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Sandboxes.UpdateStatus(id, sbxstore.StatusRunning)
 	}()
+
+	return sbx, nil
+}
+
+//	@Summary     Create a sandbox in a workspace
+//	@Description Validates type / CPU / memory / idle_timeout / quota / budget. Returns 201 immediately with status="provisioning"; container starts asynchronously.
+//	@Tags        Sandboxes
+//	@Accept      json
+//	@Produce     json
+//	@Param       wid   path      string                true  "Workspace id"
+//	@Param       body  body      SandboxCreateRequest  true  "Create payload"
+//	@Success     201   {object}  Sandbox
+//	@Failure     400   {string}  string  "validation error (type/cpu/memory/idle_timeout)"
+//	@Failure     403   {string}  string  "insufficient role / quota / budget"
+//	@Failure     500   {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/workspaces/{wid}/sandboxes [post]
+func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wid")
+	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer", "developer") {
+		return
+	}
+
+	var req SandboxCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Name = "New Sandbox"
+	}
+
+	sbx, err := s.provisionSandbox(r.Context(), wsID, provisionInput{
+		Name:        req.Name,
+		Type:        req.Type,
+		CPU:         req.CPU,
+		Memory:      req.Memory,
+		IdleTimeout: req.IdleTimeout,
+		Metadata:    req.Metadata,
+	})
+	var pe *provisionError
+	if errors.As(err, &pe) {
+		writeProvisionError(w, pe)
+		return
+	}
+	if err != nil {
+		log.Printf("provision sandbox: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -2429,6 +2495,150 @@ func (s *Server) notifyIMBridgePollerRestore(sandboxID string) {
 		return
 	}
 	resp.Body.Close()
+}
+
+// ChannelAutoBindRequest is the body for POST
+// /api/workspaces/{id}/im/channels/{channelId}/auto-bind.
+type ChannelAutoBindRequest struct {
+	// SandboxType picks the agent runtime when a new sandbox needs to be
+	// provisioned. Optional; defaults to "openclaw" which has IM-channel
+	// integrations baked in. Ignored when an existing shared sandbox is
+	// reused.
+	SandboxType string `json:"sandbox_type,omitempty"`
+	// Name is the display name applied to a newly provisioned sandbox.
+	// Optional; defaults to "Channel agent — {provider} {bot_id}".
+	Name string `json:"name,omitempty"`
+} // @name ChannelAutoBindRequest
+
+// ChannelAutoBindResponse is the result of an auto-bind call. Reused
+// indicates whether a pre-existing shared sandbox was selected (true)
+// vs a freshly provisioned one (false).
+type ChannelAutoBindResponse struct {
+	SandboxID string `json:"sandbox_id"`
+	ChannelID string `json:"channel_id"`
+	Strategy  string `json:"strategy"`
+	Reused    bool   `json:"reused"`
+} // @name ChannelAutoBindResponse
+
+// handleChannelAutoBind binds an IM channel to a sandbox according to
+// the workspace's channel_routing_strategy. In "shared" mode it reuses
+// any existing running sandbox that already holds bindings (otherwise
+// provisions one). In "per_agent" mode it always provisions a fresh
+// 1:1 sandbox. In "hybrid" mode it refuses — the operator is expected
+// to bind manually via /im/bind or /im/bind-multi.
+//
+//	@Summary     Auto-provision and bind a sandbox to an IM channel
+//	@Description Resolves the workspace channel_routing_strategy and binds accordingly. Returns 409 in hybrid mode.
+//	@Tags        IM Channels
+//	@Accept      json
+//	@Produce     json
+//	@Param       id         path  string                   true   "Workspace id"
+//	@Param       channelId  path  string                   true   "Channel id"
+//	@Param       body       body  ChannelAutoBindRequest   false  "Optional overrides"
+//	@Success     200  {object}  ChannelAutoBindResponse
+//	@Failure     400  {string}  string  "validation error"
+//	@Failure     403  {string}  string  "insufficient role / quota / budget"
+//	@Failure     404  {string}  string  "workspace or channel not found"
+//	@Failure     409  {string}  string  "hybrid strategy — manual binding required"
+//	@Failure     500  {string}  string  "internal error"
+//	@Security    CookieAuth
+//	@Router      /api/workspaces/{id}/im/channels/{channelId}/auto-bind [post]
+func (s *Server) handleChannelAutoBind(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "id")
+	channelID := chi.URLParam(r, "channelId")
+	if !s.requireWorkspaceRole(w, r, wsID, "owner", "maintainer", "developer") {
+		return
+	}
+
+	var req ChannelAutoBindRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	ch, err := s.DB.GetIMChannel(channelID)
+	if err != nil || ch == nil || ch.WorkspaceID != wsID {
+		http.Error(w, "channel not found in workspace", http.StatusNotFound)
+		return
+	}
+
+	ws, err := s.DB.GetWorkspace(wsID)
+	if err != nil || ws == nil {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	strategy := ws.ChannelRoutingStrategy
+	if strategy == "" {
+		strategy = "shared"
+	}
+
+	var sandboxID string
+	var reused bool
+
+	if strategy == "shared" {
+		existing, err := s.DB.GetSharedSandbox(wsID)
+		if err == nil && existing != "" {
+			sandboxID = existing
+			reused = true
+		}
+	}
+
+	if strategy == "hybrid" {
+		http.Error(w, "auto-bind not supported in hybrid mode; use /im/bind or /im/bind-multi", http.StatusConflict)
+		return
+	}
+
+	if strategy != "shared" && strategy != "per_agent" {
+		http.Error(w, "unknown routing strategy: "+strategy, http.StatusBadRequest)
+		return
+	}
+
+	if sandboxID == "" {
+		sbxType := req.SandboxType
+		if sbxType == "" {
+			sbxType = "openclaw"
+		}
+		name := req.Name
+		if name == "" {
+			name = fmt.Sprintf("Channel agent — %s %s", ch.Provider, ch.BotID)
+		}
+		sbx, err := s.provisionSandbox(r.Context(), wsID, provisionInput{
+			Name: name,
+			Type: sbxType,
+		})
+		var pe *provisionError
+		if errors.As(err, &pe) {
+			writeProvisionError(w, pe)
+			return
+		}
+		if err != nil {
+			log.Printf("auto-bind: provision sandbox: %v", err)
+			http.Error(w, "failed to provision sandbox", http.StatusInternalServerError)
+			return
+		}
+		sandboxID = sbx.ID
+	}
+
+	if strategy == "per_agent" {
+		// 1:1 — displaces any other sandbox that previously held this channel.
+		if err := s.DB.BindSandboxToChannel(sandboxID, channelID); err != nil {
+			log.Printf("auto-bind: BindSandboxToChannel: %v", err)
+			http.Error(w, "bind failed", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// shared — N:1, no displacement.
+		if err := s.DB.BindSandboxChannels(sandboxID, []string{channelID}); err != nil {
+			log.Printf("auto-bind: BindSandboxChannels: %v", err)
+			http.Error(w, "bind failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ChannelAutoBindResponse{
+		SandboxID: sandboxID,
+		ChannelID: channelID,
+		Strategy:  strategy,
+		Reused:    reused,
+	})
 }
 
 // newReverseProxy creates an HTTP handler that proxies requests to the given base URL.
