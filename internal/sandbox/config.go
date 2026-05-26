@@ -234,8 +234,9 @@ func ExtractProxyBaseURL(configJSON string) string {
 }
 
 // OpenclawConfigOptions bundles optional extensions to the openclaw.json
-// injection — plugin enable flags and the WhatsApp allowlist. Keeps the
-// BuildOpenclawConfig signature stable as we add features.
+// injection — plugin enable flags, WhatsApp allowlist, and the playground
+// soul body. Keeps the BuildOpenclawConfig signature stable as features
+// land.
 type OpenclawConfigOptions struct {
 	// EnabledPlugins becomes plugins.entries.<name> = { enabled: true } in
 	// the injected config. The Node init wrapper deep-merges this into the
@@ -245,6 +246,11 @@ type OpenclawConfigOptions struct {
 	// enables the bundled "whatsapp" plugin (added to EnabledPlugins).
 	// Empty disables the WA channel entirely.
 	WhatsappAllowed []string
+	// SoulBody is the persona body to inject as agent.systemPrompt in the
+	// merged openclaw.json. Set by the playground composition layer; the
+	// upstream openclaw agent reads agent.systemPrompt and prepends it to
+	// every turn. Empty leaves the field unset (no override).
+	SoulBody string
 }
 
 // BuildOpenclawConfig returns the openclaw.json content with gateway settings
@@ -302,6 +308,9 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 		Channels *struct {
 			Whatsapp *whatsappChannel `json:"whatsapp,omitempty"`
 		} `json:"channels,omitempty"`
+		Agent *struct {
+			SystemPrompt string `json:"systemPrompt,omitempty"`
+		} `json:"agent,omitempty"`
 	}
 
 	var c config
@@ -394,6 +403,16 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 				AllowFrom: allow,
 			},
 		}
+	}
+
+	// Soul body — set agent.systemPrompt so the merged openclaw.json
+	// carries the playground persona. The Node init wrapper deep-merges
+	// `agent` (see manager.go) so this field survives alongside any
+	// upstream defaults.
+	if opts.SoulBody != "" {
+		c.Agent = &struct {
+			SystemPrompt string `json:"systemPrompt,omitempty"`
+		}{SystemPrompt: opts.SoulBody}
 	}
 
 	b, _ := json.Marshal(c)

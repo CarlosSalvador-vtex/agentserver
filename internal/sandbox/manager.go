@@ -321,6 +321,16 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 	sandboxName := "agent-sandbox-" + shortID(id)
 	ns := opts.Namespace
 
+	// Composition resolution — read once at the top so the openclaw
+	// config emitter and the skill mount block both consume the same
+	// snapshot. Best-effort: failure logs + returns empty so the
+	// sandbox can still boot.
+	composition, compErr := m.ResolveComposition(ctx, id, ns, opts.SandboxType)
+	if compErr != nil {
+		log.Printf("composition resolve for %s: %v (continuing without)", id, compErr)
+		composition = &ResolvedComposition{}
+	}
+
 	// Build environment variables for the sandbox pod.
 	containerEnv := []corev1.EnvVar{{Name: "TERM", Value: "xterm-256color"}}
 
@@ -391,9 +401,16 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 				}
 			}
 		}
+		// Merge env-driven skill list with composition-driven skill list
+		// so plugins.entries covers both sources. EnabledSkillNames is
+		// populated for both git (chart-mounted) and draft (ephemeral CM)
+		// refs in ResolveComposition.
+		mergedSkills := append([]string{}, skillPlugins...)
+		mergedSkills = append(mergedSkills, composition.EnabledSkillNames...)
 		openclawCfg := BuildOpenclawConfig(cfgBaseURL, cfgAPIKey, opts.OpenclawToken, cfgModels, OpenclawConfigOptions{
-			EnabledPlugins:  skillPlugins,
+			EnabledPlugins:  mergedSkills,
 			WhatsappAllowed: openclawWA,
+			SoulBody:        composition.SoulBody,
 		})
 		// Merge our gateway/models config into the image's existing openclaw.json
 		// (which contains plugin install metadata) instead of overwriting it.
@@ -414,6 +431,13 @@ if (inject.gateway) {
   }
 }
 if (inject.models) existing.models = inject.models;
+// Soul: playground composition emits agent.systemPrompt. Deep-merge so
+// the image's default agent.* fields (max_turns, retry settings) stay
+// intact while the persona overrides systemPrompt.
+if (inject.agent) {
+  existing.agent = existing.agent || {};
+  Object.assign(existing.agent, inject.agent);
+}
 fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 " && exec node openclaw.mjs gateway --allow-unconfigured --bind lan`}
 		containerEnv = append(containerEnv, corev1.EnvVar{Name: "__OPENCLAW_INJECT_CFG", Value: openclawCfg})
@@ -655,24 +679,20 @@ fs.writeFileSync(path, JSON.stringify(existing, null, 2));
 		volumeMounts = append(volumeMounts, skillMounts...)
 
 		// Composition (playground) — apply draft soul + skill mounts on
-		// top of the env-driven ones. Best-effort: failures are logged
-		// and don't abort sandbox creation (the sandbox can still boot
-		// without the composition; user re-creates if needed).
-		resolved, err := m.ResolveComposition(ctx, id, ns, opts.SandboxType)
-		if err != nil {
-			log.Printf("composition resolve for %s: %v (continuing without)", id, err)
-		} else if resolved != nil {
-			for i := range resolved.EphemeralConfigMaps {
-				cm := resolved.EphemeralConfigMaps[i]
-				if _, err := m.clientset.CoreV1().ConfigMaps(ns).Create(ctx, &cm, metav1.CreateOptions{}); err != nil {
-					if !k8serrors.IsAlreadyExists(err) {
-						log.Printf("apply ephemeral configmap %s/%s: %v", ns, cm.Name, err)
-					}
+		// top of the env-driven ones. Resolution was already done at
+		// the top of StartContainerWithIP (the openclaw config emitter
+		// needs SoulBody too). Here we just apply the resulting
+		// ConfigMaps + append volumes/mounts.
+		for i := range composition.EphemeralConfigMaps {
+			cm := composition.EphemeralConfigMaps[i]
+			if _, err := m.clientset.CoreV1().ConfigMaps(ns).Create(ctx, &cm, metav1.CreateOptions{}); err != nil {
+				if !k8serrors.IsAlreadyExists(err) {
+					log.Printf("apply ephemeral configmap %s/%s: %v", ns, cm.Name, err)
 				}
 			}
-			volumes = append(volumes, resolved.ExtraVolumes...)
-			volumeMounts = append(volumeMounts, resolved.ExtraMounts...)
 		}
+		volumes = append(volumes, composition.ExtraVolumes...)
+		volumeMounts = append(volumeMounts, composition.ExtraMounts...)
 	}
 
 	// Determine the home directory to seed from: openclaw uses /home/node,
