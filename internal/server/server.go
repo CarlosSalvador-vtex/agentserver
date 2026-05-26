@@ -462,6 +462,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/api/playground/skills/{id}", s.handleArchiveSkillDraft)
 		r.Post("/api/playground/skills/{id}/promote", s.handlePromoteSkillDraft)
 		r.Post("/api/playground/skills/{id}/dry-run", s.handleSkillDraftDryRun)
+		r.Post("/api/playground/skills/{id}/test-sandbox", s.handleSkillDraftTestSandbox)
 		r.Get("/api/playground/souls", s.handleListSoulDrafts)
 		r.Post("/api/playground/souls", s.handleCreateSoulDraft)
 		r.Get("/api/playground/souls/{id}", s.handleGetSoulDraft)
