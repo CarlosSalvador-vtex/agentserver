@@ -10,8 +10,12 @@ type Workspace struct {
 	ID           string
 	Name         string
 	K8sNamespace sql.NullString
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// ChannelRoutingStrategy controls how IM channels map to sandboxes:
+	// "shared" (N channels → 1 sandbox), "per_agent" (1:1), or "hybrid"
+	// (manual). Defaults to "shared".
+	ChannelRoutingStrategy string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type WorkspaceVolume struct {
@@ -43,9 +47,9 @@ func (db *DB) CreateWorkspace(id, name string) error {
 func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	w := &Workspace{}
 	err := db.QueryRow(
-		`SELECT id, name, k8s_namespace, created_at, updated_at FROM workspaces WHERE id = $1`,
+		`SELECT id, name, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at FROM workspaces WHERE id = $1`,
 		id,
-	).Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.CreatedAt, &w.UpdatedAt)
+	).Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -73,7 +77,7 @@ func (db *DB) UpdateWorkspaceName(id, name string) error {
 
 func (db *DB) ListWorkspacesByUser(userID string) ([]*Workspace, error) {
 	rows, err := db.Query(
-		`SELECT w.id, w.name, w.k8s_namespace, w.created_at, w.updated_at
+		`SELECT w.id, w.name, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at
 		 FROM workspaces w
 		 JOIN workspace_members wm ON w.id = wm.workspace_id
 		 WHERE wm.user_id = $1
@@ -88,7 +92,7 @@ func (db *DB) ListWorkspacesByUser(userID string) ([]*Workspace, error) {
 	var workspaces []*Workspace
 	for rows.Next() {
 		w := &Workspace{}
-		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, w)
@@ -225,7 +229,7 @@ func (db *DB) GetAllWorkspaceNamespaces() ([]string, error) {
 
 func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 	rows, err := db.Query(
-		`SELECT id, name, k8s_namespace, created_at, updated_at
+		`SELECT id, name, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
 		 FROM workspaces
 		 WHERE k8s_namespace IS NULL OR k8s_namespace = ''`,
 	)
@@ -237,7 +241,7 @@ func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 	var workspaces []*Workspace
 	for rows.Next() {
 		w := &Workspace{}
-		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, w)
@@ -247,7 +251,7 @@ func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 
 func (db *DB) ListAllWorkspaces() ([]*Workspace, error) {
 	rows, err := db.Query(
-		`SELECT id, name, k8s_namespace, created_at, updated_at
+		`SELECT id, name, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
 		 FROM workspaces ORDER BY created_at ASC`,
 	)
 	if err != nil {
@@ -258,7 +262,7 @@ func (db *DB) ListAllWorkspaces() ([]*Workspace, error) {
 	var workspaces []*Workspace
 	for rows.Next() {
 		w := &Workspace{}
-		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, w)
@@ -278,7 +282,7 @@ type AdminWorkspaceInfo struct {
 
 func (db *DB) ListAllWorkspacesAdmin() ([]*AdminWorkspaceInfo, error) {
 	rows, err := db.Query(
-		`SELECT w.id, w.name, w.k8s_namespace, w.created_at, w.updated_at,
+		`SELECT w.id, w.name, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at,
 		        u.id, u.email, u.name, u.picture,
 		        (SELECT COUNT(*) FROM sandboxes s WHERE s.workspace_id = w.id)
 		 FROM workspaces w
@@ -295,7 +299,7 @@ func (db *DB) ListAllWorkspacesAdmin() ([]*AdminWorkspaceInfo, error) {
 	for rows.Next() {
 		w := &AdminWorkspaceInfo{}
 		if err := rows.Scan(
-			&w.ID, &w.Name, &w.K8sNamespace, &w.CreatedAt, &w.UpdatedAt,
+			&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt,
 			&w.OwnerID, &w.OwnerEmail, &w.OwnerName, &w.OwnerPicture,
 			&w.SandboxCount,
 		); err != nil {
@@ -313,6 +317,31 @@ func (db *DB) AddWorkspaceVolume(id, workspaceID, pvcName, mountPath string) err
 	)
 	if err != nil {
 		return fmt.Errorf("add workspace volume: %w", err)
+	}
+	return nil
+}
+
+// ValidRoutingStrategies enumerates the values accepted by
+// UpdateWorkspaceRoutingStrategy and the routing-strategy HTTP handlers.
+var ValidRoutingStrategies = map[string]bool{
+	"shared":    true,
+	"per_agent": true,
+	"hybrid":    true,
+}
+
+// UpdateWorkspaceRoutingStrategy sets the channel_routing_strategy for
+// a workspace. Returns an error if the strategy is not one of
+// shared/per_agent/hybrid.
+func (db *DB) UpdateWorkspaceRoutingStrategy(id, strategy string) error {
+	if !ValidRoutingStrategies[strategy] {
+		return fmt.Errorf("invalid routing strategy: %q", strategy)
+	}
+	_, err := db.Exec(
+		`UPDATE workspaces SET channel_routing_strategy = $2, updated_at = NOW() WHERE id = $1`,
+		id, strategy,
+	)
+	if err != nil {
+		return fmt.Errorf("update workspace routing strategy: %w", err)
 	}
 	return nil
 }

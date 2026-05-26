@@ -510,6 +510,10 @@ func (s *Server) Router() http.Handler {
 			// Sandbox IM channel binding (annotated wrappers in im_routes.go).
 			r.Post("/api/sandboxes/{id}/im/bind", s.handleIMSandboxBind)
 			r.Delete("/api/sandboxes/{id}/im/bind", s.handleIMSandboxUnbind)
+			r.Post("/api/sandboxes/{id}/im/bind-multi", s.imBridgeProxy)
+			// Multi-channel routing strategy (shared|per_agent|hybrid).
+			r.Get("/api/workspaces/{id}/routing-strategy", s.imBridgeProxy)
+			r.Put("/api/workspaces/{id}/routing-strategy", s.imBridgeProxy)
 			// Legacy sandbox-level IM routes (un-annotated, proxied directly).
 			r.Post("/api/sandboxes/{id}/im/weixin/qr-start", s.imBridgeProxy)
 			r.Post("/api/sandboxes/{id}/im/weixin/qr-wait", s.imBridgeProxy)

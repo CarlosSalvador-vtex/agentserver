@@ -1255,3 +1255,97 @@ func (s *Server) handleWorkspaceMatrixConfigure(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"connected": true, "bot_id": botID})
 }
+
+// ---------------------------------------------------------------------------
+// Multi-channel routing (N:M) — strategy + bind-multi
+// ---------------------------------------------------------------------------
+
+// handleGetWorkspaceRoutingStrategy returns the channel_routing_strategy
+// stored on the workspace. Defaults to "shared" for legacy rows.
+func (s *Server) handleGetWorkspaceRoutingStrategy(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "id")
+	if _, ok := s.requireWorkspaceMember(w, r, wsID); !ok {
+		return
+	}
+
+	ws, err := s.db.GetWorkspace(wsID)
+	if err != nil || ws == nil {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+
+	strategy := ws.ChannelRoutingStrategy
+	if strategy == "" {
+		strategy = "shared"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"strategy": strategy})
+}
+
+// handleUpdateWorkspaceRoutingStrategy sets the channel_routing_strategy
+// to one of shared/per_agent/hybrid. Caller must be a workspace member.
+func (s *Server) handleUpdateWorkspaceRoutingStrategy(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "id")
+	if _, ok := s.requireWorkspaceMember(w, r, wsID); !ok {
+		return
+	}
+
+	var req struct {
+		Strategy string `json:"strategy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.UpdateWorkspaceRoutingStrategy(wsID, req.Strategy); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"strategy": req.Strategy})
+}
+
+// handleBindSandboxChannelsMulti binds N channels to a single sandbox
+// without displacing other sandboxes already holding those channels.
+// Body: {"channel_ids": ["ch1","ch2", ...]}.
+//
+// Every channel must belong to the same workspace as the sandbox; mixed
+// requests are rejected with 400.
+func (s *Server) handleBindSandboxChannelsMulti(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	sbx, ok := s.sandboxes.Get(id)
+	if !ok {
+		http.Error(w, "sandbox not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := s.requireWorkspaceMember(w, r, sbx.WorkspaceID); !ok {
+		return
+	}
+
+	var req struct {
+		ChannelIDs []string `json:"channel_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.ChannelIDs) == 0 {
+		http.Error(w, "channel_ids is required", http.StatusBadRequest)
+		return
+	}
+
+	for _, channelID := range req.ChannelIDs {
+		ch, err := s.db.GetIMChannel(channelID)
+		if err != nil || ch.WorkspaceID != sbx.WorkspaceID {
+			http.Error(w, fmt.Sprintf("channel %s not found in this workspace", channelID), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := s.db.BindSandboxChannels(id, req.ChannelIDs); err != nil {
+		http.Error(w, "failed to bind channels", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "bound",
+		"channel_ids": req.ChannelIDs,
+	})
+}

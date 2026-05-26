@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -237,35 +238,92 @@ func (db *DB) GetAllChannelMeta(channelID, userID string) (map[string]string, er
 	return meta, rows.Err()
 }
 
-// BindSandboxToChannel binds a sandbox to a workspace IM channel.
-// Any other sandbox previously bound to this channel is unbound first.
+// BindSandboxToChannel binds a sandbox to a workspace IM channel with
+// 1:1 semantics: any other sandbox previously bound to this channel is
+// unbound first. Writes to both the legacy sandboxes.im_channel_id FK
+// AND the sandbox_channel_bindings junction (dual-write) so that the
+// junction-first readers see the same view.
+//
+// For N:1 semantics (shared routing), use BindSandboxChannels instead —
+// it does not displace other sandboxes already bound to those channels.
 func (db *DB) BindSandboxToChannel(sandboxID, channelID string) error {
-	_, err := db.Exec(
-		`UPDATE sandboxes SET im_channel_id = NULL WHERE im_channel_id = $1`,
-		channelID,
-	)
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(
+	defer tx.Rollback()
+
+	// Legacy FK: clear any other sandbox holding this channel, then set ours.
+	if _, err := tx.Exec(
+		`UPDATE sandboxes SET im_channel_id = NULL WHERE im_channel_id = $1`,
+		channelID,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
 		`UPDATE sandboxes SET im_channel_id = $1 WHERE id = $2`,
 		channelID, sandboxID,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+
+	// Junction: same 1:1 semantics — drop any existing rows for this
+	// channel, then insert ours.
+	if _, err := tx.Exec(
+		`DELETE FROM sandbox_channel_bindings WHERE channel_id = $1`,
+		channelID,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO sandbox_channel_bindings (sandbox_id, channel_id)
+		VALUES ($1, $2)
+		ON CONFLICT (sandbox_id, channel_id) DO NOTHING`,
+		sandboxID, channelID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
-// UnbindSandboxFromChannel removes the IM channel binding from a sandbox.
+// UnbindSandboxFromChannel removes every IM channel binding from a sandbox.
+// Clears both the legacy FK and the junction rows.
 func (db *DB) UnbindSandboxFromChannel(sandboxID string) error {
-	_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
 		`UPDATE sandboxes SET im_channel_id = NULL WHERE id = $1`,
 		sandboxID,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM sandbox_channel_bindings WHERE sandbox_id = $1`,
+		sandboxID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GetSandboxForChannel returns the running sandbox bound to a channel.
-// Returns sql.ErrNoRows if no sandbox is bound or none is running.
+// Resolution order: junction table first (multi-channel-aware), then
+// fallback to the legacy sandboxes.im_channel_id FK for data not yet
+// dual-written. Returns sql.ErrNoRows if no sandbox is bound or none is
+// running.
 func (db *DB) GetSandboxForChannel(channelID string) (sandboxID, podIP, bridgeSecret, assistantName string, err error) {
+	sandboxID, podIP, bridgeSecret, assistantName, err = db.GetSandboxForChannelViaBinding(channelID)
+	if err == nil {
+		return
+	}
+	if err != sql.ErrNoRows {
+		return
+	}
 	var metadataJSON []byte
 	err = db.QueryRow(
 		`SELECT id, pod_ip, nanoclaw_bridge_secret, metadata FROM sandboxes
@@ -283,18 +341,35 @@ func (db *DB) GetSandboxForChannel(channelID string) (sandboxID, podIP, bridgeSe
 	return
 }
 
-// GetIMChannelForSandbox returns the IM channel bound to a sandbox, if any.
-// Returns sql.ErrNoRows if the sandbox has no channel bound.
+// GetIMChannelForSandbox returns the IM channel bound to a sandbox.
+// Junction first, FK fallback. If multiple channels are bound (shared
+// mode), the most recently bound one wins — callers needing the full
+// list should use GetChannelsForSandbox.
+//
+// Returns sql.ErrNoRows when no channel is bound.
 func (db *DB) GetIMChannelForSandbox(sandboxID string) (*IMChannel, error) {
 	c := &IMChannel{}
 	var botToken, baseURL, cursor, routingMode *string
+
 	err := db.QueryRow(
 		`SELECT c.id, c.workspace_id, c.provider, c.bot_id, c.user_id, c.bot_token, c.base_url, c.cursor, c.require_mention, c.routing_mode, c.bound_at
-		FROM workspace_im_channels c
-		JOIN sandboxes s ON s.im_channel_id = c.id
-		WHERE s.id = $1`,
+		FROM sandbox_channel_bindings b
+		JOIN workspace_im_channels c ON c.id = b.channel_id
+		WHERE b.sandbox_id = $1
+		ORDER BY b.bound_at DESC
+		LIMIT 1`,
 		sandboxID,
 	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+
+	if err == sql.ErrNoRows {
+		err = db.QueryRow(
+			`SELECT c.id, c.workspace_id, c.provider, c.bot_id, c.user_id, c.bot_token, c.base_url, c.cursor, c.require_mention, c.routing_mode, c.bound_at
+			FROM workspace_im_channels c
+			JOIN sandboxes s ON s.im_channel_id = c.id
+			WHERE s.id = $1`,
+			sandboxID,
+		).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	}
 	if err != nil {
 		return nil, err
 	}

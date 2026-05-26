@@ -70,6 +70,11 @@ func (s *Server) Routes() http.Handler {
 		// Sandbox IM channel binding.
 		r.Post("/api/sandboxes/{id}/im/bind", s.handleBindSandboxToChannel)
 		r.Delete("/api/sandboxes/{id}/im/bind", s.handleUnbindSandboxFromChannel)
+		r.Post("/api/sandboxes/{id}/im/bind-multi", s.handleBindSandboxChannelsMulti)
+
+		// Workspace channel routing strategy (shared|per_agent|hybrid).
+		r.Get("/api/workspaces/{id}/routing-strategy", s.handleGetWorkspaceRoutingStrategy)
+		r.Put("/api/workspaces/{id}/routing-strategy", s.handleUpdateWorkspaceRoutingStrategy)
 
 		// Legacy sandbox-level IM routes.
 		r.Post("/api/sandboxes/{id}/im/weixin/qr-start", s.handleIMWeixinQRStart)
