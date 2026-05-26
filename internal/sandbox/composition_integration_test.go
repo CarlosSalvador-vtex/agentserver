@@ -24,6 +24,41 @@ func testDB(t *testing.T) *db.DB {
 	return d
 }
 
+func seedUser(t *testing.T, d *db.DB, id string) {
+	t.Helper()
+	_, err := d.Exec(
+		`INSERT INTO users (id, username, email) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		id, id, id+"@example.test",
+	)
+	if err != nil {
+		t.Fatalf("seed user %q: %v", id, err)
+	}
+	t.Cleanup(func() {
+		_, _ = d.Exec(`DELETE FROM users WHERE id = $1`, id)
+	})
+}
+
+func seedSandbox(t *testing.T, d *db.DB, sbxID string) {
+	t.Helper()
+	wsID := "ws-integ-" + sbxID
+	if _, err := d.Exec(
+		`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		wsID, "integ test ws",
+	); err != nil {
+		t.Fatalf("seed workspace %q: %v", wsID, err)
+	}
+	if _, err := d.Exec(
+		`INSERT INTO sandboxes (id, workspace_id, name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		sbxID, wsID, "integ-sbx",
+	); err != nil {
+		t.Fatalf("seed sandbox %q: %v", sbxID, err)
+	}
+	t.Cleanup(func() {
+		_, _ = d.Exec(`DELETE FROM sandboxes WHERE id = $1`, sbxID)
+		_, _ = d.Exec(`DELETE FROM workspaces WHERE id = $1`, wsID)
+	})
+}
+
 func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 	d := testDB(t)
 	defer d.Close()
@@ -31,6 +66,10 @@ func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 	ctx := context.Background()
 	suffix := t.Name()
 	author := "tier1-test-" + suffix
+	seedUser(t, d, author)
+
+	sbxID := "sbx-comp-" + suffix
+	seedSandbox(t, d, sbxID)
 
 	soul, err := d.CreateSoulDraft("soul-"+suffix, "test soul", author)
 	if err != nil {
@@ -64,7 +103,6 @@ func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 		t.Fatalf("update skill files: %v", err)
 	}
 
-	sbxID := "sbx-comp-" + suffix
 	ns := "agent-ws-test"
 	if err := d.CreateSandboxComposition(
 		sbxID,
@@ -118,6 +156,7 @@ func TestResolveComposition_GitRefsAreNoop(t *testing.T) {
 	ctx := context.Background()
 	suffix := t.Name()
 	sbxID := "sbx-git-" + suffix
+	seedSandbox(t, d, sbxID)
 
 	if err := d.CreateSandboxComposition(
 		sbxID,
