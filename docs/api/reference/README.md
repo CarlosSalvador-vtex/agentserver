@@ -26,7 +26,7 @@ This reference covers the **external developer surface** of agentserver: the end
 | Agent | 15 | [`agent.md`](agent.md) |
 | Codex Tokens | 3 | [`codex-tokens.md`](codex-tokens.md) |
 | Codex Browser Sessions | 1 | [`codex-browser-sessions.md`](codex-browser-sessions.md) |
-| IM Channels | 9 | [`im-channels.md`](im-channels.md) |
+| IM Channels | 11 | [`im-channels.md`](im-channels.md) |
 
 ## Related docs
 

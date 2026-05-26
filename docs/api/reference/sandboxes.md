@@ -219,6 +219,7 @@ Schema: [`SandboxCreateRequest`](#schema-sandboxcreaterequest)
 
 ```yaml
 {
+  composition?: any
   cpu?: integer
   idle_timeout?: integer
   memory?: integer
@@ -282,6 +283,7 @@ Schema: [`SandboxCreateRequest`](#schema-sandboxcreaterequest)
   cpu?: integer
   created_at: string
   custom_url?: string
+  hermes_url?: string
   id: string
   idle_timeout?: integer
   im_bindings?: []IMBinding
@@ -303,10 +305,22 @@ Schema: [`SandboxCreateRequest`](#schema-sandboxcreaterequest)
 }
 ```
 
+### `SandboxCompositionRequest` {#schema-sandboxcompositionrequest}
+
+```yaml
+{
+  config?: object
+  skills?: []string
+  soul?: string
+  track_upstream?: boolean
+}
+```
+
 ### `SandboxCreateRequest` {#schema-sandboxcreaterequest}
 
 ```yaml
 {
+  composition?: any
   cpu?: integer
   idle_timeout?: integer
   memory?: integer
