@@ -23,12 +23,13 @@ const (
 // playgroundSkillSummary is the lightweight shape returned by the list
 // endpoint. Full files payload only ships from GET /{id}.
 type playgroundSkillSummary struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Status        string `json:"status"`
-	PromotedPRURL string `json:"promoted_pr_url,omitempty"`
-	UpdatedAt     string `json:"updated_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`
+	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
+	PromotedPRState string `json:"promoted_pr_state,omitempty"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type playgroundSkillFull struct {
@@ -37,13 +38,14 @@ type playgroundSkillFull struct {
 }
 
 type playgroundSoulSummary struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Status        string `json:"status"`
-	SchemaVersion string `json:"schema_version"`
-	PromotedPRURL string `json:"promoted_pr_url,omitempty"`
-	UpdatedAt     string `json:"updated_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`
+	SchemaVersion   string `json:"schema_version"`
+	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
+	PromotedPRState string `json:"promoted_pr_state,omitempty"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type playgroundSoulFull struct {
@@ -340,24 +342,26 @@ func (s *Server) handleArchiveSoulDraft(w http.ResponseWriter, r *http.Request) 
 
 func summarizeSkill(d *db.SkillDraft) playgroundSkillSummary {
 	return playgroundSkillSummary{
-		ID:            d.ID,
-		Name:          d.Name,
-		Description:   d.Description,
-		Status:        d.Status,
-		PromotedPRURL: d.PromotedPRURL.String,
-		UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:              d.ID,
+		Name:            d.Name,
+		Description:     d.Description,
+		Status:          d.Status,
+		PromotedPRURL:   d.PromotedPRURL.String,
+		PromotedPRState: d.PromotedPRState.String,
+		UpdatedAt:       d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
 
 func summarizeSoul(d *db.SoulDraft) playgroundSoulSummary {
 	return playgroundSoulSummary{
-		ID:            d.ID,
-		Name:          d.Name,
-		Description:   d.Description,
-		Status:        d.Status,
-		SchemaVersion: d.SchemaVersion,
-		PromotedPRURL: d.PromotedPRURL.String,
-		UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:              d.ID,
+		Name:            d.Name,
+		Description:     d.Description,
+		Status:          d.Status,
+		SchemaVersion:   d.SchemaVersion,
+		PromotedPRURL:   d.PromotedPRURL.String,
+		PromotedPRState: d.PromotedPRState.String,
+		UpdatedAt:       d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
 
