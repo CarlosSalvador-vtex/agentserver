@@ -331,3 +331,57 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  deploy-dev:
+    name: Deploy to dev (agentserver namespace)
+    runs-on: ubuntu-latest
+    needs: [publish-helm]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --region us-east-1 --name dev-ti-eks-analytics-platform
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install agentserver ./deploy/helm/agentserver \
+            -n agentserver --create-namespace \
+            -f values-dev-eks.yaml
+
+  deploy-staging:
+    name: Deploy to staging (agentserver-staging namespace)
+    runs-on: ubuntu-latest
+    needs: [deploy-dev]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --region us-east-1 --name dev-ti-eks-analytics-platform
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install agentserver ./deploy/helm/agentserver \
+            -n agentserver-staging --create-namespace \
+            -f values-staging-eks.yaml

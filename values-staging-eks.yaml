@@ -1,0 +1,144 @@
+# Staging overrides — agentserver-staging namespace on dev-ti-eks-analytics-platform
+# Deploy: helm upgrade --install agentserver ./deploy/helm/agentserver -n agentserver-staging --create-namespace -f values-staging-eks.yaml
+
+image:
+  repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
+  tag: sprint4-done
+  pullPolicy: Always
+
+llmproxy:
+  replicaCount: 1
+  image:
+    repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-llmproxy
+    tag: zai-path-fix
+    pullPolicy: Always
+
+imbridge:
+  image:
+    repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-imbridge
+    tag: routing-v4
+    pullPolicy: Always
+
+sandboxProxy:
+  image:
+    repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-sandboxproxy
+    tag: hermes
+    pullPolicy: Always
+
+postgresql:
+  image:
+    # Override Chinese mirror with standard dockerhub image
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  primary:
+    persistence:
+      storageClass: "gp3"
+
+platform:
+  domain: "agentserver-staging.analytics.vtex.com"
+  defaultQuotas:
+    userMaxWorkspaces: 5
+    workspaceMaxSandboxes: 5
+
+ingress:
+  enabled: true
+  className: alb
+  host: agentserver-staging.analytics.vtex.com
+  tls: false
+  annotations:
+    alb.ingress.kubernetes.io/tags: Environment=staging,Product=analytics-stack,Owner=Analytics,ApplicationName=agentserver
+    kubernetes.io/ingress.class: alb
+    ingress.kubernetes.io/ssl-redirect: "true"
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:344729309528:certificate/63d518d6-2b1d-4288-883a-b685d339fab6,arn:aws:acm:us-east-1:344729309528:certificate/5212b8d1-b5dd-4617-9a1b-c96a6f3dbb55
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
+    alb.ingress.kubernetes.io/subnets: subnet-0a53f8474451c3b70, subnet-05731d48fa430d313, subnet-0b5819dd9b85fab28
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: agentserver-staging
+    alb.ingress.kubernetes.io/load-balancer-name: agentserver-staging
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+
+sandbox:
+  # gp3 is cluster default, empty = use cluster default
+  sessionStorageClassName: ""
+  workspaceStorageClassName: ""
+  networkPolicy:
+    enabled: false
+  # Required by sandboxproxy for subdomain routing
+  baseDomain: "agentserver-staging.analytics.vtex.com"
+  openclaw:
+    # Pin by digest for reproducibility (current :latest = sha 1c03752...)
+    image: "ghcr.io/agentserver/openclaw-agent@sha256:1c03752715d7739093a764e5d4fea097f970ad315201ce6c9b4d7e903ada6a5d"
+    # WhatsApp pairing — same number used for Hermes.
+    whatsappAllowedUsers:
+      - "+5527996073736"
+  hermes:
+    # GHCR repo is gated (403); Docker Hub public mirror works
+    image: "docker.io/nousresearch/hermes-agent:main"
+    subdomainPrefix: "hermes"
+    # IRSA role with bedrock:InvokeModel on the Sonnet 4.6 inference profile.
+    # The agentserver auto-creates a "hermes" ServiceAccount in every workspace
+    # namespace annotated with this ARN.
+    serviceAccountRoleArn: "arn:aws:iam::344729309528:role/dev-ti-eks-analytics-platform-hermes-bedrock-role"
+    # GLM fallback (zai/glm-5.1) — same Z.AI key as models.anthropicApiKey above.
+    glmApiKey: "4fec1ef91c0243a3a6e5f06a44fd7ade.DQKemhLRJVz44yop"
+    # Inlined as a ConfigMap; the manager replicates it into each workspace ns.
+    # Bedrock primary via cross-region inference profile; GLM fallback.
+    config: |
+      model:
+        default: arn:aws:bedrock:us-east-1:344729309528:application-inference-profile/62r7btpf0s40
+        provider: bedrock
+      providers: {}
+      fallback_providers:
+        - model: zai/glm-5.1
+          provider: zai
+      agent:
+        max_turns: 80
+    # WhatsApp pairing (E.164). One-time QR scan via dashboard subdomain.
+    whatsappAllowedUsers:
+      - "+5527996073736"
+  # Cobrança skill — text-only MVP for pt-BR debt-collection sims (LGPD-safe).
+  # Assets live in deploy/helm/agentserver/skills/cobranca/; the
+  # skills-configmap.yaml template renders them into a ConfigMap which the
+  # sandbox manager mounts inside every new OpenClaw + Hermes pod.
+  skills:
+    cobranca:
+      enabled: true
+      platforms: [hermes, openclaw]
+  # Applied to every sandbox pod template so they can schedule on tainted nodes
+  tolerations:
+    - key: "internal-workers"
+      value: "true"
+      effect: "NoSchedule"
+  # gp3/EBS only supports RWO; RWM (default) needs EFS which isn't deployed here.
+  workspaceDriveAccessModes: "ReadWriteOnce"
+
+# llmproxy → LiteLLM (Bedrock backend via IRSA)
+models:
+  anthropicApiKey: "4fec1ef91c0243a3a6e5f06a44fd7ade.DQKemhLRJVz44yop"
+  anthropicBaseUrl: "https://api.z.ai/api/anthropic"
+
+# Internal service-to-service auth secret
+internal:
+  apiSecret: "893b04759dd64c3b5fb515ad60cb8c639f9da0271201f1aad4eb7052f53379a5"
+
+# WhatsApp Cloud (Meta) — staging verify token. In prod, generate via
+# `openssl rand -hex 32` and paste the same value in the Meta App
+# Dashboard → Webhook → Verify Token field.
+whatsapp:
+  webhookVerifyToken: "dev-wa-verify-d3vCh4ng3M3"
+  hmacRequired: true
+
+# HMAC pepper for workspace API key hashes
+secretsPepper: "e40ad066b406d85f71cac82d89f48bc5393daf18e5507026161598953b4017f1"
+
+# Agent Sandbox CRD controller — install in cluster
+agentSandbox:
+  install: true
+
+# Tolerate internal-workers taint on all dev cluster nodes
+tolerations:
+  - key: "internal-workers"
+    value: "true"
+    effect: "NoSchedule"
