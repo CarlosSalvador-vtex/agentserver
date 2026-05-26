@@ -69,6 +69,10 @@ spec:
             - name: WHATSAPP_APP_SECRET
               value: {{ .Values.whatsapp.appSecret | quote }}
             {{- end }}
+            {{- if .Values.whatsapp.hmacRequired }}
+            - name: WHATSAPP_HMAC_REQUIRED
+              value: "true"
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

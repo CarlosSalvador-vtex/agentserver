@@ -61,6 +61,7 @@ func main() {
 
 	srv := imbridgesvc.NewServer(database, authSvc, sandboxStore, bridge)
 	srv.RestorePollers()
+	imbridgesvc.LogWhatsAppHMACMode()
 
 	httpServer := &http.Server{
 		Addr:    cfg.ListenAddr,
