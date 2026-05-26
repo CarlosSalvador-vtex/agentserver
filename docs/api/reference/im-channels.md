@@ -13,10 +13,12 @@ Endpoints under the `IM Channels` tag. Auto-generated from [`docs/api/openapi.ya
 | `GET` | [`/api/workspaces/{id}/im/channels`](#op-get-api-workspaces-id-im-channels) | List IM channels in a workspace |
 | `PATCH` | [`/api/workspaces/{id}/im/channels/{channelId}`](#op-patch-api-workspaces-id-im-channels-channelid) | Update IM channel settings |
 | `DELETE` | [`/api/workspaces/{id}/im/channels/{channelId}`](#op-delete-api-workspaces-id-im-channels-channelid) | Delete an IM channel |
+| `POST` | [`/api/workspaces/{id}/im/channels/{channelId}/auto-bind`](#op-post-api-workspaces-id-im-channels-channelid-auto-bind) | Auto-provision and bind a sandbox to an IM channel |
 | `POST` | [`/api/workspaces/{id}/im/matrix/configure`](#op-post-api-workspaces-id-im-matrix-configure) | Bind a Matrix account to a workspace |
 | `POST` | [`/api/workspaces/{id}/im/telegram/configure`](#op-post-api-workspaces-id-im-telegram-configure) | Bind a Telegram bot to a workspace |
 | `POST` | [`/api/workspaces/{id}/im/weixin/qr-start`](#op-post-api-workspaces-id-im-weixin-qr-start) | Start WeChat QR-code bind for a workspace |
 | `POST` | [`/api/workspaces/{id}/im/weixin/qr-wait`](#op-post-api-workspaces-id-im-weixin-qr-wait) | Long-poll WeChat QR-code scan for a workspace |
+| `POST` | [`/api/workspaces/{id}/im/whatsapp/configure`](#op-post-api-workspaces-id-im-whatsapp-configure) | Bind a WhatsApp Cloud number to a workspace |
 
 ### `POST /api/sandboxes/{id}/im/bind` {#op-post-api-sandboxes-id-im-bind}
 Bind a sandbox to an IM channel
@@ -163,6 +165,47 @@ Delete an IM channel
 | `500` | internal error | `string` |
 
 
+### `POST /api/workspaces/{id}/im/channels/{channelId}/auto-bind` {#op-post-api-workspaces-id-im-channels-channelid-auto-bind}
+Auto-provision and bind a sandbox to an IM channel
+Resolves the workspace channel_routing_strategy and binds accordingly. Returns 409 in hybrid mode.
+
+**Auth:** `CookieAuth`
+
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Workspace id |
+| `channelId` | `string` | yes | Channel id |
+
+
+**Request body**
+
+Content-Type: `application/json`
+
+Schema: [`ChannelAutoBindRequest`](#schema-channelautobindrequest)
+
+```yaml
+{
+  name?: string
+  sandbox_type?: string
+}
+```
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | [`ChannelAutoBindResponse`](#schema-channelautobindresponse) |
+| `400` | validation error | `string` |
+| `403` | insufficient role / quota / budget | `string` |
+| `404` | workspace or channel not found | `string` |
+| `409` | hybrid strategy — manual binding required | `string` |
+| `500` | internal error | `string` |
+
+
 ### `POST /api/workspaces/{id}/im/matrix/configure` {#op-post-api-workspaces-id-im-matrix-configure}
 Bind a Matrix account to a workspace
 
@@ -284,7 +327,51 @@ Polls for QR scan progress. Returns status "wait", "scaned", "confirmed", "expir
 | `502` | upstream error | `string` |
 
 
+### `POST /api/workspaces/{id}/im/whatsapp/configure` {#op-post-api-workspaces-id-im-whatsapp-configure}
+Bind a WhatsApp Cloud number to a workspace
+Stores the Meta access token and phone_number_id. Inbound messages reach the agent via the public /webhook/whatsapp endpoint (configured in the Meta App dashboard).
+
+**Auth:** `CookieAuth`
+
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Workspace id |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | `object` |
+| `400` | phone_number_id and access_token are required | `string` |
+| `403` | not a member | `string` |
+| `500` | internal error | `string` |
+
+
 ## Schemas
+
+### `ChannelAutoBindRequest` {#schema-channelautobindrequest}
+
+```yaml
+{
+  name?: string
+  sandbox_type?: string
+}
+```
+
+### `ChannelAutoBindResponse` {#schema-channelautobindresponse}
+
+```yaml
+{
+  channel_id?: string
+  reused?: boolean
+  sandbox_id?: string
+  strategy?: string
+}
+```
 
 ### `IMChannel` {#schema-imchannel}
 
