@@ -332,6 +332,10 @@ var serveCmd = &cobra.Command{
 		// Operations retention background loop. Disabled when TTL is 0.
 		go srv.StartRetentionLoop(healthCtx, srv.OperationsRetention, time.Hour)
 
+		// Playground ephemeral test sandbox reaper. Deletes pods whose
+		// playground_test_sandboxes.expires_at has passed.
+		srv.StartPlaygroundReaper(healthCtx)
+
 		httpServer := &http.Server{Addr: addr, Handler: srv.Router()}
 
 		// Graceful shutdown on SIGTERM/SIGINT
