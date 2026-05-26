@@ -27,6 +27,7 @@ type playgroundSkillSummary struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
 	Status          string `json:"status"`
+	WorkspaceID     string `json:"workspace_id,omitempty"` // empty = system template
 	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
 	PromotedPRState string `json:"promoted_pr_state,omitempty"`
 	PromotedCommit  string `json:"promoted_commit,omitempty"`
@@ -44,6 +45,7 @@ type playgroundSoulSummary struct {
 	Description     string `json:"description"`
 	Status          string `json:"status"`
 	SchemaVersion   string `json:"schema_version"`
+	WorkspaceID     string `json:"workspace_id,omitempty"` // empty = system template
 	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
 	PromotedPRState string `json:"promoted_pr_state,omitempty"`
 	PromotedCommit  string `json:"promoted_commit,omitempty"`
@@ -73,6 +75,7 @@ func (s *Server) handleListSkillDrafts(w http.ResponseWriter, r *http.Request) {
 			Name:          d.Name,
 			Description:   d.Description,
 			Status:        d.Status,
+			WorkspaceID:   d.WorkspaceID.String,
 			PromotedPRURL: d.PromotedPRURL.String,
 			UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
@@ -223,6 +226,7 @@ func (s *Server) handleListSoulDrafts(w http.ResponseWriter, r *http.Request) {
 			Description:   d.Description,
 			Status:        d.Status,
 			SchemaVersion: d.SchemaVersion,
+			WorkspaceID:   d.WorkspaceID.String,
 			PromotedPRURL: d.PromotedPRURL.String,
 			UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})

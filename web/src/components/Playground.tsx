@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Trash2, ExternalLink } from 'lucide-react'
 import {
@@ -12,9 +12,12 @@ import {
   type PlaygroundSoulSummary,
 } from '../lib/api'
 
+type ScopeFilter = 'all' | 'system' | 'mine'
+
 export function Playground() {
   const [skills, setSkills] = useState<PlaygroundSkillSummary[]>([])
   const [souls, setSouls] = useState<PlaygroundSoulSummary[]>([])
+  const [scope, setScope] = useState<ScopeFilter>('all')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,9 +58,35 @@ export function Playground() {
     await reload()
   }
 
+  const applyScope = <T extends { workspace_id?: string }>(items: T[]): T[] => {
+    if (scope === 'system') return items.filter((i) => !i.workspace_id)
+    if (scope === 'mine') return items.filter((i) => !!i.workspace_id)
+    return items
+  }
+
+  const visibleSkills = useMemo(() => applyScope(skills), [skills, scope])
+  const visibleSouls = useMemo(() => applyScope(souls), [souls, scope])
+
   return (
     <div className="p-6 max-w-5xl">
-      <h1 className="text-xl font-semibold text-[var(--foreground)] mb-6">Playground</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold text-[var(--foreground)]">Playground</h1>
+        <div className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] p-0.5">
+          {(['all', 'system', 'mine'] as ScopeFilter[]).map((s) => (
+            <button
+              key={s}
+              onClick={() => setScope(s)}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                scope === s
+                  ? 'bg-orange-500/20 text-orange-400'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {s === 'all' ? 'All' : s === 'system' ? 'System' : 'My workspace'}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {error && (
         <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>
@@ -66,10 +95,11 @@ export function Playground() {
       <Section
         title="Skills"
         onCreate={() => handleCreate('skill')}
-        items={skills.map((s) => ({
+        items={visibleSkills.map((s) => ({
           id: s.id,
           name: s.name,
           status: s.status,
+          workspaceId: s.workspace_id,
           prState: s.promoted_pr_state,
           to: `/playground/skills/${s.id}`,
           prURL: s.promoted_pr_url,
@@ -84,10 +114,11 @@ export function Playground() {
         <Section
           title="Souls"
           onCreate={() => handleCreate('soul')}
-          items={souls.map((s) => ({
+          items={visibleSouls.map((s) => ({
             id: s.id,
             name: s.name,
             status: s.status,
+            workspaceId: s.workspace_id,
             to: `/playground/souls/${s.id}`,
             prURL: s.promoted_pr_url,
             updatedAt: s.updated_at,
@@ -106,6 +137,7 @@ interface SectionItem {
   name: string
   description: string
   status: string
+  workspaceId?: string
   prState?: string
   to: string
   prURL?: string
@@ -151,6 +183,9 @@ function Section({
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-[var(--foreground)] font-medium">{it.name}</span>
                   <StatusBadge status={it.status} prState={it.prState} />
+                  {!it.workspaceId && (
+                    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-500/10 text-violet-400">system</span>
+                  )}
                 </div>
                 <div className="text-xs text-[var(--muted-foreground)] truncate">
                   {it.description || 'No description'} · updated {new Date(it.updatedAt).toLocaleString()}
