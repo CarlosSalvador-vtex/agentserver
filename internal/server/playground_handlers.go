@@ -60,7 +60,8 @@ type playgroundSoulFull struct {
 
 func (s *Server) handleListSkillDrafts(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
-	drafts, err := s.DB.ListSkillDraftsByAuthor(userID)
+	wsIDs := s.callerWorkspaceIDs(userID)
+	drafts, err := s.DB.ListSkillDraftsForScope(userID, wsIDs)
 	if err != nil {
 		http.Error(w, "list failed", http.StatusInternalServerError)
 		return
@@ -95,6 +96,7 @@ func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		WorkspaceID string `json:"workspace_id,omitempty"` // tenant scope (improvements.md #17)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -109,8 +111,13 @@ func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	wsID, err := s.resolveDraftWorkspaceID(userID, req.WorkspaceID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
-	draft, err := s.DB.CreateSkillDraft(req.Name, req.Description, userID)
+	draft, err := s.DB.CreateSkillDraft(req.Name, req.Description, userID, wsID)
 	if err != nil {
 		// UNIQUE (author, name) violation surfaces here.
 		http.Error(w, fmt.Sprintf("create failed: %v", err), http.StatusConflict)
@@ -202,7 +209,8 @@ func (s *Server) handleArchiveSkillDraft(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleListSoulDrafts(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
-	drafts, err := s.DB.ListSoulDraftsByAuthor(userID)
+	wsIDs := s.callerWorkspaceIDs(userID)
+	drafts, err := s.DB.ListSoulDraftsForScope(userID, wsIDs)
 	if err != nil {
 		http.Error(w, "list failed", http.StatusInternalServerError)
 		return
@@ -238,6 +246,7 @@ func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		WorkspaceID string `json:"workspace_id,omitempty"` // tenant scope (improvements.md #17)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -252,8 +261,13 @@ func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	wsID, err := s.resolveDraftWorkspaceID(userID, req.WorkspaceID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
-	draft, err := s.DB.CreateSoulDraft(req.Name, req.Description, userID)
+	draft, err := s.DB.CreateSoulDraft(req.Name, req.Description, userID, wsID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("create failed: %v", err), http.StatusConflict)
 		return
@@ -344,6 +358,45 @@ func (s *Server) handleArchiveSoulDraft(w http.ResponseWriter, r *http.Request) 
 	RecordDraftAction("soul", "archived")
 	_ = s.DB.AppendDraftAuditEvent("soul", id, userID, "archived", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// callerWorkspaceIDs lists the workspace IDs the user belongs to. Used by
+// the scoped list endpoints to filter visible drafts. Returns empty slice
+// (not nil) on error so the caller still sees system templates.
+func (s *Server) callerWorkspaceIDs(userID string) []string {
+	wss, err := s.DB.ListWorkspacesByUser(userID)
+	if err != nil {
+		return []string{}
+	}
+	out := make([]string, 0, len(wss))
+	for _, w := range wss {
+		out = append(out, w.ID)
+	}
+	return out
+}
+
+// resolveDraftWorkspaceID picks the workspace_id used to scope a new draft
+// (improvements.md #17 tenant catalog). When wsChoice is non-empty, the
+// caller MUST be a member of that workspace — otherwise we reject with
+// "forbidden". Empty wsChoice falls back to the user's first workspace
+// (legacy behavior preserves single-tenant assumption). When the user has
+// no workspaces at all, returns empty → DB stores NULL = system template.
+func (s *Server) resolveDraftWorkspaceID(userID, wsChoice string) (string, error) {
+	wss, err := s.DB.ListWorkspacesByUser(userID)
+	if err != nil || len(wss) == 0 {
+		// No memberships: write NULL so the draft is system-wide. Same
+		// behavior as pre-035 — backstop for orphan-author rows.
+		return "", nil
+	}
+	if wsChoice == "" {
+		return wss[0].ID, nil
+	}
+	for _, w := range wss {
+		if w.ID == wsChoice {
+			return w.ID, nil
+		}
+	}
+	return "", fmt.Errorf("workspace_id %q: caller is not a member", wsChoice)
 }
 
 // --- helpers ---------------------------------------------------------------

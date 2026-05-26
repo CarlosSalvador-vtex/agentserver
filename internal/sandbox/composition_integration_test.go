@@ -71,7 +71,7 @@ func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 	sbxID := "sbx-comp-" + suffix
 	seedSandbox(t, d, sbxID)
 
-	soul, err := d.CreateSoulDraft("soul-"+suffix, "test soul", author)
+	soul, err := d.CreateSoulDraft("soul-"+suffix, "test soul", author, "")
 	if err != nil {
 		t.Fatalf("create soul: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestResolveComposition_DraftSoulAndSkill(t *testing.T) {
 		t.Fatalf("update soul: %v", err)
 	}
 
-	skill, err := d.CreateSkillDraft("skill-"+suffix, "test skill", author)
+	skill, err := d.CreateSkillDraft("skill-"+suffix, "test skill", author, "")
 	if err != nil {
 		t.Fatalf("create skill: %v", err)
 	}
