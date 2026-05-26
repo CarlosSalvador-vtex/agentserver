@@ -147,6 +147,68 @@ func (db *DB) ListAllActiveChannels(provider string) ([]IMChannel, error) {
 	return channels, rows.Err()
 }
 
+// DispatchInboundChannel returns the fields needed to build a
+// BridgeBinding for push-based providers (e.g. WhatsApp webhook).
+// Returns sql.ErrNoRows if the channel doesn't exist.
+func (db *DB) DispatchInboundChannel(channelID string) (workspaceID, provider, botID, botToken, baseURL, routingMode string, err error) {
+	var token, base, mode *string
+	err = db.QueryRow(
+		`SELECT workspace_id, provider, bot_id, bot_token, base_url, routing_mode
+		FROM workspace_im_channels WHERE id = $1`,
+		channelID,
+	).Scan(&workspaceID, &provider, &botID, &token, &base, &mode)
+	if err != nil {
+		return
+	}
+	if token != nil {
+		botToken = *token
+	}
+	if base != nil {
+		baseURL = *base
+	}
+	if mode != nil {
+		routingMode = *mode
+	}
+	return
+}
+
+// FindIMChannelByProviderBot looks up a channel by (provider, bot_id).
+// Used by push-based webhooks (e.g. WhatsApp Cloud) where the inbound
+// payload identifies the receiving account via its provider-specific ID
+// (phone_number_id for WhatsApp) rather than the channel UUID.
+//
+// If the same bot_id appears in multiple workspaces (legal under the
+// current UNIQUE(workspace_id, provider, bot_id) constraint), the
+// earliest-bound row wins.
+func (db *DB) FindIMChannelByProviderBot(provider, botID string) (*IMChannel, error) {
+	c := &IMChannel{}
+	var botToken, baseURL, cursor, routingMode *string
+	err := db.QueryRow(
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		FROM workspace_im_channels
+		WHERE provider = $1 AND bot_id = $2
+		ORDER BY bound_at ASC
+		LIMIT 1`,
+		provider, botID,
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	if err != nil {
+		return nil, err
+	}
+	if botToken != nil {
+		c.BotToken = *botToken
+	}
+	if baseURL != nil {
+		c.BaseURL = *baseURL
+	}
+	if cursor != nil {
+		c.Cursor = *cursor
+	}
+	if routingMode != nil {
+		c.RoutingMode = *routingMode
+	}
+	return c, nil
+}
+
 // DeleteIMChannel deletes a workspace IM channel by ID.
 func (db *DB) DeleteIMChannel(channelID string) error {
 	_, err := db.Exec(

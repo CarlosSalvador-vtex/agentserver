@@ -28,6 +28,10 @@ type BridgeDB interface {
 	GetChannelMeta(channelID, userID, key string) (string, error)
 	GetAllChannelMeta(channelID, userID string) (map[string]string, error)
 	GetSandboxForChannel(channelID string) (sandboxID, podIP, bridgeSecret, assistantName string, err error)
+	// DispatchInboundChannel looks up the channel by ID and returns the
+	// fields needed to construct a BridgeBinding for push-based providers
+	// (e.g. WhatsApp webhooks).
+	DispatchInboundChannel(channelID string) (workspaceID, provider, botID, botToken, baseURL, routingMode string, err error)
 }
 
 // SandboxResolver looks up the current state of a sandbox.
@@ -411,6 +415,40 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 // /api/workspaces/{id}/im/inbound handler (purged in #135); that route
 // is no longer accepted by the API and any DB row still carrying it
 // falls through to NanoClaw here.
+// DispatchInbound feeds a single inbound message into the same forward
+// pipeline used by polling providers. Used by push-based providers
+// (e.g. WhatsApp Cloud webhook handlers) that can't sit inside the
+// poll loop. The binding is reconstructed from the channel row.
+//
+// Returns the same (handled, err) shape as forwardMessage:
+//   - handled=true when the message was fully delivered to a sandbox.
+//   - handled=false + err==nil when the channel is not yet bound to a
+//     running sandbox (caller decides whether to drop or retry).
+//   - err != nil for transport/marshal failures.
+func (b *Bridge) DispatchInbound(ctx context.Context, channelID string, msg InboundMessage) (bool, error) {
+	wsID, providerName, botID, botToken, baseURL, routingMode, err := b.db.DispatchInboundChannel(channelID)
+	if err != nil {
+		return false, fmt.Errorf("lookup channel %s: %w", channelID, err)
+	}
+	provider := b.GetProvider(providerName)
+	if provider == nil {
+		return false, fmt.Errorf("no provider registered for %q", providerName)
+	}
+	binding := BridgeBinding{
+		Provider: provider,
+		Credentials: Credentials{
+			ChannelID: channelID,
+			BotID:     botID,
+			BotToken:  botToken,
+			BaseURL:   baseURL,
+		},
+		ChannelID:   channelID,
+		WorkspaceID: wsID,
+		RoutingMode: routingMode,
+	}
+	return b.forwardMessage(ctx, binding, msg)
+}
+
 func (b *Bridge) forwardMessage(ctx context.Context, binding BridgeBinding, msg InboundMessage) (bool, error) {
 	// In-memory routing mode (set via SetChannelRoutingMode) wins over
 	// the routing_mode captured at StartPoller time. Empty map value

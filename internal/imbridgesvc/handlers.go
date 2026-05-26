@@ -1349,3 +1349,177 @@ func (s *Server) handleBindSandboxChannelsMulti(w http.ResponseWriter, r *http.R
 		"channel_ids": req.ChannelIDs,
 	})
 }
+
+// ---------------------------------------------------------------------------
+// WhatsApp Cloud (Meta) — configure + webhook (push-based, not poll-based)
+// ---------------------------------------------------------------------------
+
+// whatsappWebhookVerifyToken returns the shared secret expected from
+// Meta in the initial webhook subscription handshake (hub.verify_token).
+// Configured via WHATSAPP_WEBHOOK_VERIFY_TOKEN; falls back to "" which
+// disables verification — useful only for local dev.
+func whatsappWebhookVerifyToken() string {
+	return os.Getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN")
+}
+
+// handleWorkspaceWhatsAppConfigure binds a WhatsApp Business phone
+// number to a workspace. Unlike Telegram/WeChat/Matrix this does not
+// start a poller — WhatsApp Cloud is push-based, see the webhook
+// handlers below.
+//
+// Body: {"phone_number_id": "...", "access_token": "...", "base_url": "..." (optional)}
+func (s *Server) handleWorkspaceWhatsAppConfigure(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "id")
+	if _, ok := s.requireWorkspaceMember(w, r, wsID); !ok {
+		return
+	}
+
+	var req struct {
+		PhoneNumberID string `json:"phone_number_id"`
+		AccessToken   string `json:"access_token"`
+		BaseURL       string `json:"base_url,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PhoneNumberID == "" || req.AccessToken == "" {
+		http.Error(w, "phone_number_id and access_token are required", http.StatusBadRequest)
+		return
+	}
+	baseURL := strings.TrimRight(req.BaseURL, "/")
+	if baseURL == "" {
+		baseURL = "https://graph.facebook.com/v18.0"
+	}
+
+	channelID, err := s.db.CreateIMChannel(wsID, "whatsapp", req.PhoneNumberID, "")
+	if err != nil {
+		log.Printf("create whatsapp channel: %v", err)
+		http.Error(w, "failed to create channel", http.StatusInternalServerError)
+		return
+	}
+	if err := s.db.SaveIMChannelCredentials(channelID, req.AccessToken, baseURL); err != nil {
+		log.Printf("save whatsapp credentials: %v", err)
+		http.Error(w, "failed to save credentials", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"connected":  true,
+		"channel_id": channelID,
+		"bot_id":     req.PhoneNumberID,
+		"webhook_hint": "Configure your Meta App webhook URL to POST /webhook/whatsapp on this host; " +
+			"set hub.verify_token to the value of WHATSAPP_WEBHOOK_VERIFY_TOKEN.",
+	})
+}
+
+// handleWhatsAppWebhookVerify implements Meta's webhook handshake.
+// Meta sends GET with hub.mode=subscribe, hub.verify_token=<your token>,
+// hub.challenge=<random string>. We must return the challenge as plain
+// text iff the verify_token matches our configured secret.
+func (s *Server) handleWhatsAppWebhookVerify(w http.ResponseWriter, r *http.Request) {
+	mode := r.URL.Query().Get("hub.mode")
+	token := r.URL.Query().Get("hub.verify_token")
+	challenge := r.URL.Query().Get("hub.challenge")
+	expected := whatsappWebhookVerifyToken()
+
+	if mode != "subscribe" || expected == "" || token != expected {
+		http.Error(w, "verification failed", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(challenge))
+}
+
+// whatsappWebhookPayload mirrors the subset of Meta's webhook payload
+// we consume. The full schema is much larger (status updates, errors,
+// reactions, etc.) but for MVP we only handle inbound text messages.
+type whatsappWebhookPayload struct {
+	Object string `json:"object"`
+	Entry  []struct {
+		Changes []struct {
+			Value struct {
+				MessagingProduct string `json:"messaging_product"`
+				Metadata         struct {
+					PhoneNumberID      string `json:"phone_number_id"`
+					DisplayPhoneNumber string `json:"display_phone_number"`
+				} `json:"metadata"`
+				Contacts []struct {
+					Profile struct {
+						Name string `json:"name"`
+					} `json:"profile"`
+					WaID string `json:"wa_id"`
+				} `json:"contacts"`
+				Messages []struct {
+					From      string `json:"from"`
+					ID        string `json:"id"`
+					Timestamp string `json:"timestamp"`
+					Type      string `json:"type"`
+					Text      struct {
+						Body string `json:"body"`
+					} `json:"text"`
+				} `json:"messages"`
+			} `json:"value"`
+			Field string `json:"field"`
+		} `json:"changes"`
+	} `json:"entry"`
+}
+
+// handleWhatsAppWebhookInbound parses a Meta webhook delivery, resolves
+// the workspace_im_channels row from each message's phone_number_id,
+// and dispatches inbound messages into the same forward pipeline used
+// by polling providers (Bridge.DispatchInbound).
+//
+// We always return 200 even on partial failures — Meta retries on any
+// non-2xx for up to 24h, which is the wrong behaviour for one-off bugs.
+func (s *Server) handleWhatsAppWebhookInbound(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var payload whatsappWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		log.Printf("whatsapp webhook: decode: %v", err)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			if change.Field != "messages" {
+				continue
+			}
+			phoneNumberID := change.Value.Metadata.PhoneNumberID
+			if phoneNumberID == "" {
+				continue
+			}
+			channel, err := s.db.FindIMChannelByProviderBot("whatsapp", phoneNumberID)
+			if err != nil {
+				log.Printf("whatsapp webhook: no channel for phone_number_id=%s: %v", phoneNumberID, err)
+				continue
+			}
+
+			senderName := ""
+			if len(change.Value.Contacts) > 0 {
+				senderName = change.Value.Contacts[0].Profile.Name
+			}
+
+			for _, msg := range change.Value.Messages {
+				if msg.Type != "text" || msg.Text.Body == "" {
+					// MVP: text only. TODO: handle media, audio, location, reactions.
+					continue
+				}
+				inbound := imbridge.InboundMessage{
+					FromUserID: msg.From + "@wa",
+					SenderName: senderName,
+					Text:       msg.Text.Body,
+				}
+				if _, err := s.bridge.DispatchInbound(r.Context(), channel.ID, inbound); err != nil {
+					log.Printf("whatsapp webhook: dispatch channel=%s msg=%s: %v", channel.ID, msg.ID, err)
+				}
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

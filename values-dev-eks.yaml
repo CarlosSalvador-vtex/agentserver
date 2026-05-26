@@ -117,6 +117,12 @@ models:
 internal:
   apiSecret: "893b04759dd64c3b5fb515ad60cb8c639f9da0271201f1aad4eb7052f53379a5"
 
+# WhatsApp Cloud (Meta) — dev verify token. In prod, generate via
+# `openssl rand -hex 32` and paste the same value in the Meta App
+# Dashboard → Webhook → Verify Token field.
+whatsapp:
+  webhookVerifyToken: "dev-wa-verify-d3vCh4ng3M3"
+
 # HMAC pepper for workspace API key hashes
 secretsPepper: "e40ad066b406d85f71cac82d89f48bc5393daf18e5507026161598953b4017f1"
 

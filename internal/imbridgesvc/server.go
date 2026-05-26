@@ -54,6 +54,12 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/api/internal/imbridge/send", s.handleImbridgeDirectSend)
 	r.Post("/api/internal/imbridge/send-image", s.handleImbridgeDirectSendImage)
 
+	// WhatsApp Cloud webhook — unauthenticated by design. Meta delivers
+	// inbound messages here; identity is enforced via the hub.verify_token
+	// handshake (GET) and the WHATSAPP_WEBHOOK_VERIFY_TOKEN env var.
+	r.Get("/webhook/whatsapp", s.handleWhatsAppWebhookVerify)
+	r.Post("/webhook/whatsapp", s.handleWhatsAppWebhookInbound)
+
 	// Authenticated API routes (cookie auth).
 	r.Group(func(r chi.Router) {
 		r.Use(s.auth.Middleware)
@@ -66,6 +72,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/workspaces/{id}/im/weixin/qr-wait", s.handleWorkspaceWeixinQRWait)
 		r.Post("/api/workspaces/{id}/im/telegram/configure", s.handleWorkspaceTelegramConfigure)
 		r.Post("/api/workspaces/{id}/im/matrix/configure", s.handleWorkspaceMatrixConfigure)
+		r.Post("/api/workspaces/{id}/im/whatsapp/configure", s.handleWorkspaceWhatsAppConfigure)
 
 		// Sandbox IM channel binding.
 		r.Post("/api/sandboxes/{id}/im/bind", s.handleBindSandboxToChannel)
