@@ -65,6 +65,10 @@ spec:
             - name: WHATSAPP_WEBHOOK_VERIFY_TOKEN
               value: {{ .Values.whatsapp.webhookVerifyToken | quote }}
             {{- end }}
+            {{- if .Values.whatsapp.appSecret }}
+            - name: WHATSAPP_APP_SECRET
+              value: {{ .Values.whatsapp.appSecret | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

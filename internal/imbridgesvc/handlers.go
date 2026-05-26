@@ -2,7 +2,10 @@ package imbridgesvc
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1362,6 +1365,39 @@ func whatsappWebhookVerifyToken() string {
 	return os.Getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN")
 }
 
+// whatsappAppSecret returns the Meta App Secret used to sign every
+// webhook delivery via X-Hub-Signature-256. Configured via
+// WHATSAPP_APP_SECRET; empty value disables signature verification
+// (dev only — production deploys MUST set this).
+func whatsappAppSecret() string {
+	return os.Getenv("WHATSAPP_APP_SECRET")
+}
+
+// verifyWhatsAppSignature returns true when the X-Hub-Signature-256
+// header matches an HMAC-SHA256 of the raw body computed with the
+// configured app secret. Constant-time comparison; rejects malformed
+// or missing headers.
+//
+// When the app secret is empty, returns true unconditionally — caller
+// is expected to log a startup warning so prod misconfig is visible.
+func verifyWhatsAppSignature(header string, body []byte, appSecret string) bool {
+	if appSecret == "" {
+		return true
+	}
+	const prefix = "sha256="
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+	sigHex := header[len(prefix):]
+	wantBytes, err := hex.DecodeString(sigHex)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	mac.Write(body)
+	return hmac.Equal(mac.Sum(nil), wantBytes)
+}
+
 // handleWorkspaceWhatsAppConfigure binds a WhatsApp Business phone
 // number to a workspace. Unlike Telegram/WeChat/Matrix this does not
 // start a poller — WhatsApp Cloud is push-based, see the webhook
@@ -1476,6 +1512,17 @@ func (s *Server) handleWhatsAppWebhookInbound(w http.ResponseWriter, r *http.Req
 		return
 	}
 	defer r.Body.Close()
+
+	// HMAC verification: when WHATSAPP_APP_SECRET is set, every delivery
+	// must carry a matching X-Hub-Signature-256. Mismatches return 401
+	// (not 200) so anyone tampering can be detected via dashboard alerts.
+	if appSecret := whatsappAppSecret(); appSecret != "" {
+		if !verifyWhatsAppSignature(r.Header.Get("X-Hub-Signature-256"), body, appSecret) {
+			log.Printf("whatsapp webhook: invalid X-Hub-Signature-256 — possible spoofing")
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+	}
 
 	var payload whatsappWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {

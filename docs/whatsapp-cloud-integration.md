@@ -173,7 +173,7 @@ This MVP cuts the following intentionally:
 |---|---|---|
 | Media messages (image, voice, video, document) | Each media type needs a `GET /<media_id>` round-trip to fetch bytes + provider-side upload | extend `handleWhatsAppWebhookInbound` switch on `msg.Type`; add `WhatsAppProvider.SendImage` (implement `ImageSendProvider`) |
 | Status updates (delivered, read, failed) | Useful for monitoring but no agent action depends on them today | parse `entry[].changes[].value.statuses` and persist to channel meta |
-| `X-Hub-Signature-256` HMAC verification | Webhook hostname enforces TLS + IP allowlist via ALB if configured; signature adds defense in depth | wrap `handleWhatsAppWebhookInbound` body read in HMAC comparison against `app_secret` (new env var) |
+| ~~`X-Hub-Signature-256` HMAC verification~~ ✅ (PR #10) | Implemented via `WHATSAPP_APP_SECRET` env. Empty value disables (dev mode) | helm value `whatsapp.appSecret` wires the env on the imbridge pod |
 | Reactions / template messages / interactive buttons | Same envelope but different schemas | per-type branches |
 | Multi-tenant per-app secrets | One app secret per workspace lets each tenant rotate independently | move `WHATSAPP_WEBHOOK_VERIFY_TOKEN` from env to a `workspace_im_channel_meta` row keyed by `wa_verify_token` |
 | Frontend modal | Today users configure via curl/Postman | add `WhatsAppConfigModal.tsx` mirroring `TelegramConfigModal.tsx` |
