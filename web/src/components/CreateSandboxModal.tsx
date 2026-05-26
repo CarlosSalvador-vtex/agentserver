@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react'
 import { X, Loader2 } from 'lucide-react'
-import { getWorkspaceDefaults, type WorkspaceSandboxDefaults } from '../lib/api'
+import { getWorkspaceDefaults, type WorkspaceSandboxDefaults, type SandboxCompositionInput } from '../lib/api'
+import { CompositionPicker } from './CompositionPicker'
 
 interface CreateSandboxModalProps {
   workspaceId: string
   onClose: () => void
-  onCreate: (name: string, type: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes', cpu?: number, memory?: number, idleTimeout?: number, metadata?: Record<string, unknown>) => void
+  onCreate: (
+    name: string,
+    type: 'opencode' | 'openclaw' | 'nanoclaw' | 'claudecode' | 'jupyter' | 'hermes',
+    cpu?: number,
+    memory?: number,
+    idleTimeout?: number,
+    metadata?: Record<string, unknown>,
+    composition?: SandboxCompositionInput,
+  ) => void
   creating: boolean
 }
 
@@ -23,6 +32,7 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
   const [timeoutMinutes, setTimeoutMinutes] = useState<string>('')
 
   const [assistantName, setAssistantName] = useState('')
+  const [composition, setComposition] = useState<SandboxCompositionInput | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -94,7 +104,7 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
     if (sandboxType === 'nanoclaw' && assistantName.trim()) {
       metadata.assistant_name = assistantName.trim()
     }
-    onCreate(name, sandboxType, resources.cpu, resources.memory, resources.idleTimeout, Object.keys(metadata).length > 0 ? metadata : undefined)
+    onCreate(name, sandboxType, resources.cpu, resources.memory, resources.idleTimeout, Object.keys(metadata).length > 0 ? metadata : undefined, composition ?? undefined)
   }
 
   return (
@@ -233,6 +243,8 @@ export function CreateSandboxModal({ workspaceId, onClose, onCreate, creating }:
               </div>
             </>
           ) : null}
+
+          <CompositionPicker value={composition} onChange={setComposition} />
 
           {validationError && (
             <p className="text-sm text-red-500">{validationError}</p>
