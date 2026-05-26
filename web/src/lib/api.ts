@@ -329,6 +329,13 @@ export async function listSandboxes(workspaceId: string): Promise<Sandbox[]> {
   })
 }
 
+export interface SandboxCompositionInput {
+  soul?: string
+  skills?: string[]
+  config?: Record<string, Record<string, unknown>>
+  track_upstream?: boolean
+}
+
 export async function createSandbox(
   workspaceId: string,
   name?: string,
@@ -337,14 +344,16 @@ export async function createSandbox(
   memory?: number,
   idleTimeout?: number,
   metadata?: Record<string, unknown>,
+  composition?: SandboxCompositionInput,
 ): Promise<Sandbox> {
-  const body: SandboxCreateRequest = {
+  const body: SandboxCreateRequest & { composition?: SandboxCompositionInput } = {
     name: name || 'New Sandbox',
     type: type || 'opencode',
     ...(cpu !== undefined && { cpu }),
     ...(memory !== undefined && { memory }),
     ...(idleTimeout !== undefined && { idle_timeout: idleTimeout }),
     ...(metadata !== undefined && { metadata }),
+    ...(composition !== undefined && { composition }),
   }
   try {
     return await apiFetch<Sandbox>({
