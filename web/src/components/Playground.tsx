@@ -1,0 +1,195 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Plus, Trash2, ExternalLink } from 'lucide-react'
+import {
+  listPlaygroundSkills,
+  createPlaygroundSkill,
+  archivePlaygroundSkill,
+  listPlaygroundSouls,
+  createPlaygroundSoul,
+  archivePlaygroundSoul,
+  type PlaygroundSkillSummary,
+  type PlaygroundSoulSummary,
+} from '../lib/api'
+
+export function Playground() {
+  const [skills, setSkills] = useState<PlaygroundSkillSummary[]>([])
+  const [souls, setSouls] = useState<PlaygroundSoulSummary[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const reload = async () => {
+    try {
+      const [s, so] = await Promise.all([listPlaygroundSkills(), listPlaygroundSouls()])
+      setSkills(s)
+      setSouls(so)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'failed to load')
+    }
+  }
+
+  useEffect(() => {
+    reload()
+  }, [])
+
+  const handleCreate = async (kind: 'skill' | 'soul') => {
+    const name = prompt(`Name of new ${kind} draft (lowercase, kebab-case)`)
+    if (!name) return
+    setBusy(true)
+    try {
+      if (kind === 'skill') await createPlaygroundSkill(name)
+      else await createPlaygroundSoul(name)
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'create failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleArchive = async (kind: 'skill' | 'soul', id: string) => {
+    if (!confirm(`Archive this ${kind} draft? (cannot undo)`)) return
+    if (kind === 'skill') await archivePlaygroundSkill(id)
+    else await archivePlaygroundSoul(id)
+    await reload()
+  }
+
+  return (
+    <div className="p-6 max-w-5xl">
+      <h1 className="text-xl font-semibold text-[var(--foreground)] mb-6">Playground</h1>
+
+      {error && (
+        <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>
+      )}
+
+      <Section
+        title="Skills"
+        onCreate={() => handleCreate('skill')}
+        items={skills.map((s) => ({
+          id: s.id,
+          name: s.name,
+          status: s.status,
+          to: `/playground/skills/${s.id}`,
+          prURL: s.promoted_pr_url,
+          updatedAt: s.updated_at,
+          description: s.description,
+        }))}
+        busy={busy}
+        onArchive={(id) => handleArchive('skill', id)}
+      />
+
+      <div className="mt-8">
+        <Section
+          title="Souls"
+          onCreate={() => handleCreate('soul')}
+          items={souls.map((s) => ({
+            id: s.id,
+            name: s.name,
+            status: s.status,
+            to: `/playground/souls/${s.id}`,
+            prURL: s.promoted_pr_url,
+            updatedAt: s.updated_at,
+            description: s.description,
+          }))}
+          busy={busy}
+          onArchive={(id) => handleArchive('soul', id)}
+        />
+      </div>
+    </div>
+  )
+}
+
+interface SectionItem {
+  id: string
+  name: string
+  description: string
+  status: string
+  to: string
+  prURL?: string
+  updatedAt: string
+}
+
+function Section({
+  title,
+  items,
+  onCreate,
+  busy,
+  onArchive,
+}: {
+  title: string
+  items: SectionItem[]
+  onCreate: () => void
+  busy: boolean
+  onArchive: (id: string) => void
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]">
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
+        <span className="text-sm font-medium text-[var(--foreground)]">
+          {title} <span className="text-[var(--muted-foreground)]">({items.length})</span>
+        </span>
+        <button
+          onClick={onCreate}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
+        >
+          <Plus size={12} /> New {title.slice(0, -1).toLowerCase()}
+        </button>
+      </div>
+      <div className="divide-y divide-[var(--border)]">
+        {items.length === 0 ? (
+          <div className="py-8 text-center text-xs italic text-[var(--muted-foreground)]">
+            No {title.toLowerCase()} drafts yet.
+          </div>
+        ) : (
+          items.map((it) => (
+            <div key={it.id} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--secondary)]/30">
+              <Link to={it.to} className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[var(--foreground)] font-medium">{it.name}</span>
+                  <StatusBadge status={it.status} />
+                </div>
+                <div className="text-xs text-[var(--muted-foreground)] truncate">
+                  {it.description || 'No description'} · updated {new Date(it.updatedAt).toLocaleString()}
+                </div>
+              </Link>
+              {it.prURL && (
+                <a
+                  href={it.prURL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                  title="View promote PR"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              )}
+              <button
+                onClick={() => onArchive(it.id)}
+                className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--destructive)]"
+                title="Archive draft"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    draft: 'bg-blue-500/10 text-blue-400',
+    promoting: 'bg-yellow-500/10 text-yellow-400',
+    promoted: 'bg-green-500/10 text-green-400',
+    archived: 'bg-gray-500/10 text-gray-400',
+  }
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${styles[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
+      {status}
+    </span>
+  )
+}
