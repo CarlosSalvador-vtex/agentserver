@@ -4075,6 +4075,112 @@
         }
       }
     },
+    "/api/workspaces/{id}/im/channels/{channelId}/auto-bind": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Resolves the workspace channel_routing_strategy and binds accordingly. Returns 409 in hybrid mode.",
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Auto-provision and bind a sandbox to an IM channel",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Channel id",
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelAutoBindRequest"
+              }
+            }
+          },
+          "description": "Optional overrides"
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAutoBindResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient role / quota / budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "workspace or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "hybrid strategy — manual binding required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{id}/im/matrix/configure": {
       "post": {
         "security": [
@@ -4342,6 +4448,74 @@
           },
           "502": {
             "description": "upstream error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/im/whatsapp/configure": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "description": "Stores the Meta access token and phone_number_id. Inbound messages reach the agent via the public /webhook/whatsapp endpoint (configured in the Meta App dashboard).",
+        "tags": [
+          "IM Channels"
+        ],
+        "summary": "Bind a WhatsApp Cloud number to a workspace",
+        "parameters": [
+          {
+            "description": "Workspace id",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "phone_number_id and access_token are required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -6622,7 +6796,7 @@
           },
           "type": {
             "type": "string",
-            "example": "opencode"
+            "example": "openclaw"
           },
           "workspace_id": {
             "type": "string"
@@ -7123,9 +7297,9 @@
             "example": "Local Agent"
           },
           "type": {
-            "description": "optional; defaults to \"opencode\"",
+            "description": "optional; defaults to \"custom\"",
             "type": "string",
-            "example": "opencode"
+            "example": "custom"
           }
         }
       },
@@ -7459,6 +7633,36 @@
           "status": {
             "type": "string",
             "example": "ok"
+          }
+        }
+      },
+      "ChannelAutoBindRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "Name is the display name applied to a newly provisioned sandbox.\nOptional; defaults to \"Channel agent — {provider} {bot_id}\".",
+            "type": "string"
+          },
+          "sandbox_type": {
+            "description": "SandboxType picks the agent runtime when a new sandbox needs to be\nprovisioned. Optional; defaults to \"openclaw\" which has IM-channel\nintegrations baked in. Ignored when an existing shared sandbox is\nreused.",
+            "type": "string"
+          }
+        }
+      },
+      "ChannelAutoBindResponse": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "reused": {
+            "type": "boolean"
+          },
+          "sandbox_id": {
+            "type": "string"
+          },
+          "strategy": {
+            "type": "string"
           }
         }
       },
@@ -8311,6 +8515,9 @@
           "custom_url": {
             "type": "string"
           },
+          "hermes_url": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -8376,12 +8583,44 @@
           }
         }
       },
+      "SandboxCompositionRequest": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "soul": {
+            "type": "string"
+          },
+          "track_upstream": {
+            "type": "boolean"
+          }
+        }
+      },
       "SandboxCreateRequest": {
         "type": "object",
         "required": [
           "name"
         ],
         "properties": {
+          "composition": {
+            "description": "Composition layers a soul (identity) + N skills (capabilities) on\ntop of the sandbox at boot. Refs follow the grammar in\ndocs/playground-design.md §4.3 (\"git:<name>@<sha>\" or \"draft:<uuid>\").\nWhen omitted, the sandbox boots without composition (legacy behavior).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SandboxCompositionRequest"
+              }
+            ]
+          },
           "cpu": {
             "description": "optional; millicores, e.g. 500 or 2000",
             "type": "integer"
@@ -8404,9 +8643,9 @@
             "example": "my-sandbox"
           },
           "type": {
-            "description": "optional; default \"opencode\"",
+            "description": "optional; default \"openclaw\"",
             "type": "string",
-            "example": "opencode"
+            "example": "openclaw"
           }
         }
       },

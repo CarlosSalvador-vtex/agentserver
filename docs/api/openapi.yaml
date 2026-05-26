@@ -2431,6 +2431,71 @@ paths:
       summary: Update IM channel settings
       tags:
         - IM Channels
+  "/api/workspaces/{id}/im/channels/{channelId}/auto-bind":
+    post:
+      description: Resolves the workspace channel_routing_strategy and binds
+        accordingly. Returns 409 in hybrid mode.
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Channel id
+          in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelAutoBindRequest"
+        description: Optional overrides
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelAutoBindResponse"
+        "400":
+          description: validation error
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: insufficient role / quota / budget
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: workspace or channel not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: hybrid strategy — manual binding required
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Auto-provision and bind a sandbox to an IM channel
+      tags:
+        - IM Channels
   "/api/workspaces/{id}/im/matrix/configure":
     post:
       parameters:
@@ -2598,6 +2663,49 @@ paths:
       security:
         - CookieAuth: []
       summary: Long-poll WeChat QR-code scan for a workspace
+      tags:
+        - IM Channels
+  "/api/workspaces/{id}/im/whatsapp/configure":
+    post:
+      description: Stores the Meta access token and phone_number_id. Inbound messages
+        reach the agent via the public /webhook/whatsapp endpoint (configured in
+        the Meta App dashboard).
+      parameters:
+        - description: Workspace id
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+        "400":
+          description: phone_number_id and access_token are required
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: not a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Bind a WhatsApp Cloud number to a workspace
       tags:
         - IM Channels
   "/api/workspaces/{id}/llm-config":
@@ -3996,7 +4104,7 @@ components:
           example: running
           type: string
         type:
-          example: opencode
+          example: openclaw
           type: string
         workspace_id:
           type: string
@@ -4353,8 +4461,8 @@ components:
           example: Local Agent
           type: string
         type:
-          description: optional; defaults to "opencode"
-          example: opencode
+          description: optional; defaults to "custom"
+          example: custom
           type: string
       type: object
     AgentRegisterResponse:
@@ -4590,6 +4698,32 @@ components:
           type: string
       required:
         - status
+      type: object
+    ChannelAutoBindRequest:
+      properties:
+        name:
+          description: |-
+            Name is the display name applied to a newly provisioned sandbox.
+            Optional; defaults to "Channel agent — {provider} {bot_id}".
+          type: string
+        sandbox_type:
+          description: |-
+            SandboxType picks the agent runtime when a new sandbox needs to be
+            provisioned. Optional; defaults to "openclaw" which has IM-channel
+            integrations baked in. Ignored when an existing shared sandbox is
+            reused.
+          type: string
+      type: object
+    ChannelAutoBindResponse:
+      properties:
+        channel_id:
+          type: string
+        reused:
+          type: boolean
+        sandbox_id:
+          type: string
+        strategy:
+          type: string
       type: object
     CodexBrowserItem:
       properties:
@@ -5170,6 +5304,8 @@ components:
           type: string
         custom_url:
           type: string
+        hermes_url:
+          type: string
         id:
           type: string
         idle_timeout:
@@ -5181,8 +5317,6 @@ components:
         is_local:
           type: boolean
         jupyter_url:
-          type: string
-        hermes_url:
           type: string
         last_activity_at:
           type: string
@@ -5224,8 +5358,35 @@ components:
         - type
         - workspace_id
       type: object
+    SandboxCompositionRequest:
+      properties:
+        config:
+          additionalProperties:
+            additionalProperties: true
+            type: object
+          type: object
+        skills:
+          items:
+            type: string
+          type: array
+        soul:
+          type: string
+        track_upstream:
+          type: boolean
+      type: object
     SandboxCreateRequest:
       properties:
+        composition:
+          allOf:
+            - $ref: "#/components/schemas/SandboxCompositionRequest"
+          description: >-
+            Composition layers a soul (identity) + N skills (capabilities) on
+
+            top of the sandbox at boot. Refs follow the grammar in
+
+            docs/playground-design.md §4.3 ("git:<name>@<sha>" or "draft:<uuid>").
+
+            When omitted, the sandbox boots without composition (legacy behavior).
         cpu:
           description: optional; millicores, e.g. 500 or 2000
           type: integer
@@ -5243,8 +5404,8 @@ components:
           example: my-sandbox
           type: string
         type:
-          description: optional; default "opencode"
-          example: opencode
+          description: optional; default "openclaw"
+          example: openclaw
           type: string
       required:
         - name
