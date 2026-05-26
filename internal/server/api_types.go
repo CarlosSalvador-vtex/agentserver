@@ -140,7 +140,23 @@ type SandboxCreateRequest struct {
 	Memory      *int64                 `json:"memory"`                     // optional; bytes, e.g. 536870912 (512Mi)
 	IdleTimeout *int                   `json:"idle_timeout"`               // optional; seconds
 	Metadata    map[string]interface{} `json:"metadata"`                   // optional; arbitrary key-value metadata
+	// Composition layers a soul (identity) + N skills (capabilities) on
+	// top of the sandbox at boot. Refs follow the grammar in
+	// docs/playground-design.md §4.3 ("git:<name>@<sha>" or "draft:<uuid>").
+	// When omitted, the sandbox boots without composition (legacy behavior).
+	Composition *SandboxCompositionRequest `json:"composition,omitempty"`
 } // @name SandboxCreateRequest
+
+// SandboxCompositionRequest is the sub-payload that wires a sandbox
+// to playground templates at create time. The agentserver persists it
+// in sandbox_compositions and (in a future PR) resolves it into pod
+// mounts at boot.
+type SandboxCompositionRequest struct {
+	Soul          string                            `json:"soul,omitempty"`
+	Skills        []string                          `json:"skills,omitempty"`
+	Config        map[string]map[string]interface{} `json:"config,omitempty"`
+	TrackUpstream bool                              `json:"track_upstream,omitempty"`
+} // @name SandboxCompositionRequest
 
 // SandboxRenameRequest is the body for PATCH /api/sandboxes/{id}.
 type SandboxRenameRequest struct {
