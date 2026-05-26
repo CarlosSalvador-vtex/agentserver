@@ -179,6 +179,38 @@ Sandbox URLs     ──▶ sandboxproxy       (:8082) ─▶ subdomain routing t
 - **Hybrid cloud–local mesh** — Cloud and local Connectors share one workspace registry. Discovery happens through agent cards; the LLM picks a tool and a router decides where the call goes. *Agent discovery, not network mesh.*
 - **Async collaboration via mailboxes** — Agents hand off work through inboxes in durable storage. The receiver does not need to be alive when the message is sent. The mailbox is the source of truth.
 
+## Documentation
+
+### Release notes
+
+- [`RELEASE.md`](RELEASE.md) — multi-channel routing + WhatsApp Cloud sprint (12 PRs, dev EKS `routing-v4`).
+
+### Features
+
+| Doc | Topic |
+|---|---|
+| [`docs/multi-channel-routing.md`](docs/multi-channel-routing.md) | N:M sandbox↔channel bindings, workspace routing strategy (`shared` / `per_agent` / `hybrid`), auto-bind handler, dual-write + read-side fallback. |
+| [`docs/whatsapp-cloud-integration.md`](docs/whatsapp-cloud-integration.md) | WhatsApp Cloud (Meta) provider — webhook-driven inbound, `Send()` via Graph API, X-Hub-Signature-256 HMAC verification, multi-tenant routing by `phone_number_id`. |
+| [`docs/skills-system.md`](docs/skills-system.md) | Hermes / OpenClaw skill ConfigMap distribution into sandbox pods. |
+| [`docs/hermes-sandbox.md`](docs/hermes-sandbox.md) | Hermes sandbox type (Bedrock primary, GLM fallback, dashboard chat). |
+| [`docs/sandbox-api.md`](docs/sandbox-api.md) | Create / pause / resume / delete sandboxes via REST. |
+| [`docs/sandbox-architecture.md`](docs/sandbox-architecture.md) | Workspace ↔ namespace ↔ sandbox pod layout in Kubernetes. |
+| [`docs/sandboxproxy-routing.md`](docs/sandboxproxy-routing.md) | Subdomain → sandbox service routing through sandboxproxy. |
+
+### Deploy
+
+- [`docs/dev-eks-deploy.md`](docs/dev-eks-deploy.md) — dev EKS (`dev-ti-eks-analytics-platform`) deploy guide.
+
+### API reference
+
+- [`docs/api-reference.md`](docs/api-reference.md) — REST endpoint index.
+- [`docs/api/openapi.yaml`](docs/api/openapi.yaml) — full OpenAPI 3 spec; frontend types generated via `pnpm openapi:gen`.
+
+### Developer
+
+- [`docs/developer/`](docs/developer/) — internal architecture notes.
+- [`docs/specs/`](docs/specs/) — platform spec (multi-tenant B2B), frontend spec, voice-agent-cobranca vertical spec.
+
 ## Self-Hosting
 
 ### Helm (Kubernetes — recommended)
