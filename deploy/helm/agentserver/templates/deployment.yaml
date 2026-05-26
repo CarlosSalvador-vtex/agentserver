@@ -286,6 +286,18 @@ spec:
             - name: INTERNAL_API_SECRET
               value: {{ .Values.internal.apiSecret | quote }}
             {{- end }}
+            {{- if .Values.playground.github.token }}
+            - name: GITHUB_PROMOTE_TOKEN
+              value: {{ .Values.playground.github.token | quote }}
+            {{- end }}
+            {{- if .Values.playground.github.repo }}
+            - name: GITHUB_PROMOTE_REPO
+              value: {{ .Values.playground.github.repo | quote }}
+            {{- end }}
+            {{- if .Values.playground.github.base }}
+            - name: GITHUB_PROMOTE_BASE
+              value: {{ .Values.playground.github.base | quote }}
+            {{- end }}
             {{- if .Values.secretsPepper }}
             - name: SECRETS_PEPPER
               valueFrom:

@@ -141,6 +141,41 @@ func (db *DB) ArchiveSkillDraft(id string) error {
 	return err
 }
 
+// TryPromoteSkillDraft atomically flips status from 'draft' to
+// 'promoting' if and only if it's currently 'draft'. Returns (true,
+// nil) on success, (false, nil) when another promote is already in
+// flight or the draft is in a non-promotable state.
+func (db *DB) TryPromoteSkillDraft(id string) (bool, error) {
+	res, err := db.Exec(
+		`UPDATE skill_drafts SET status = 'promoting', updated_at = NOW()
+		WHERE id = $1 AND status = 'draft'`,
+		id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("try promote skill draft: %w", err)
+	}
+	rows, _ := res.RowsAffected()
+	return rows == 1, nil
+}
+
+func (db *DB) CompletePromoteSkillDraft(id, prURL, commitSha string) error {
+	_, err := db.Exec(
+		`UPDATE skill_drafts SET status = 'promoted', promoted_pr_url = $2, promoted_commit = $3, updated_at = NOW()
+		WHERE id = $1`,
+		id, prURL, commitSha,
+	)
+	return err
+}
+
+func (db *DB) RevertPromoteSkillDraft(id string) error {
+	_, err := db.Exec(
+		`UPDATE skill_drafts SET status = 'draft', updated_at = NOW()
+		WHERE id = $1 AND status = 'promoting'`,
+		id,
+	)
+	return err
+}
+
 // --- Soul drafts -----------------------------------------------------------
 
 func (db *DB) CreateSoulDraft(name, description, authorUserID string) (*SoulDraft, error) {
@@ -226,6 +261,37 @@ func (db *DB) UpdateSoulDraft(id string, frontmatter map[string]interface{}, bod
 
 func (db *DB) ArchiveSoulDraft(id string) error {
 	_, err := db.Exec(`UPDATE soul_drafts SET status = 'archived', updated_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+func (db *DB) TryPromoteSoulDraft(id string) (bool, error) {
+	res, err := db.Exec(
+		`UPDATE soul_drafts SET status = 'promoting', updated_at = NOW()
+		WHERE id = $1 AND status = 'draft'`,
+		id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("try promote soul draft: %w", err)
+	}
+	rows, _ := res.RowsAffected()
+	return rows == 1, nil
+}
+
+func (db *DB) CompletePromoteSoulDraft(id, prURL, commitSha string) error {
+	_, err := db.Exec(
+		`UPDATE soul_drafts SET status = 'promoted', promoted_pr_url = $2, promoted_commit = $3, updated_at = NOW()
+		WHERE id = $1`,
+		id, prURL, commitSha,
+	)
+	return err
+}
+
+func (db *DB) RevertPromoteSoulDraft(id string) error {
+	_, err := db.Exec(
+		`UPDATE soul_drafts SET status = 'draft', updated_at = NOW()
+		WHERE id = $1 AND status = 'promoting'`,
+		id,
+	)
 	return err
 }
 
