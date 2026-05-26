@@ -142,7 +142,7 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 		if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
 			model = envModel
 		}
-		completion, err := s.callLLMProxyForDryRun(r.Context(), model, resp.SystemPrompt, resp.Messages)
+		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, model, resp.SystemPrompt, resp.Messages)
 		if err != nil {
 			resp.CompletionError = err.Error()
 		} else {
@@ -155,14 +155,20 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 }
 
 // callLLMProxyForDryRun sends the composed dry-run payload to llmproxy
-// in Anthropic /v1/messages shape. llmproxy validates the proxy token
-// against the workspace token catalog; for system-level calls we use
-// INTERNAL_API_SECRET as the bearer (already required for other
-// internal endpoints — see /api/internal/workspace-token wiring).
-func (s *Server) callLLMProxyForDryRun(ctx context.Context, model, systemPrompt string, msgs []playgroundDryRunMessage) (string, error) {
-	internal := os.Getenv("INTERNAL_API_SECRET")
-	if internal == "" {
-		return "", fmt.Errorf("INTERNAL_API_SECRET not set; cannot reach llmproxy")
+// in Anthropic /v1/messages shape. llmproxy validates the bearer
+// against the workspace_tokens catalog, so we mint (or reuse) the
+// workspace proxy token of the caller's first workspace before
+// dispatching. INTERNAL_API_SECRET alone is rejected by llmproxy
+// (it only honours tokens that map to a workspace row).
+func (s *Server) callLLMProxyForDryRunForUser(ctx context.Context, userID, model, systemPrompt string, msgs []playgroundDryRunMessage) (string, error) {
+	wss, err := s.DB.ListWorkspacesByUser(userID)
+	if err != nil || len(wss) == 0 {
+		return "", fmt.Errorf("dry-run LLM call needs at least one workspace membership for user %s", userID)
+	}
+	wsID := wss[0].ID
+	proxyToken, err := s.DB.GetOrCreateWorkspaceToken(wsID)
+	if err != nil {
+		return "", fmt.Errorf("mint workspace proxy token (ws=%s): %w", wsID, err)
 	}
 
 	type anthMsg struct {
@@ -205,8 +211,7 @@ func (s *Server) callLLMProxyForDryRun(ctx context.Context, model, systemPrompt 
 		return "", fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", internal)
-	req.Header.Set("x-api-key", internal)
+	req.Header.Set("x-api-key", proxyToken)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := http.DefaultClient.Do(req)
