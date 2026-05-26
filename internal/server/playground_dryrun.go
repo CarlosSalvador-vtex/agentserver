@@ -169,6 +169,77 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleSoulDraftDryRun mirrors handleSkillDraftDryRun for souls. Soul
+// dry-run composes a system prompt from the soul body alone (no skill
+// prompt) and runs an optional llmproxy round-trip. improvements.md #9.
+func (s *Server) handleSoulDraftDryRun(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	result := "ok"
+	defer func() {
+		ObserveDryRun("soul", result, time.Since(start).Seconds())
+	}()
+	userID := auth.UserIDFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+
+	soul, err := s.DB.GetSoulDraft(id)
+	if err != nil || soul == nil {
+		result = "validation_error"
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !soul.AuthorUserID.Valid || soul.AuthorUserID.String != userID {
+		result = "validation_error"
+		http.Error(w, "not your draft", http.StatusForbidden)
+		return
+	}
+
+	var req playgroundDryRunRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			result = "validation_error"
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+	}
+
+	info := &playgroundDryRunSoulInfo{Name: soul.Name, Source: "draft"}
+	if voice, ok := soul.Frontmatter["voice"].(map[string]interface{}); ok {
+		if lang, ok := voice["language"].(string); ok {
+			info.Voice = lang
+		}
+	}
+	if c, ok := soul.Frontmatter["constraints"].(map[string]interface{}); ok {
+		if mt, ok := c["max_turns"].(float64); ok {
+			info.MaxTurn = int(mt)
+		}
+	}
+
+	resp := playgroundDryRunResponse{
+		Messages:     composeMessages(req),
+		SoulSummary:  info,
+		SystemPrompt: soul.Body,
+		// Skill summary intentionally zero-value: this endpoint runs
+		// the soul in isolation.
+	}
+
+	if s.LLMProxyURL != "" && req.UserMessage != "" {
+		model := playgroundDryRunModelDefault
+		if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
+			model = envModel
+		}
+		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, req.WorkspaceID, model, resp.SystemPrompt, resp.Messages)
+		if err != nil {
+			result = "llm_error"
+			resp.CompletionError = err.Error()
+		} else {
+			resp.Completion = completion
+			resp.CompletionModel = model
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // callLLMProxyForDryRun sends the composed dry-run payload to llmproxy
 // in Anthropic /v1/messages shape. llmproxy validates the bearer
 // against the workspace_tokens catalog, so we mint (or reuse) the

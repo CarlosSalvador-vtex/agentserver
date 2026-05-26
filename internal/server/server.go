@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/time/rate"
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/codexauth"
 	"github.com/agentserver/agentserver/internal/db"
@@ -103,6 +104,13 @@ type Server struct {
 	// imBridgeProxy is set by Router() when IMBridgeURL is non-empty.
 	// Stored here so per-route wrapper methods (im_routes.go) can call it.
 	imBridgeProxy http.HandlerFunc
+
+	// Per-user rate limiters guarding playground LLM round-trips and pod
+	// spawns. Dry-run is allowed ~10 req/min/user with burst 3;
+	// test-sandbox is ~3 req/min/user with burst 1 (still also bounded by
+	// the playground_test_sandboxes concurrency quota).
+	dryRunLimiter      *playgroundRateLimiter
+	testSandboxLimiter *playgroundRateLimiter
 }
 
 func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore *sbxstore.Store, processManager process.Manager, driveManager storage.DriveManager, nsMgr *namespace.Manager, tunnelReg *tunnel.Registry, staticFS fs.FS, passwordAuthEnabled bool) *Server {
@@ -138,6 +146,8 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 		HermesSubdomainPrefix:     hermesPrefix,
 		PasswordAuthEnabled:       passwordAuthEnabled,
 		deviceFlows:               make(map[string]*pendingDeviceFlow),
+		dryRunLimiter:             newPlaygroundRateLimiter(rate.Every(6*time.Second), 3),
+		testSandboxLimiter:        newPlaygroundRateLimiter(rate.Every(20*time.Second), 1),
 	}
 	if s.OIDC != nil {
 		s.OIDC.OnUserCreated = s.createDefaultWorkspace
@@ -444,14 +454,15 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/api/playground/skills/{id}", s.handlePatchSkillDraft)
 		r.Delete("/api/playground/skills/{id}", s.handleArchiveSkillDraft)
 		r.Post("/api/playground/skills/{id}/promote", s.handlePromoteSkillDraft)
-		r.Post("/api/playground/skills/{id}/dry-run", s.handleSkillDraftDryRun)
-		r.Post("/api/playground/skills/{id}/test-sandbox", s.handleSkillDraftTestSandbox)
+		r.Post("/api/playground/skills/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSkillDraftDryRun))
+		r.Post("/api/playground/skills/{id}/test-sandbox", s.testSandboxLimiter.middleware(20, s.handleSkillDraftTestSandbox))
 		r.Get("/api/playground/souls", s.handleListSoulDrafts)
 		r.Post("/api/playground/souls", s.handleCreateSoulDraft)
 		r.Get("/api/playground/souls/{id}", s.handleGetSoulDraft)
 		r.Patch("/api/playground/souls/{id}", s.handlePatchSoulDraft)
 		r.Delete("/api/playground/souls/{id}", s.handleArchiveSoulDraft)
 		r.Post("/api/playground/souls/{id}/promote", s.handlePromoteSoulDraft)
+		r.Post("/api/playground/souls/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSoulDraftDryRun))
 		r.Get("/api/workspaces/quota", s.handleGetWorkspacesQuota)
 		r.Get("/api/workspaces/{id}", s.handleGetWorkspace)
 		r.Patch("/api/workspaces/{id}", s.handleRenameWorkspace)

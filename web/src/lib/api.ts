@@ -1069,6 +1069,13 @@ export async function dryRunPlaygroundSkill(
   return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/dry-run`, body })
 }
 
+export async function dryRunPlaygroundSoul(
+  id: string,
+  body: { user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
+): Promise<PlaygroundDryRunResponse> {
+  return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/dry-run`, body })
+}
+
 export async function spawnPlaygroundTestSandbox(
   id: string,
   body: { workspace_id: string; sandbox_type?: string; soul_ref?: string; name?: string },
