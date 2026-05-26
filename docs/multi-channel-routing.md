@@ -253,12 +253,68 @@ kubectl --context "$CTX" exec deploy/agentserver-postgresql -n agentserver -- \
 kubectl --context "$CTX" logs deploy/agentserver -n agentserver | grep -i "031_multi_channel"
 ```
 
+## Auto-bind (PR #4)
+
+Endpoint que provisiona/reusa sandbox e o vincula ao canal automaticamente, baseado em `channel_routing_strategy` do workspace.
+
+```
+POST /api/workspaces/{id}/im/channels/{channelId}/auto-bind
+Body: {"sandbox_type":"openclaw","name":"vendas"}  # ambos opcionais
+```
+
+| Strategy | Comportamento |
+|---|---|
+| `shared` | Reusa via `GetSharedSandbox` se existir running. Senão provisiona novo + bind via `BindSandboxChannels` (N:1, sem deslocar) |
+| `per_agent` | Sempre provisiona novo sandbox + `BindSandboxToChannel` (1:1, desloca outros) |
+| `hybrid` | Retorna `409` — operador deve usar `/im/bind` ou `/im/bind-multi` manualmente |
+
+Resposta:
+```json
+{
+  "sandbox_id": "uuid",
+  "channel_id": "uuid",
+  "strategy": "shared",
+  "reused": false
+}
+```
+
+`reused=true` indica que um sandbox existente foi reutilizado; `false` indica provisionamento novo (status inicial `creating`, pod IP populado async).
+
+### Implementação
+
+Refatora `handleCreateSandbox` extraindo o core para `provisionSandbox(ctx, wsID, in provisionInput) (*sbxstore.Sandbox, error)`. Ambos handlers (criação manual + auto-bind) compartilham:
+
+- Validação de quota + budget
+- Resolução de defaults do workspace
+- Validação de tipo + CPU + memory + idle_timeout
+- Geração de tokens por tipo (opencode/openclaw/nanoclaw bridge secret)
+- `s.Sandboxes.Create` + retry de short-id
+- Goroutine async `StartContainerWithIP`
+
+Erros viram `*provisionError` (struct tipada com `Code`, `Status`, `Message`, `Detail`) que mapeiam direto a JSON HTTP via `writeProvisionError`.
+
+### Fluxo recomendado (frontend)
+
+```
+1. Workspace strategy já configurada (shared|per_agent|hybrid)
+2. POST /api/workspaces/W/im/telegram/configure → channel ch1
+3. POST /api/workspaces/W/im/channels/ch1/auto-bind  → sandbox provisioned/bound
+4. Polling GET /api/sandboxes/{sandbox_id} até status="running"
+5. Mensagens entrantes no canal já são roteadas pelo imbridge
+```
+
+### Race window
+
+Há janela entre criação do canal (passo 2) e auto-bind (passo 3) onde mensagens podem chegar sem sandbox bound. Comportamento: imbridge loga "no sandbox" e re-tenta o próximo poll. Para fluxo zero-race, próximo PR integra auto-bind dentro dos handlers de configure/qr-complete.
+
+---
+
 ## Roadmap
 
 | PR | Escopo | Status |
 |---|---|---|
-| **#3 (este)** | Schema N:M + dual-write + read fallback + API de strategy | ✅ merged |
-| #4 | Channel Router auto-provisioner — ao adicionar canal, cria/reusa sandbox baseado em `channel_routing_strategy` do workspace | pending |
+| #3 | Schema N:M + dual-write + read fallback + API de strategy | ✅ merged |
+| **#4 (este)** | Auto-bind handler + extração de `provisionSandbox` | ✅ this PR |
 | #5 | Frontend UI — dropdown de strategy no modal de criar workspace + drag-and-drop hybrid binder | pending |
 | #6 | Provider WhatsApp (Z-API / Evolution API) integrado ao imbridge como novo `workspace_im_channels.provider` | pending |
 | #7 | Cleanup — drop da FK `sandboxes.im_channel_id` depois de N semanas em produção com junction estável | future |
