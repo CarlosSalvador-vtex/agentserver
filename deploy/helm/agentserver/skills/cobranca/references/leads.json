@@ -1,0 +1,30 @@
+[
+  {
+    "lead_id": "L-001",
+    "name_masked": "Maria Aparecida (TEST)",
+    "cpf_last_3": "111",
+    "amount": 1247.30,
+    "due_date": "2026-04-15",
+    "creditor": "Acme Telecom",
+    "status": "open"
+  },
+  {
+    "lead_id": "L-002",
+    "name_masked": "Joao da Silva (TEST)",
+    "cpf_last_3": "222",
+    "amount": 389.90,
+    "due_date": "2026-03-02",
+    "creditor": "Acme Cartao",
+    "status": "open"
+  },
+  {
+    "lead_id": "L-003",
+    "name_masked": "Ana Souza (TEST)",
+    "cpf_last_3": "333",
+    "amount": 5670.00,
+    "due_date": "2026-01-20",
+    "creditor": "Acme Credito",
+    "status": "overdue",
+    "note": "negotiation_authorized_up_to_30pct"
+  }
+]
