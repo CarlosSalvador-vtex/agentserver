@@ -259,3 +259,117 @@ func soulCompatibleSkills(fm map[string]interface{}) []string {
 		return nil
 	}
 }
+
+// --- Marketplace preview (Tier B item B2) -------------------------------
+//
+// Read-only snippets so authors can browse marketplace entries before
+// committing to fork. Returns description + bounded excerpts (max
+// previewMaxBytes per file) of authoritative files: prompt.md / SKILL.md
+// for skills, body for souls. The full draft is intentionally NOT
+// returned to keep payloads small and discourage copy-paste piracy.
+
+const previewMaxBytes = 4 * 1024
+
+type marketplaceSkillPreview struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description"`
+	AuthorWorkspaceID string   `json:"author_workspace_id,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	UpdatedAt         string   `json:"updated_at,omitempty"`
+	PromotedCommit    string   `json:"promoted_commit,omitempty"`
+	// PromptExcerpt is the first previewMaxBytes of prompt.md (if any).
+	PromptExcerpt string `json:"prompt_excerpt,omitempty"`
+	// FileList is filename → byte size for orientation (no content).
+	FileList map[string]int `json:"file_list,omitempty"`
+}
+
+type marketplaceSoulPreview struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description"`
+	AuthorWorkspaceID string   `json:"author_workspace_id,omitempty"`
+	CompatibleSkills  []string `json:"compatible_skills,omitempty"`
+	UpdatedAt         string   `json:"updated_at,omitempty"`
+	PromotedCommit    string   `json:"promoted_commit,omitempty"`
+	// BodyExcerpt is the first previewMaxBytes of the soul body.
+	BodyExcerpt string `json:"body_excerpt,omitempty"`
+	// SchemaVersion + selected frontmatter keys without secrets.
+	SchemaVersion string `json:"schema_version,omitempty"`
+}
+
+// handleGetMarketplaceSkillPreview — GET /api/marketplace/skills/{id}/preview
+func (s *Server) handleGetMarketplaceSkillPreview(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSkillDraft(id)
+	if err != nil || d == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if d.Visibility != "shared" {
+		// Don't disclose existence of private drafts.
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	preview := marketplaceSkillPreview{
+		ID:                d.ID,
+		Name:              d.Name,
+		Description:       d.Description,
+		AuthorWorkspaceID: d.WorkspaceID.String,
+		Tags:              skillTagsFromFiles(d.Files),
+		UpdatedAt:         d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		PromotedCommit:    d.PromotedCommit.String,
+		FileList:          make(map[string]int, len(d.Files)),
+	}
+	for path, content := range d.Files {
+		preview.FileList[path] = len(content)
+		if path == "prompt.md" && preview.PromptExcerpt == "" {
+			preview.PromptExcerpt = truncate(content, previewMaxBytes)
+		}
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+// handleGetMarketplaceSoulPreview — GET /api/marketplace/souls/{id}/preview
+func (s *Server) handleGetMarketplaceSoulPreview(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSoulDraft(id)
+	if err != nil || d == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if d.Visibility != "shared" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	preview := marketplaceSoulPreview{
+		ID:                d.ID,
+		Name:              d.Name,
+		Description:       d.Description,
+		AuthorWorkspaceID: d.WorkspaceID.String,
+		CompatibleSkills:  soulCompatibleSkills(d.Frontmatter),
+		UpdatedAt:         d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		PromotedCommit:    d.PromotedCommit.String,
+		BodyExcerpt:       truncate(d.Body, previewMaxBytes),
+		SchemaVersion:     d.SchemaVersion,
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	// Cut at a newline boundary if reasonably close to keep readability.
+	cut := strings.LastIndex(s[:max], "\n")
+	if cut < max/2 {
+		cut = max
+	}
+	return s[:cut] + "\n\n…truncated for preview…"
+}
+
+// Ensure sql package stays in use even if all callsites are removed during
+// refactors. (References scoped local; helps linter ergonomics.)
+var _ = sql.ErrNoRows

@@ -15,6 +15,7 @@ import {
 import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 import { SoulPromotedDiff } from './SoulPromotedDiff'
 import { DraftAuditTimeline } from './DraftAuditTimeline'
+import { PromotedPRBanner } from './PromotedPRBanner'
 
 interface SoulFrontmatter {
   id?: string
@@ -254,6 +255,12 @@ export function PlaygroundSoulEditor() {
             >
               <History size={11} /> Audit
             </button>
+            <div className="ml-auto">
+              <PromotedPRBanner
+                url={draft.promoted_pr_url}
+                state={draft.promoted_pr_state}
+              />
+            </div>
           </div>
           {view === 'diff' && draft.promoted_commit ? (
             <div className="flex-1 overflow-auto">

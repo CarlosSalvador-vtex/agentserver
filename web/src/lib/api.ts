@@ -1346,6 +1346,37 @@ export async function forkMarketplaceSoul(id: string, workspaceId: string): Prom
   return apiFetch({ method: 'POST', path: `/api/marketplace/souls/${encodeURIComponent(id)}/fork`, body: { workspace_id: workspaceId } })
 }
 
+// Marketplace preview (B2)
+export interface MarketplaceSkillPreview {
+  id: string
+  name: string
+  description: string
+  author_workspace_id?: string
+  tags?: string[]
+  updated_at?: string
+  promoted_commit?: string
+  prompt_excerpt?: string
+  file_list?: Record<string, number>
+}
+export interface MarketplaceSoulPreview {
+  id: string
+  name: string
+  description: string
+  author_workspace_id?: string
+  compatible_skills?: string[]
+  updated_at?: string
+  promoted_commit?: string
+  body_excerpt?: string
+  schema_version?: string
+}
+
+export async function getMarketplaceSkillPreview(id: string): Promise<MarketplaceSkillPreview> {
+  return apiFetch({ method: 'GET', path: `/api/marketplace/skills/${encodeURIComponent(id)}/preview` })
+}
+export async function getMarketplaceSoulPreview(id: string): Promise<MarketplaceSoulPreview> {
+  return apiFetch({ method: 'GET', path: `/api/marketplace/souls/${encodeURIComponent(id)}/preview` })
+}
+
 export async function adminSetSkillVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
   await apiFetch({ method: 'PATCH', path: `/api/admin/playground/skills/${encodeURIComponent(id)}/visibility`, body: { visibility } })
 }

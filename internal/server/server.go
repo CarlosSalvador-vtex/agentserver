@@ -624,6 +624,8 @@ func (s *Server) Router() http.Handler {
 		// (workspace owner/maintainer) or admin override.
 		r.Get("/api/marketplace/skills", s.handleListMarketplaceSkills)
 		r.Get("/api/marketplace/souls", s.handleListMarketplaceSouls)
+		r.Get("/api/marketplace/skills/{id}/preview", s.handleGetMarketplaceSkillPreview)
+		r.Get("/api/marketplace/souls/{id}/preview", s.handleGetMarketplaceSoulPreview)
 		r.Post("/api/marketplace/skills/{id}/fork", s.handleForkMarketplaceSkill)
 		r.Post("/api/marketplace/souls/{id}/fork", s.handleForkMarketplaceSoul)
 

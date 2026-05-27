@@ -14,6 +14,7 @@ Endpoints under the `Workspaces` tag. Auto-generated from [`docs/api/openapi.yam
 | `GET` | [`/api/workspaces/{id}`](#op-get-api-workspaces-id) | Get a workspace by id |
 | `PATCH` | [`/api/workspaces/{id}`](#op-patch-api-workspaces-id) | Rename a workspace |
 | `DELETE` | [`/api/workspaces/{id}`](#op-delete-api-workspaces-id) | Delete a workspace (owner only; cascades to sandboxes + namespace) |
+| `GET` | [`/api/workspaces/{id}/audit`](#op-get-api-workspaces-id-audit) | List workspace audit events |
 | `GET` | [`/api/workspaces/{id}/invites`](#op-get-api-workspaces-id-invites) | List workspace invites |
 | `POST` | [`/api/workspaces/{id}/invites`](#op-post-api-workspaces-id-invites) | Create a workspace invite |
 | `DELETE` | [`/api/workspaces/{id}/invites/{inviteId}`](#op-delete-api-workspaces-id-invites-inviteid) | Revoke a pending invite |
@@ -163,6 +164,38 @@ Delete a workspace (owner only; cascades to sandboxes + namespace)
 |--------|-------------|--------|
 | `204` | No Content | — |
 | `403` | owner only | `string` |
+| `500` | internal error | `string` |
+
+
+### `GET /api/workspaces/{id}/audit` {#op-get-api-workspaces-id-audit}
+List workspace audit events
+Returns the audit trail for a workspace. Owner/maintainer only —
+developers do not have access. Filtering: event_type, from, to.
+Pagination: limit (default 100, max 500), offset.
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Workspace ID |
+
+**Query parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `event_type` | `string` | no | Filter by exact event type |
+| `from` | `string` | no | RFC3339 lower bound (inclusive) |
+| `to` | `string` | no | RFC3339 upper bound (inclusive) |
+| `limit` | `integer` | no | Page size (default 100, max 500) |
+| `offset` | `integer` | no | Pagination offset |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | [`AuditListResponse`](#schema-auditlistresponse) |
+| `403` | insufficient permissions | `string` |
 | `500` | internal error | `string` |
 
 
@@ -469,6 +502,35 @@ Remove a member (owner only)
 
 
 ## Schemas
+
+### `AuditEventResponse` {#schema-auditeventresponse}
+
+```yaml
+{
+  at?: string
+  details?: object
+  error_msg?: string
+  event_type?: string
+  id?: integer
+  ip?: string
+  request_method?: string
+  request_path?: string
+  response_status?: integer
+  user_agent?: string
+  user_id?: string
+  workspace_id?: string
+}
+```
+
+### `AuditListResponse` {#schema-auditlistresponse}
+
+```yaml
+{
+  events?: []AuditEventResponse
+  limit?: integer
+  offset?: integer
+}
+```
 
 ### `InviteCreateRequest` {#schema-invitecreaterequest}
 

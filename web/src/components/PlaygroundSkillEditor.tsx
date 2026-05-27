@@ -13,6 +13,7 @@ import {
   type Workspace,
 } from '../lib/api'
 import { PromotedDiff } from './PromotedDiff'
+import { PromotedPRBanner } from './PromotedPRBanner'
 import { DraftAuditTimeline } from './DraftAuditTimeline'
 import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 
@@ -239,6 +240,12 @@ export function PlaygroundSkillEditor() {
             >
               <History size={11} /> Audit
             </button>
+            <div className="ml-auto">
+              <PromotedPRBanner
+                url={draft.promoted_pr_url}
+                state={draft.promoted_pr_state}
+              />
+            </div>
           </div>
           {view === 'diff' && draft.promoted_commit ? (
             <div className="flex-1 overflow-auto">
