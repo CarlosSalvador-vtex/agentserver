@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Save, Send, ArrowLeft, Loader2, Play } from 'lucide-react'
+import { Save, Send, ArrowLeft, Loader2, Play, FileDiff, History } from 'lucide-react'
 import {
   getPlaygroundSoul,
   patchPlaygroundSoul,
@@ -13,6 +13,8 @@ import {
   type Workspace,
 } from '../lib/api'
 import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
+import { SoulPromotedDiff } from './SoulPromotedDiff'
+import { DraftAuditTimeline } from './DraftAuditTimeline'
 
 interface SoulFrontmatter {
   id?: string
@@ -46,6 +48,7 @@ export function PlaygroundSoulEditor() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
   const [dryRunModel, setDryRunModel] = useState<string>(PLAYGROUND_DRYRUN_MODELS[0])
+  const [view, setView] = useState<'edit' | 'diff' | 'audit'>('edit')
 
   useEffect(() => {
     listWorkspaces()
@@ -222,19 +225,66 @@ export function PlaygroundSoulEditor() {
 
         {/* Body editor */}
         <main className="flex flex-1 flex-col">
-          <div className="px-4 py-2 border-b border-[var(--border)] text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-            Body (markdown)
+          <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/50 px-3 py-1.5">
+            <button
+              onClick={() => setView('edit')}
+              className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                view === 'edit' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+              }`}
+            >
+              Edit
+            </button>
+            {draft.status === 'promoted' && draft.promoted_commit && (
+              <button
+                onClick={() => setView('diff')}
+                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
+                  view === 'diff' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+                }`}
+                title={`Diff vs promoted commit ${draft.promoted_commit.slice(0, 7)}`}
+              >
+                <FileDiff size={11} /> Diff vs promoted
+              </button>
+            )}
+            <button
+              onClick={() => setView('audit')}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
+                view === 'audit' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+              }`}
+              title="Audit timeline"
+            >
+              <History size={11} /> Audit
+            </button>
           </div>
-          <textarea
-            value={body}
-            onChange={(e) => {
-              setBody(e.target.value)
-              setDirty(true)
-            }}
-            spellCheck={false}
-            className="flex-1 resize-none bg-[var(--background)] p-4 font-mono text-sm text-[var(--foreground)] outline-none"
-            placeholder="# Persona — descrição livre do agente"
-          />
+          {view === 'diff' && draft.promoted_commit ? (
+            <div className="flex-1 overflow-auto">
+              <SoulPromotedDiff
+                key={`${draft.promoted_commit}-${draft.name}`}
+                commit={draft.promoted_commit}
+                soulName={draft.name}
+                body={body}
+              />
+            </div>
+          ) : view === 'audit' ? (
+            <div className="flex-1 overflow-auto">
+              <DraftAuditTimeline kind="souls" draftID={draft.id} />
+            </div>
+          ) : (
+            <>
+              <div className="px-4 py-2 border-b border-[var(--border)] text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                Body (markdown)
+              </div>
+              <textarea
+                value={body}
+                onChange={(e) => {
+                  setBody(e.target.value)
+                  setDirty(true)
+                }}
+                spellCheck={false}
+                className="flex-1 resize-none bg-[var(--background)] p-4 font-mono text-sm text-[var(--foreground)] outline-none"
+                placeholder="# Persona — descrição livre do agente"
+              />
+            </>
+          )}
         </main>
 
         {/* Dry-run panel */}
