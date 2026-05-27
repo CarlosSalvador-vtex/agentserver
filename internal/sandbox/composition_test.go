@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -54,14 +53,15 @@ func TestParseCompositionRef(t *testing.T) {
 }
 
 func TestPrependOpenclawSoulHint(t *testing.T) {
-	out := prependOpenclawSoulHint(map[string]string{
-		"prompt.md": "# Skill\nDo things.",
-	})
-	if !strings.Contains(out["prompt.md"], "/home/agent/.openclaw/soul.md") {
-		t.Fatalf("prompt.md missing soul hint: %q", out["prompt.md"])
-	}
-	if !strings.HasSuffix(out["prompt.md"], "# Skill\nDo things.") {
-		t.Fatalf("prompt.md should preserve original body")
+	// prependOpenclawSoulHint is intentionally a no-op since S4-PR1:
+	// openclaw auto-loads ~/.openclaw/workspace/SOUL.md natively as a
+	// bootstrap file, so injecting a hint into prompt.md is unnecessary.
+	// This test guards against accidental re-introduction of mutation.
+	in := map[string]string{"prompt.md": "# Skill\nDo things."}
+	out := prependOpenclawSoulHint(in)
+	if out["prompt.md"] != in["prompt.md"] {
+		t.Fatalf("prependOpenclawSoulHint must be a passthrough; got %q, want %q",
+			out["prompt.md"], in["prompt.md"])
 	}
 }
 

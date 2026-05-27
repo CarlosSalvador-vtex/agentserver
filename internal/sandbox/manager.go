@@ -495,13 +495,23 @@ chown -R 1000:1000 /mnt/session-data
 
 	// OpenClaw plugin-sdk symlink shim (improvements.md #16). Unlocks
 	// `import { ... } from "openclaw/plugin-sdk/core"` in skill index.mjs
-	// by exposing the image-baked SDK under a NODE_PATH-resolvable
-	// directory. Approach: EmptyDir at /opt/sdk-shim/node_modules,
-	// initContainer drops a symlink `openclaw -> /app` (the package root)
-	// into it, main container resolves the package via NODE_PATH.
+	// by exposing the image-baked SDK under paths Node's resolvers can find.
 	//
-	// Symlink target: /app is the openclaw package root in the image
-	// (package.json name="openclaw", exports ./plugin-sdk/core etc.).
+	// Two paths are exposed:
+	//
+	//   1. /opt/sdk-shim/node_modules/openclaw -> /app   (NODE_PATH)
+	//      Works for CommonJS require() in image-internal code that respects
+	//      NODE_PATH.
+	//
+	//   2. <skill_mount>/<name>/node_modules/openclaw -> /app   (per skill)
+	//      REQUIRED for ESM `import` in skill index.mjs files. Node's ESM
+	//      resolver IGNORES NODE_PATH and only walks parent dirs of the
+	//      importing module looking for node_modules. Without a node_modules
+	//      sibling to the .mjs file, every `import { ... } from "openclaw/..."`
+	//      throws ERR_MODULE_NOT_FOUND and the skill is skipped at load time.
+	//
+	// Symlink target /app is the openclaw package root (package.json
+	// name="openclaw", exports ./plugin-sdk/core etc.) baked into the image.
 	// busybox from ECR public mirror (avoids DockerHub rate limits on EKS).
 	if opts.SandboxType == SandboxTypeOpenclaw.String() {
 		const shimVol = "openclaw-sdk-shim"
@@ -509,15 +519,33 @@ chown -R 1000:1000 /mnt/session-data
 			Name:         shimVol,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		})
+
+		// Build the link-sdk script: always create /shim/node_modules/openclaw,
+		// then for each skill ConfigMap also create a sibling node_modules
+		// inside the skill's mount root so ESM resolves "openclaw/...".
+		linkScript := `mkdir -p /shim/node_modules && ln -sfn /app /shim/node_modules/openclaw`
+		linkMounts := []corev1.VolumeMount{
+			{Name: shimVol, MountPath: "/shim"},
+		}
+		skillNames := make([]string, 0, len(m.cfg.SkillConfigMaps))
+		for n := range m.cfg.SkillConfigMaps {
+			skillNames = append(skillNames, n)
+		}
+		sort.Strings(skillNames)
+		for _, skillName := range skillNames {
+			nmVolName := fmt.Sprintf("skill-%s-nm", skillName)
+			initMount := fmt.Sprintf("/skill-nm/%s", skillName)
+			linkMounts = append(linkMounts, corev1.VolumeMount{
+				Name: nmVolName, MountPath: initMount,
+			})
+			linkScript += fmt.Sprintf(" && ln -sfn /app %s/openclaw", initMount)
+		}
+
 		initContainers = append(initContainers, corev1.Container{
-			Name:  "link-sdk",
-			Image: "public.ecr.aws/docker/library/busybox:1.36",
-			Command: []string{"sh", "-c",
-				`mkdir -p /shim/node_modules && ln -sfn /app /shim/node_modules/openclaw`,
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: shimVol, MountPath: "/shim"},
-			},
+			Name:         "link-sdk",
+			Image:        "public.ecr.aws/docker/library/busybox:1.36",
+			Command:      []string{"sh", "-c", linkScript},
+			VolumeMounts: linkMounts,
 		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      shimVol,
@@ -1299,6 +1327,24 @@ func (m *Manager) skillVolumesAndMounts(ctx context.Context, platform string) ([
 				MountPath: fmt.Sprintf("%s/%s/%s", mountRoot, skillName, item.Path),
 				SubPath:   item.Path,
 				ReadOnly:  true,
+			})
+		}
+
+		// OpenClaw skill plugins use ESM `import` from "openclaw/plugin-sdk/*".
+		// Node's ESM resolver only walks parent dirs of the importing module
+		// looking for node_modules (it ignores NODE_PATH), so we mount an
+		// empty writable directory at <skill>/node_modules. The link-sdk
+		// initContainer in buildOpenclawPodSpec drops a symlink
+		// "openclaw -> /app" inside it, making `import "openclaw/..."` work.
+		if platform == SandboxTypeOpenclaw.String() {
+			nmVolName := fmt.Sprintf("skill-%s-nm", skillName)
+			vols = append(vols, corev1.Volume{
+				Name:         nmVolName,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			})
+			mounts = append(mounts, corev1.VolumeMount{
+				Name:      nmVolName,
+				MountPath: fmt.Sprintf("%s/%s/node_modules", mountRoot, skillName),
 			})
 		}
 	}
