@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -21,21 +23,32 @@ import (
 // PATCH /api/admin/playground/skills/{id}/visibility — admin override
 // PATCH /api/admin/playground/souls/{id}/visibility  — admin override
 
+type marketplaceSkillListing struct {
+	playgroundSkillSummary
+	AuthorWorkspaceID string   `json:"author_workspace_id,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+}
+
+type marketplaceSoulListing struct {
+	playgroundSoulSummary
+	AuthorWorkspaceID string   `json:"author_workspace_id,omitempty"`
+	CompatibleSkills  []string `json:"compatible_skills,omitempty"`
+}
+
+var skillTagsRE = regexp.MustCompile(`(?m)^tags:\s*\[([^\]]*)\]`)
+
 func (s *Server) handleListMarketplaceSkills(w http.ResponseWriter, r *http.Request) {
 	drafts, err := s.DB.ListSharedSkillDrafts()
 	if err != nil {
 		http.Error(w, "list failed", http.StatusInternalServerError)
 		return
 	}
-	out := make([]playgroundSkillSummary, 0, len(drafts))
+	out := make([]marketplaceSkillListing, 0, len(drafts))
 	for _, d := range drafts {
-		out = append(out, playgroundSkillSummary{
-			ID:          d.ID,
-			Name:        d.Name,
-			Description: d.Description,
-			Status:      d.Status,
-			WorkspaceID: d.WorkspaceID.String,
-			UpdatedAt:   d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		out = append(out, marketplaceSkillListing{
+			playgroundSkillSummary: summarizeSkill(d),
+			AuthorWorkspaceID:      d.WorkspaceID.String,
+			Tags:                   skillTagsFromFiles(d.Files),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"skills": out})
@@ -47,15 +60,12 @@ func (s *Server) handleListMarketplaceSouls(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "list failed", http.StatusInternalServerError)
 		return
 	}
-	out := make([]playgroundSoulSummary, 0, len(drafts))
+	out := make([]marketplaceSoulListing, 0, len(drafts))
 	for _, d := range drafts {
-		out = append(out, playgroundSoulSummary{
-			ID:          d.ID,
-			Name:        d.Name,
-			Description: d.Description,
-			Status:      d.Status,
-			WorkspaceID: d.WorkspaceID.String,
-			UpdatedAt:   d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		out = append(out, marketplaceSoulListing{
+			playgroundSoulSummary: summarizeSoul(d),
+			AuthorWorkspaceID:     d.WorkspaceID.String,
+			CompatibleSkills:      soulCompatibleSkills(d.Frontmatter),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"souls": out})
@@ -200,4 +210,52 @@ func (s *Server) patchSoulDraftVisibility(w http.ResponseWriter, r *http.Request
 		"visibility": req.Visibility,
 	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func skillTagsFromFiles(files map[string]string) []string {
+	content, ok := files["SKILL.md"]
+	if !ok {
+		return nil
+	}
+	m := skillTagsRE.FindStringSubmatch(content)
+	if len(m) < 2 {
+		return nil
+	}
+	raw := strings.TrimSpace(m[1])
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		tag := strings.Trim(strings.TrimSpace(p), `"'`)
+		if tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+func soulCompatibleSkills(fm map[string]interface{}) []string {
+	if fm == nil {
+		return nil
+	}
+	raw, ok := fm["compatible_skills"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		return v
+	default:
+		return nil
+	}
 }

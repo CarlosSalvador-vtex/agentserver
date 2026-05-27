@@ -76,6 +76,8 @@ export function Marketplace() {
           name: s.name,
           description: s.description,
           updatedAt: s.updated_at,
+          authorWorkspaceID: s.author_workspace_id,
+          tags: s.tags,
         }))}
         busy={busy}
         onFork={(id) => handleForkSkill(id)}
@@ -90,6 +92,8 @@ export function Marketplace() {
             name: s.name,
             description: s.description,
             updatedAt: s.updated_at,
+            authorWorkspaceID: s.author_workspace_id,
+            compatibleSkills: s.compatible_skills,
           }))}
           busy={busy}
           onFork={(id) => handleForkSoul(id)}
@@ -105,6 +109,9 @@ interface MarketplaceItem {
   name: string
   description: string
   updatedAt: string
+  authorWorkspaceID?: string
+  tags?: string[]
+  compatibleSkills?: string[]
 }
 
 function MarketplaceSection({
@@ -132,17 +139,35 @@ function MarketplaceSection({
           <div className="py-8 text-center text-xs italic text-[var(--muted-foreground)]">{emptyLabel}</div>
         ) : (
           items.map((it) => (
-            <div key={it.id} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--secondary)]/30">
+            <div key={it.id} className="flex items-start gap-3 px-5 py-3 hover:bg-[var(--secondary)]/30">
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium text-[var(--foreground)]">{it.name}</span>
                 <div className="text-xs text-[var(--muted-foreground)] truncate">
-                  {it.description || 'No description'} · updated {new Date(it.updatedAt).toLocaleString()}
+                  {it.description || 'No description'}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted-foreground)]">
+                  <span>updated {new Date(it.updatedAt).toLocaleString()}</span>
+                  {it.authorWorkspaceID && (
+                    <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">
+                      from ws {it.authorWorkspaceID.slice(0, 8)}…
+                    </span>
+                  )}
+                  {it.tags?.map((tag) => (
+                    <span key={tag} className="rounded border border-[var(--border)] px-1.5 py-0.5">
+                      {tag}
+                    </span>
+                  ))}
+                  {it.compatibleSkills?.map((sk) => (
+                    <span key={sk} className="rounded border border-orange-500/30 bg-orange-500/5 px-1.5 py-0.5 text-orange-400/90">
+                      +{sk}
+                    </span>
+                  ))}
                 </div>
               </div>
               <button
                 onClick={() => onFork(it.id)}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
                 title="Fork to my workspace and open in Playground"
               >
                 <GitFork size={12} /> Fork
