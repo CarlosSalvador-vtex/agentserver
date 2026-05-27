@@ -34,6 +34,16 @@ externalDatabase:
   # Existing K8s secret with a "database-url" key (overrides everything above)
   existingSecret: ""
 
+externalSecrets:
+  enabled: false
+  # IAM role ARN for the agentserver-external-secrets ServiceAccount (IRSA)
+  roleArn: ""
+  region: us-east-1
+  secrets:
+    agentserver: "prd/rds/k8s-metadata-instance/agentserver"
+    hydra: "prd/rds/k8s-metadata-instance/agentserver-hydra"
+    llmproxy: "prd/rds/k8s-metadata-instance/agentserver-llmproxy"
+
 models:
   anthropicApiKey: ""
   anthropicBaseUrl: ""
