@@ -39,6 +39,10 @@ export function PlaygroundSkillEditor() {
   const [testSandbox, setTestSandbox] = useState<PlaygroundTestSandboxResponse | null>(null)
   const [spawningTest, setSpawningTest] = useState(false)
   const [testError, setTestError] = useState<string | null>(null)
+  const [promoteConfirm, setPromoteConfirm] = useState(false)
+  const [addingFile, setAddingFile] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   useEffect(() => {
     listWorkspaces()
@@ -103,7 +107,7 @@ export function PlaygroundSkillEditor() {
 
   const handlePromote = async () => {
     if (!id) return
-    if (!confirm('Promote this draft? Opens a PR on the agentserver repo.')) return
+    setPromoteConfirm(false)
     try {
       const r = await promotePlaygroundSkill(id)
       window.open(r.pr_url, '_blank')
@@ -139,15 +143,17 @@ export function PlaygroundSkillEditor() {
   }
 
   const handleAddFile = () => {
-    const name = prompt('New file path (e.g. references/leads.json)')
-    if (!name) return
+    if (!newFileName.trim()) return
+    const name = newFileName.trim()
     setFiles({ ...files, [name]: '' })
     setActiveFile(name)
     setDirty(true)
+    setNewFileName('')
+    setAddingFile(false)
   }
 
   const handleDeleteFile = (path: string) => {
-    if (!confirm(`Remove ${path} from draft?`)) return
+    setDeleteConfirm(null)
     const next = { ...files }
     delete next[path]
     setFiles(next)
@@ -206,14 +212,32 @@ export function PlaygroundSkillEditor() {
           )}
           {testSandbox ? 'Recreate test sandbox' : 'Open test sandbox'}
         </button>
-        <button
-          onClick={handlePromote}
-          disabled={dirty || draft.status !== 'draft'}
-          className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
-          title={dirty ? 'Save first' : ''}
-        >
-          <Send size={12} /> Promote → PR
-        </button>
+        {promoteConfirm ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="text-xs text-[var(--muted-foreground)]">Open PR?</span>
+            <button
+              onClick={handlePromote}
+              className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20"
+            >
+              <Send size={12} /> Yes
+            </button>
+            <button
+              onClick={() => setPromoteConfirm(false)}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setPromoteConfirm(true)}
+            disabled={dirty || draft.status !== 'draft'}
+            className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
+            title={dirty ? 'Save first' : ''}
+          >
+            <Send size={12} /> Promote → PR
+          </button>
+        )}
       </header>
 
       {error && (
@@ -225,30 +249,51 @@ export function PlaygroundSkillEditor() {
         <aside className="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--card)]/50 p-2">
           <div className="flex items-center justify-between px-2 py-1">
             <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Files</span>
-            <button onClick={handleAddFile} className="rounded p-0.5 hover:bg-[var(--secondary)]" title="Add file">
+            <button onClick={() => { setAddingFile(true); setNewFileName('') }} className="rounded p-0.5 hover:bg-[var(--secondary)]" title="Add file">
               <Plus size={12} />
             </button>
           </div>
+          {addingFile && (
+            <div className="px-2 py-1 flex gap-1">
+              <input
+                autoFocus
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddFile(); if (e.key === 'Escape') setAddingFile(false) }}
+                placeholder="path/to/file.js"
+                className="flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1 py-0.5 text-[10px] font-mono text-[var(--foreground)]"
+              />
+              <button onClick={handleAddFile} className="text-[10px] text-green-400 hover:text-green-300">Add</button>
+              <button onClick={() => setAddingFile(false)} className="text-[10px] text-[var(--muted-foreground)]">✕</button>
+            </div>
+          )}
           <ul className="mt-1 space-y-0.5">
             {Object.keys(files).sort().map((path) => (
               <li
                 key={path}
-                onClick={() => setActiveFile(path)}
+                onClick={() => { setActiveFile(path); setDeleteConfirm(null) }}
                 className={`group flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer ${
                   path === activeFile ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
                 }`}
               >
                 <span className="flex-1 truncate font-mono">{path}</span>
+                {deleteConfirm === path ? (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(path) }} className="text-[9px] text-red-400 hover:text-red-300">rm</button>
+                    <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(null) }} className="text-[9px] text-[var(--muted-foreground)]">✕</button>
+                  </>
+                ) : (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleDeleteFile(path)
+                    setDeleteConfirm(path)
                   }}
                   className="opacity-0 group-hover:opacity-100 hover:text-red-400"
                   title="Remove file"
                 >
                   <X size={10} />
                 </button>
+                )}
               </li>
             ))}
           </ul>
@@ -423,11 +468,11 @@ export function PlaygroundSkillEditor() {
                     {dryRun.system_prompt || '(empty)'}
                   </pre>
                 </div>
-                {dryRun.tools.length > 0 && (
+                {(dryRun.tools?.length ?? 0) > 0 && (
                   <div>
                     <div className="text-[var(--muted-foreground)] mb-1">Tools</div>
                     <ul className="rounded-md border border-[var(--border)] bg-[var(--background)] p-2">
-                      {dryRun.tools.map((t) => (
+                      {dryRun.tools!.map((t) => (
                         <li key={t.name} className="font-mono text-[11px] text-[var(--foreground)]">
                           {t.name}
                           {t.description && <span className="text-[var(--muted-foreground)]"> — {t.description}</span>}
