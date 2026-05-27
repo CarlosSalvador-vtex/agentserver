@@ -1,10 +1,11 @@
 # OpenClaw skill slash commands — research + trade-offs
 
-> **Status:** research notes from the cobranca-skill smoke session.
-> What's deployed today (path-based prompt) is **not** native slash
-> commands. This doc explains the gap, why crossing it needs a new
-> build pipeline, and the 4 paths forward — so a future PR can pick
-> the right one without re-discovering the trade-offs.
+> **Status (2026-05-27):** cobranca now uses `definePluginEntry` from `openclaw/plugin-sdk/core`
+> via the initContainer symlink from #16. Soul persona works natively — OpenClaw reads
+> `SOUL.md` from workspace bootstrap without any plugin-side injection. Slash commands
+> remain out of scope (registerCommand is a noop in this image version).
+>
+> Original research notes below (kept for context on why slash commands aren't native yet).
 
 ## TL;DR
 
