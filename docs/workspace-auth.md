@@ -1,5 +1,7 @@
 # Workspace subdomain authentication (Opção A)
 
+**PR status (implementação, DEV smoke, pendências):** [`docs/pr-57-workspace-subdomain-auth-status.md`](pr-57-workspace-subdomain-auth-status.md)
+
 Canonical plan: [`docs/plans/cursor_workspace-subdomain-auth.md`](plans/cursor_workspace-subdomain-auth.md).
 
 ## Summary
