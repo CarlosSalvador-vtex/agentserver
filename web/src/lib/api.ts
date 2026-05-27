@@ -1152,8 +1152,12 @@ export async function listPlaygroundSkills(): Promise<PlaygroundSkillSummary[]> 
   return r.drafts ?? []
 }
 
-export async function createPlaygroundSkill(name: string, description = ''): Promise<PlaygroundSkillSummary> {
-  return apiFetch({ method: 'POST', path: '/api/playground/skills', body: { name, description } })
+export async function createPlaygroundSkill(name: string, description = '', workspaceId?: string): Promise<PlaygroundSkillSummary> {
+  return apiFetch({
+    method: 'POST',
+    path: '/api/playground/skills',
+    body: { name, description, ...(workspaceId ? { workspace_id: workspaceId } : {}) },
+  })
 }
 
 export async function getPlaygroundSkill(id: string): Promise<PlaygroundSkillFull> {
@@ -1255,8 +1259,12 @@ export async function listPlaygroundSouls(): Promise<PlaygroundSoulSummary[]> {
   return r.drafts ?? []
 }
 
-export async function createPlaygroundSoul(name: string, description = ''): Promise<PlaygroundSoulSummary> {
-  return apiFetch({ method: 'POST', path: '/api/playground/souls', body: { name, description } })
+export async function createPlaygroundSoul(name: string, description = '', workspaceId?: string): Promise<PlaygroundSoulSummary> {
+  return apiFetch({
+    method: 'POST',
+    path: '/api/playground/souls',
+    body: { name, description, ...(workspaceId ? { workspace_id: workspaceId } : {}) },
+  })
 }
 
 export async function getPlaygroundSoul(id: string): Promise<PlaygroundSoulFull> {

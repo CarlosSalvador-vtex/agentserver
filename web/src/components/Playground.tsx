@@ -11,6 +11,7 @@ import {
   type PlaygroundSkillSummary,
   type PlaygroundSoulSummary,
 } from '../lib/api'
+import { CreateDraftModal } from './CreateDraftModal'
 
 type ScopeFilter = 'all' | 'system' | 'mine'
 
@@ -20,6 +21,7 @@ export function Playground() {
   const [scope, setScope] = useState<ScopeFilter>('all')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [createKind, setCreateKind] = useState<'skill' | 'soul' | null>(null)
 
   const reload = async () => {
     try {
@@ -36,16 +38,20 @@ export function Playground() {
     reload()
   }, [])
 
-  const handleCreate = async (kind: 'skill' | 'soul') => {
-    const name = prompt(`Name of new ${kind} draft (lowercase, kebab-case)`)
-    if (!name) return
+  const handleCreate = (kind: 'skill' | 'soul') => {
+    setCreateKind(kind)
+  }
+
+  const handleCreateSubmit = async (name: string, workspaceId: string) => {
     setBusy(true)
     try {
-      if (kind === 'skill') await createPlaygroundSkill(name)
-      else await createPlaygroundSoul(name)
+      if (createKind === 'skill') await createPlaygroundSkill(name, '', workspaceId)
+      else await createPlaygroundSoul(name, '', workspaceId)
+      setCreateKind(null)
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'create failed')
+      throw e
     } finally {
       setBusy(false)
     }
@@ -128,6 +134,14 @@ export function Playground() {
           onArchive={(id) => handleArchive('soul', id)}
         />
       </div>
+
+      {createKind && (
+        <CreateDraftModal
+          kind={createKind}
+          onCancel={() => setCreateKind(null)}
+          onSubmit={handleCreateSubmit}
+        />
+      )}
     </div>
   )
 }
