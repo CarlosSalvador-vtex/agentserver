@@ -1837,6 +1837,62 @@
         }
       }
     },
+    "/api/auth/session/workspace": {
+      "post": {
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Set active workspace for the current session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionWorkspaceRequest"
+              }
+            }
+          },
+          "description": "Target workspace (empty to clear)",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionWorkspaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "not a workspace member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/codex/tokens": {
       "get": {
         "security": [
@@ -7587,6 +7643,10 @@
           "role"
         ],
         "properties": {
+          "active_workspace_id": {
+            "type": "string",
+            "nullable": true
+          },
           "email": {
             "type": "string"
           },
@@ -8726,6 +8786,24 @@
           },
           "request_count": {
             "type": "integer"
+          }
+        }
+      },
+      "SessionWorkspaceRequest": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "example": "ws-abc123"
+          }
+        }
+      },
+      "SessionWorkspaceResponse": {
+        "type": "object",
+        "properties": {
+          "active_workspace_id": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
