@@ -1048,6 +1048,14 @@ export interface PlaygroundSoulFull extends PlaygroundSoulSummary {
   body: string
 }
 
+export const PLAYGROUND_DRYRUN_MODELS = [
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
+  'claude-opus-4-6',
+] as const
+
+export type PlaygroundDryRunModel = (typeof PLAYGROUND_DRYRUN_MODELS)[number]
+
 export interface PlaygroundDryRunResponse {
   system_prompt: string
   tools: { name: string; description?: string }[]
@@ -1100,14 +1108,20 @@ export async function promotePlaygroundSkill(id: string): Promise<PlaygroundProm
 
 export async function dryRunPlaygroundSkill(
   id: string,
-  body: { soul_ref?: string; user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
+  body: {
+    soul_ref?: string
+    user_message?: string
+    history?: { role: string; content: string }[]
+    workspace_id?: string
+    model?: string
+  },
 ): Promise<PlaygroundDryRunResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/dry-run`, body })
 }
 
 export async function dryRunPlaygroundSoul(
   id: string,
-  body: { user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
+  body: { user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string; model?: string },
 ): Promise<PlaygroundDryRunResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/dry-run`, body })
 }

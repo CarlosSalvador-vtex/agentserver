@@ -7,6 +7,7 @@ import {
   promotePlaygroundSkill,
   dryRunPlaygroundSkill,
   listWorkspaces,
+  PLAYGROUND_DRYRUN_MODELS,
   type PlaygroundSkillFull,
   type PlaygroundDryRunResponse,
   type Workspace,
@@ -29,6 +30,7 @@ export function PlaygroundSkillEditor() {
   const [soulRef, setSoulRef] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
+  const [dryRunModel, setDryRunModel] = useState<string>(PLAYGROUND_DRYRUN_MODELS[0])
   const [view, setView] = useState<'files' | 'diff' | 'audit'>('files')
 
   useEffect(() => {
@@ -82,6 +84,7 @@ export function PlaygroundSkillEditor() {
         user_message: userMessage,
         soul_ref: soulRef || undefined,
         workspace_id: dryRunWorkspaceID || undefined,
+        model: dryRunModel || undefined,
       })
       setDryRun(out)
     } catch (e) {
@@ -280,6 +283,18 @@ export function PlaygroundSkillEditor() {
                 ))}
               </select>
             )}
+            <select
+              value={dryRunModel}
+              onChange={(e) => setDryRunModel(e.target.value)}
+              title="LLM model for completion (optional override)"
+              className="mb-2 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)]"
+            >
+              {PLAYGROUND_DRYRUN_MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
             <textarea
               placeholder="User message (e.g. /cobranca lead L-001)"
               value={userMessage}
