@@ -2071,6 +2071,66 @@ paths:
       summary: Rename a workspace
       tags:
         - Workspaces
+  "/api/workspaces/{id}/audit":
+    get:
+      description: |-
+        Returns the audit trail for a workspace. Owner/maintainer only —
+        developers do not have access. Filtering: event_type, from, to.
+        Pagination: limit (default 100, max 500), offset.
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Filter by exact event type
+          in: query
+          name: event_type
+          schema:
+            type: string
+        - description: RFC3339 lower bound (inclusive)
+          in: query
+          name: from
+          schema:
+            type: string
+        - description: RFC3339 upper bound (inclusive)
+          in: query
+          name: to
+          schema:
+            type: string
+        - description: Page size (default 100, max 500)
+          in: query
+          name: limit
+          schema:
+            type: integer
+        - description: Pagination offset
+          in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditListResponse"
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: List workspace audit events
+      tags:
+        - Workspaces
   "/api/workspaces/{id}/credentials/{kind}":
     get:
       parameters:
@@ -4855,6 +4915,45 @@ components:
           nullable: true
       required:
         - status
+      type: object
+    AuditEventResponse:
+      properties:
+        at:
+          type: string
+        details:
+          additionalProperties: {}
+          type: object
+        error_msg:
+          type: string
+        event_type:
+          type: string
+        id:
+          type: integer
+        ip:
+          type: string
+        request_method:
+          type: string
+        request_path:
+          type: string
+        response_status:
+          type: integer
+        user_agent:
+          type: string
+        user_id:
+          type: string
+        workspace_id:
+          type: string
+      type: object
+    AuditListResponse:
+      properties:
+        events:
+          items:
+            $ref: "#/components/schemas/AuditEventResponse"
+          type: array
+        limit:
+          type: integer
+        offset:
+          type: integer
       type: object
     AuthCredentials:
       properties:

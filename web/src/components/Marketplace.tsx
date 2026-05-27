@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { GitFork, Search } from 'lucide-react'
+import { GitFork, Search, Eye } from 'lucide-react'
 import {
   listMarketplaceSkills,
   listMarketplaceSouls,
@@ -8,6 +8,7 @@ import {
   type MarketplaceSkillSummary,
   type MarketplaceSoulSummary,
 } from '../lib/api'
+import { MarketplacePreviewModal } from './MarketplacePreviewModal'
 
 type SortKey = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
 
@@ -39,6 +40,7 @@ export function Marketplace() {
   const [success, setSuccess] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('updated_desc')
+  const [preview, setPreview] = useState<{ kind: 'skill' | 'soul'; id: string; name: string } | null>(null)
 
   const reload = async () => {
     try {
@@ -143,6 +145,7 @@ export function Marketplace() {
         totalCount={skills.length}
         busy={busy}
         onFork={(id, name) => handleForkSkill(id, name)}
+        onPreview={(id, name) => setPreview({ kind: 'skill', id, name })}
         emptyLabel={search.trim() ? 'No skills match your search.' : 'No shared skills yet.'}
       />
 
@@ -158,9 +161,25 @@ export function Marketplace() {
           totalCount={souls.length}
           busy={busy}
           onFork={(id, name) => handleForkSoul(id, name)}
+          onPreview={(id, name) => setPreview({ kind: 'soul', id, name })}
           emptyLabel={search.trim() ? 'No souls match your search.' : 'No shared souls yet.'}
         />
       </div>
+
+      {preview && (
+        <MarketplacePreviewModal
+          kind={preview.kind}
+          id={preview.id}
+          name={preview.name}
+          busy={busy}
+          onFork={async () => {
+            const fn = preview.kind === 'skill' ? handleForkSkill : handleForkSoul
+            await fn(preview.id, preview.name)
+            setPreview(null)
+          }}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   )
 }
@@ -178,6 +197,7 @@ function MarketplaceSection({
   totalCount,
   busy,
   onFork,
+  onPreview,
   emptyLabel,
 }: {
   title: string
@@ -185,6 +205,7 @@ function MarketplaceSection({
   totalCount: number
   busy: boolean
   onFork: (id: string, name: string) => void
+  onPreview: (id: string, name: string) => void
   emptyLabel: string
 }) {
   const countLabel =
@@ -210,10 +231,18 @@ function MarketplaceSection({
                 </div>
               </div>
               <button
+                onClick={() => onPreview(it.id, it.name)}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors disabled:opacity-50"
+                title="Preview before forking"
+              >
+                <Eye size={12} /> Preview
+              </button>
+              <button
                 onClick={() => onFork(it.id, it.name)}
                 disabled={busy}
                 className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
-                title="Fork to my workspace"
+                title="Fork to my workspace and open in Playground"
               >
                 <GitFork size={12} /> Fork
               </button>
