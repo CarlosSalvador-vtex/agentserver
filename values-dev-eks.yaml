@@ -31,11 +31,15 @@ postgresql:
   enabled: false
 
 externalDatabase:
-  existingSecret: agentserver-db-secret   # k8s Secret, key "database-url" → prdk8s-metadata RDS
+  existingSecret: agentserver-db-secret
 
 hydra:
   database:
-    existingSecret: agentserver-hydra-db-secret   # k8s Secret, key "dsn" → prdk8s-metadata RDS
+    existingSecret: agentserver-hydra-db-secret
+
+externalSecrets:
+  enabled: true
+  roleArn: "arn:aws:iam::344729309528:role/agentserver-external-secrets-role"
 
 platform:
   domain: "agentserver.analytics.vtex.com"
