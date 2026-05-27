@@ -33,6 +33,8 @@ type playgroundDryRunRequest struct {
 	UserMessage string                            `json:"user_message,omitempty"`
 	History     []playgroundDryRunMessage         `json:"history,omitempty"`
 	Config      map[string]interface{}            `json:"config,omitempty"`
+	// Model overrides PLAYGROUND_DRYRUN_MODEL / default for this request.
+	Model string `json:"model,omitempty"`
 	// WorkspaceID selects which workspace's LLM proxy token to mint for
 	// the round-trip. Empty falls back to the caller's first workspace
 	// (legacy behaviour). When set, the caller MUST be a member of that
@@ -152,10 +154,7 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 	// (dev / first-boot), we return the preview-only shape so the
 	// frontend always has something to render.
 	if s.LLMProxyURL != "" && req.UserMessage != "" {
-		model := playgroundDryRunModelDefault
-		if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
-			model = envModel
-		}
+		model := resolveDryRunModel(req.Model)
 		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, req.WorkspaceID, model, resp.SystemPrompt, resp.Messages)
 		if err != nil {
 			result = "llm_error"
@@ -223,10 +222,7 @@ func (s *Server) handleSoulDraftDryRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.LLMProxyURL != "" && req.UserMessage != "" {
-		model := playgroundDryRunModelDefault
-		if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
-			model = envModel
-		}
+		model := resolveDryRunModel(req.Model)
 		completion, err := s.callLLMProxyForDryRunForUser(r.Context(), userID, req.WorkspaceID, model, resp.SystemPrompt, resp.Messages)
 		if err != nil {
 			result = "llm_error"
@@ -238,6 +234,16 @@ func (s *Server) handleSoulDraftDryRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func resolveDryRunModel(requestModel string) string {
+	if m := strings.TrimSpace(requestModel); m != "" {
+		return m
+	}
+	if envModel := strings.TrimSpace(os.Getenv("PLAYGROUND_DRYRUN_MODEL")); envModel != "" {
+		return envModel
+	}
+	return playgroundDryRunModelDefault
 }
 
 // callLLMProxyForDryRun sends the composed dry-run payload to llmproxy

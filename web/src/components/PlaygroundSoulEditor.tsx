@@ -7,6 +7,7 @@ import {
   promotePlaygroundSoul,
   dryRunPlaygroundSoul,
   listWorkspaces,
+  PLAYGROUND_DRYRUN_MODELS,
   type PlaygroundSoulFull,
   type PlaygroundDryRunResponse,
   type Workspace,
@@ -44,6 +45,7 @@ export function PlaygroundSoulEditor() {
   const [userMessage, setUserMessage] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
+  const [dryRunModel, setDryRunModel] = useState<string>(PLAYGROUND_DRYRUN_MODELS[0])
 
   useEffect(() => {
     listWorkspaces()
@@ -63,6 +65,7 @@ export function PlaygroundSoulEditor() {
       const out = await dryRunPlaygroundSoul(id, {
         user_message: userMessage,
         workspace_id: dryRunWorkspaceID || undefined,
+        model: dryRunModel || undefined,
       })
       setDryRun(out)
     } catch (e) {
@@ -252,6 +255,18 @@ export function PlaygroundSoulEditor() {
                 ))}
               </select>
             )}
+            <select
+              value={dryRunModel}
+              onChange={(e) => setDryRunModel(e.target.value)}
+              title="LLM model for completion (optional override)"
+              className="mb-2 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)]"
+            >
+              {PLAYGROUND_DRYRUN_MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
             <textarea
               placeholder="User message"
               value={userMessage}
