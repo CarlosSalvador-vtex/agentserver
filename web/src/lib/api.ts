@@ -1020,6 +1020,8 @@ export interface PlaygroundSkillSummary {
   description: string
   status: PlaygroundDraftStatus
   workspace_id?: string  // empty = system template visible to all tenants
+  visibility?: 'private' | 'shared'
+  can_set_visibility?: boolean
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
   promoted_commit?: string
@@ -1037,6 +1039,8 @@ export interface PlaygroundSoulSummary {
   status: PlaygroundDraftStatus
   schema_version: string
   workspace_id?: string  // empty = system template visible to all tenants
+  visibility?: 'private' | 'shared'
+  can_set_visibility?: boolean
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
   promoted_commit?: string
@@ -1047,6 +1051,14 @@ export interface PlaygroundSoulFull extends PlaygroundSoulSummary {
   frontmatter: Record<string, unknown>
   body: string
 }
+
+export const PLAYGROUND_DRYRUN_MODELS = [
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
+  'claude-opus-4-6',
+] as const
+
+export type PlaygroundDryRunModel = (typeof PLAYGROUND_DRYRUN_MODELS)[number]
 
 export interface PlaygroundDryRunResponse {
   system_prompt: string
@@ -1100,16 +1112,35 @@ export async function promotePlaygroundSkill(id: string): Promise<PlaygroundProm
 
 export async function dryRunPlaygroundSkill(
   id: string,
-  body: { soul_ref?: string; user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
+  body: {
+    soul_ref?: string
+    user_message?: string
+    history?: { role: string; content: string }[]
+    workspace_id?: string
+    model?: string
+  },
 ): Promise<PlaygroundDryRunResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/dry-run`, body })
 }
 
 export async function dryRunPlaygroundSoul(
   id: string,
-  body: { user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
+  body: {
+    user_message?: string
+    history?: { role: string; content: string }[]
+    workspace_id?: string
+    model?: string
+  },
 ): Promise<PlaygroundDryRunResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/dry-run`, body })
+}
+
+export async function setPlaygroundSkillVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/playground/skills/${encodeURIComponent(id)}/visibility`, body: { visibility } })
+}
+
+export async function setPlaygroundSoulVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/playground/souls/${encodeURIComponent(id)}/visibility`, body: { visibility } })
 }
 
 // Draft audit timeline (improvements.md #14).
@@ -1224,6 +1255,8 @@ export interface MarketplaceSkillSummary {
   description: string
   status: PlaygroundDraftStatus
   workspace_id?: string
+  author_workspace_id?: string
+  tags?: string[]
   updated_at: string
 }
 
@@ -1233,6 +1266,8 @@ export interface MarketplaceSoulSummary {
   description: string
   status: PlaygroundDraftStatus
   workspace_id?: string
+  author_workspace_id?: string
+  compatible_skills?: string[]
   updated_at: string
 }
 

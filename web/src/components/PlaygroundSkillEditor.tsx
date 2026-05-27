@@ -7,12 +7,14 @@ import {
   promotePlaygroundSkill,
   dryRunPlaygroundSkill,
   listWorkspaces,
+  PLAYGROUND_DRYRUN_MODELS,
   type PlaygroundSkillFull,
   type PlaygroundDryRunResponse,
   type Workspace,
 } from '../lib/api'
 import { PromotedDiff } from './PromotedDiff'
 import { DraftAuditTimeline } from './DraftAuditTimeline'
+import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 
 export function PlaygroundSkillEditor() {
   const { id } = useParams<{ id: string }>()
@@ -29,6 +31,7 @@ export function PlaygroundSkillEditor() {
   const [soulRef, setSoulRef] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
+  const [dryRunModel, setDryRunModel] = useState<string>(PLAYGROUND_DRYRUN_MODELS[0])
   const [view, setView] = useState<'files' | 'diff' | 'audit'>('files')
 
   useEffect(() => {
@@ -82,6 +85,7 @@ export function PlaygroundSkillEditor() {
         user_message: userMessage,
         soul_ref: soulRef || undefined,
         workspace_id: dryRunWorkspaceID || undefined,
+        model: dryRunModel || undefined,
       })
       setDryRun(out)
     } catch (e) {
@@ -141,6 +145,13 @@ export function PlaygroundSkillEditor() {
         <span className="text-xs text-[var(--muted-foreground)]">({draft.status})</span>
         {dirty && <span className="text-xs text-yellow-400">● unsaved</span>}
         <div className="flex-1" />
+        <MarketplaceVisibilityToggle
+          kind="skill"
+          draftID={draft.id}
+          visibility={draft.visibility ?? 'private'}
+          canSet={draft.can_set_visibility ?? false}
+          onChanged={(v) => setDraft({ ...draft, visibility: v })}
+        />
         <button
           onClick={handleSave}
           disabled={!dirty || saving}
@@ -280,6 +291,18 @@ export function PlaygroundSkillEditor() {
                 ))}
               </select>
             )}
+            <select
+              value={dryRunModel}
+              onChange={(e) => setDryRunModel(e.target.value)}
+              title="LLM model for completion (optional override)"
+              className="mb-2 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)]"
+            >
+              {PLAYGROUND_DRYRUN_MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
             <textarea
               placeholder="User message (e.g. /cobranca lead L-001)"
               value={userMessage}
