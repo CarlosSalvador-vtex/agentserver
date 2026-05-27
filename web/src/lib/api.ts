@@ -1312,6 +1312,8 @@ export interface MarketplaceSkillSummary {
   description: string
   status: PlaygroundDraftStatus
   workspace_id?: string
+  author_workspace_id?: string
+  tags?: string[]
   updated_at: string
 }
 
@@ -1321,6 +1323,8 @@ export interface MarketplaceSoulSummary {
   description: string
   status: PlaygroundDraftStatus
   workspace_id?: string
+  author_workspace_id?: string
+  compatible_skills?: string[]
   updated_at: string
 }
 
