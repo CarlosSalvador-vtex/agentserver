@@ -53,8 +53,13 @@ func (s *Server) Routes() http.Handler {
 	// WhatsApp Cloud webhook — unauthenticated by design. Meta delivers
 	// inbound messages here; identity is enforced via the hub.verify_token
 	// handshake (GET) and the WHATSAPP_WEBHOOK_VERIFY_TOKEN env var.
+	// Legacy global route (backward compat — single-tenant installs).
 	r.Get("/webhook/whatsapp", s.handleWhatsAppWebhookVerify)
 	r.Post("/webhook/whatsapp", s.handleWhatsAppWebhookInbound)
+	// Per-workspace routes (SaaS multi-tenant). Each workspace registers
+	// its own URL in the Meta App dashboard; verify_token stored in DB.
+	r.Get("/webhook/whatsapp/{workspace_id}", s.handleWhatsAppWebhookVerifyPerWorkspace)
+	r.Post("/webhook/whatsapp/{workspace_id}", s.handleWhatsAppWebhookInboundPerWorkspace)
 
 	// Authenticated API routes (cookie auth).
 	r.Group(func(r chi.Router) {

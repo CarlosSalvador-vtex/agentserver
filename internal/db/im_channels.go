@@ -44,6 +44,48 @@ func (db *DB) SaveIMChannelCredentials(channelID, botToken, baseURL string) erro
 	return err
 }
 
+// SetIMChannelVerifyToken persists the platform-generated webhook verify_token
+// for a specific channel. Called after CreateIMChannel during WhatsApp configure.
+func (db *DB) SetIMChannelVerifyToken(channelID, token string) error {
+	_, err := db.Exec(
+		`UPDATE workspace_im_channels SET verify_token = $1 WHERE id = $2`,
+		token, channelID,
+	)
+	return err
+}
+
+// GetIMChannelByWorkspaceAndToken looks up the first WhatsApp channel for
+// a workspace that carries the given verify_token. Used by the per-workspace
+// webhook verify handler to authenticate Meta's handshake without a shared
+// global env-var token.
+func (db *DB) GetIMChannelByWorkspaceAndToken(workspaceID, token string) (*IMChannel, error) {
+	c := &IMChannel{}
+	var botToken, baseURL, cursor, routingMode *string
+	err := db.QueryRow(
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		FROM workspace_im_channels
+		WHERE workspace_id = $1 AND provider = 'whatsapp' AND verify_token = $2
+		LIMIT 1`,
+		workspaceID, token,
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	if err != nil {
+		return nil, err
+	}
+	if botToken != nil {
+		c.BotToken = *botToken
+	}
+	if baseURL != nil {
+		c.BaseURL = *baseURL
+	}
+	if cursor != nil {
+		c.Cursor = *cursor
+	}
+	if routingMode != nil {
+		c.RoutingMode = *routingMode
+	}
+	return c, nil
+}
+
 // GetIMChannel retrieves a single workspace IM channel by ID.
 func (db *DB) GetIMChannel(channelID string) (*IMChannel, error) {
 	c := &IMChannel{}
@@ -188,6 +230,37 @@ func (db *DB) FindIMChannelByProviderBot(provider, botID string) (*IMChannel, er
 		ORDER BY bound_at ASC
 		LIMIT 1`,
 		provider, botID,
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	if err != nil {
+		return nil, err
+	}
+	if botToken != nil {
+		c.BotToken = *botToken
+	}
+	if baseURL != nil {
+		c.BaseURL = *baseURL
+	}
+	if cursor != nil {
+		c.Cursor = *cursor
+	}
+	if routingMode != nil {
+		c.RoutingMode = *routingMode
+	}
+	return c, nil
+}
+
+// FindIMChannelByWorkspaceAndBot looks up a channel scoped to a specific
+// workspace. Used by per-workspace webhook routes so a message arriving at
+// /webhook/whatsapp/{workspace_id} can never be dispatched to another tenant.
+func (db *DB) FindIMChannelByWorkspaceAndBot(workspaceID, provider, botID string) (*IMChannel, error) {
+	c := &IMChannel{}
+	var botToken, baseURL, cursor, routingMode *string
+	err := db.QueryRow(
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		FROM workspace_im_channels
+		WHERE workspace_id = $1 AND provider = $2 AND bot_id = $3
+		LIMIT 1`,
+		workspaceID, provider, botID,
 	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
 	if err != nil {
 		return nil, err

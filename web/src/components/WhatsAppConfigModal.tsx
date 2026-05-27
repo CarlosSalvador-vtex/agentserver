@@ -15,9 +15,10 @@ export function WhatsAppConfigModal({ workspaceId, onClose, onConnected }: Whats
   const [status, setStatus] = useState<'idle' | 'loading' | 'connected' | 'error'>('idle')
   const [error, setError] = useState('')
   const [connectedBotID, setConnectedBotID] = useState('')
+  const [webhookURL, setWebhookURL] = useState('')
+  const [verifyToken, setVerifyToken] = useState('')
   const [webhookCopied, setWebhookCopied] = useState(false)
-
-  const webhookURL = typeof window !== 'undefined' ? `${window.location.origin}/webhook/whatsapp` : ''
+  const [tokenCopied, setTokenCopied] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,6 +34,8 @@ export function WhatsAppConfigModal({ workspaceId, onClose, onConnected }: Whats
         baseURL.trim() || undefined,
       )
       setConnectedBotID(result.bot_id)
+      setWebhookURL(result.webhook_url ?? `${window.location.origin}/webhook/whatsapp/${workspaceId}`)
+      setVerifyToken(result.verify_token ?? '')
       setStatus('connected')
       onConnected()
     } catch (err) {
@@ -46,9 +49,15 @@ export function WhatsAppConfigModal({ workspaceId, onClose, onConnected }: Whats
       await navigator.clipboard.writeText(webhookURL)
       setWebhookCopied(true)
       setTimeout(() => setWebhookCopied(false), 2000)
-    } catch {
-      /* ignore — clipboard blocked */
-    }
+    } catch { /* ignore */ }
+  }
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(verifyToken)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
+    } catch { /* ignore */ }
   }
 
   return (
@@ -76,24 +85,39 @@ export function WhatsAppConfigModal({ workspaceId, onClose, onConnected }: Whats
             </div>
             <div className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-xs text-[var(--muted-foreground)]">
               <p className="mb-2 text-[var(--foreground)] font-medium">Webhook setup (one-time)</p>
-              <p>In the Meta App Dashboard → Webhooks → WhatsApp Business Account, paste:</p>
+              <p>In the Meta App Dashboard → Webhooks → WhatsApp Business Account, paste this URL:</p>
               <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 rounded bg-[var(--secondary)] px-2 py-1 font-mono text-[11px] text-[var(--foreground)]">
+                <code className="flex-1 rounded bg-[var(--secondary)] px-2 py-1 font-mono text-[11px] text-[var(--foreground)] break-all">
                   {webhookURL}
                 </code>
                 <button
                   onClick={copyWebhook}
-                  className="rounded p-1 hover:bg-[var(--secondary)]"
+                  className="shrink-0 rounded p-1 hover:bg-[var(--secondary)]"
                   aria-label="Copy webhook URL"
                   title="Copy webhook URL"
                 >
                   {webhookCopied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
                 </button>
               </div>
-              <p className="mt-2">
-                Set the <span className="font-mono">Verify Token</span> field to the value of{' '}
-                <span className="font-mono">WHATSAPP_WEBHOOK_VERIFY_TOKEN</span> configured on the agentserver.
-              </p>
+              {verifyToken && (
+                <>
+                  <p className="mt-3">Set the <span className="font-mono">Verify Token</span> field to:</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <code className="flex-1 rounded bg-[var(--secondary)] px-2 py-1 font-mono text-[11px] text-[var(--foreground)]">
+                      {verifyToken}
+                    </code>
+                    <button
+                      onClick={copyToken}
+                      className="shrink-0 rounded p-1 hover:bg-[var(--secondary)]"
+                      aria-label="Copy verify token"
+                      title="Copy verify token"
+                    >
+                      {tokenCopied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-amber-400">Keep this token private — it verifies Meta's ownership of your webhook.</p>
+                </>
+              )}
             </div>
           </div>
         ) : (

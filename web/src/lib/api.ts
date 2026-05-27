@@ -610,6 +610,9 @@ export interface WhatsAppConfigureResponse {
   connected: boolean
   channel_id: string
   bot_id: string
+  webhook_url?: string
+  verify_token?: string
+  /** @deprecated replaced by webhook_url + verify_token */
   webhook_hint?: string
 }
 
