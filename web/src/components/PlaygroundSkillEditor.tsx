@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Save, Play, Send, ArrowLeft, Loader2, Plus, X, FileDiff, History } from 'lucide-react'
+import { Save, Play, Send, ArrowLeft, Loader2, Plus, X, FileDiff, History, FlaskConical, RotateCw, ExternalLink } from 'lucide-react'
 import {
   getPlaygroundSkill,
   patchPlaygroundSkill,
   promotePlaygroundSkill,
   dryRunPlaygroundSkill,
   listWorkspaces,
+  spawnPlaygroundTestSandbox,
   PLAYGROUND_DRYRUN_MODELS,
   type PlaygroundSkillFull,
   type PlaygroundDryRunResponse,
+  type PlaygroundTestSandboxResponse,
   type Workspace,
 } from '../lib/api'
 import { PromotedDiff } from './PromotedDiff'
@@ -34,6 +36,9 @@ export function PlaygroundSkillEditor() {
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
   const [dryRunModel, setDryRunModel] = useState<string>(PLAYGROUND_DRYRUN_MODELS[0])
   const [view, setView] = useState<'files' | 'diff' | 'audit'>('files')
+  const [testSandbox, setTestSandbox] = useState<PlaygroundTestSandboxResponse | null>(null)
+  const [spawningTest, setSpawningTest] = useState(false)
+  const [testError, setTestError] = useState<string | null>(null)
 
   useEffect(() => {
     listWorkspaces()
@@ -108,6 +113,31 @@ export function PlaygroundSkillEditor() {
     }
   }
 
+  // B3 — spawn an ephemeral test sandbox running this draft so authors can
+  // exercise tools end-to-end without leaving the editor. B4 follow-up:
+  // when a sandbox already exists for this draft, trigger a rolling
+  // refresh instead of spawning a new one.
+  const handleTestSandbox = async () => {
+    if (!id) return
+    if (!dryRunWorkspaceID) {
+      setTestError('Pick a workspace in the dry-run panel first.')
+      return
+    }
+    setSpawningTest(true)
+    setTestError(null)
+    try {
+      const r = await spawnPlaygroundTestSandbox(id, {
+        workspace_id: dryRunWorkspaceID,
+        sandbox_type: 'openclaw',
+      })
+      setTestSandbox(r)
+    } catch (e) {
+      setTestError(e instanceof Error ? e.message : 'test sandbox failed')
+    } finally {
+      setSpawningTest(false)
+    }
+  }
+
   const handleAddFile = () => {
     const name = prompt('New file path (e.g. references/leads.json)')
     if (!name) return
@@ -160,6 +190,21 @@ export function PlaygroundSkillEditor() {
         >
           {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
           Save
+        </button>
+        <button
+          onClick={handleTestSandbox}
+          disabled={spawningTest || dirty}
+          title={dirty ? 'Save first' : 'Spin up an ephemeral OpenClaw sandbox with this draft'}
+          className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400 hover:bg-blue-500/20 disabled:opacity-40"
+        >
+          {spawningTest ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : testSandbox ? (
+            <RotateCw size={12} />
+          ) : (
+            <FlaskConical size={12} />
+          )}
+          {testSandbox ? 'Recreate test sandbox' : 'Open test sandbox'}
         </button>
         <button
           onClick={handlePromote}
@@ -275,6 +320,33 @@ export function PlaygroundSkillEditor() {
 
         {/* Dry-run panel */}
         <aside className="w-96 shrink-0 border-l border-[var(--border)] bg-[var(--card)]/30 flex flex-col">
+          {(testSandbox || testError) && (
+            <div className="border-b border-[var(--border)] bg-[var(--background)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] mb-1">
+                Test sandbox
+              </div>
+              {testError && <p className="text-xs text-red-500">{testError}</p>}
+              {testSandbox && (
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <code className="text-[var(--muted-foreground)]">{testSandbox.sandbox_id.slice(0, 8)}</code>
+                    <a
+                      href={`/sandboxes/${encodeURIComponent(testSandbox.sandbox_id)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-400 hover:underline"
+                    >
+                      Open <ExternalLink size={10} />
+                    </a>
+                  </div>
+                  <div className="text-[var(--muted-foreground)]">
+                    Expires {new Date(testSandbox.expires_at).toLocaleString()} ·
+                    strategy {testSandbox.strategy}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className="px-4 py-3 border-b border-[var(--border)]">
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] mb-2">Dry-run</div>
             <input
