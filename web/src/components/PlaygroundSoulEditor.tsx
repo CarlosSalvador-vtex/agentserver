@@ -50,6 +50,7 @@ export function PlaygroundSoulEditor() {
   const [dryRunWorkspaceID, setDryRunWorkspaceID] = useState('')
   const [dryRunModel, setDryRunModel] = useState<string>(PLAYGROUND_DRYRUN_MODELS[0])
   const [view, setView] = useState<'edit' | 'diff' | 'audit'>('edit')
+  const [promoteConfirm, setPromoteConfirm] = useState(false)
 
   useEffect(() => {
     listWorkspaces()
@@ -125,7 +126,7 @@ export function PlaygroundSoulEditor() {
 
   const handlePromote = async () => {
     if (!id) return
-    if (!confirm('Promote this soul? Opens a PR on the agentserver repo.')) return
+    setPromoteConfirm(false)
     try {
       const r = await promotePlaygroundSoul(id)
       window.open(r.pr_url, '_blank')
@@ -164,13 +165,31 @@ export function PlaygroundSoulEditor() {
           {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
           Save
         </button>
-        <button
-          onClick={handlePromote}
-          disabled={dirty || draft.status !== 'draft'}
-          className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
-        >
-          <Send size={12} /> Promote → PR
-        </button>
+        {promoteConfirm ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="text-xs text-[var(--muted-foreground)]">Open PR?</span>
+            <button
+              onClick={handlePromote}
+              className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20"
+            >
+              <Send size={12} /> Yes
+            </button>
+            <button
+              onClick={() => setPromoteConfirm(false)}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setPromoteConfirm(true)}
+            disabled={dirty || draft.status !== 'draft'}
+            className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
+          >
+            <Send size={12} /> Promote → PR
+          </button>
+        )}
       </header>
 
       {error && (
