@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 	"github.com/agentserver/agentserver/internal/auth"
+	"github.com/agentserver/agentserver/internal/audit"
 	"github.com/agentserver/agentserver/internal/codexauth"
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
@@ -69,6 +70,11 @@ type Server struct {
 	// Mailer sends outbound notifications (workspace invites).
 	// nil = no-op; the admin still gets the invite_url in the response.
 	Mailer notif.Mailer
+
+	// Audit is the session audit logger (B07). nil = no-op (safe to leave
+	// unset in tests). Call Audit.Shutdown on graceful exit so buffered
+	// events flush to PG.
+	Audit *audit.Service
 
 	// Hydra OAuth2 (for agent Device Flow)
 	HydraClient    *auth.HydraClient
@@ -501,6 +507,9 @@ func (s *Server) Router() http.Handler {
 		r.Post("/api/workspaces/{id}/invites", s.handleCreateInvite)
 		r.Delete("/api/workspaces/{id}/invites/{inviteId}", s.handleRevokeInvite)
 
+		// Workspace audit log (B07) — owner/maintainer
+		r.Get("/api/workspaces/{id}/audit", s.handleListWorkspaceAudit)
+
 		// Workspace operations log (read-only, member-gated, wraps /internal/operations)
 		r.Get("/api/workspaces/{id}/operations", s.getWorkspaceOperations)
 
@@ -715,12 +724,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if workspaceSlug == "" {
 		workspaceSlug = s.workspaceSlugFromHost(r)
 	}
-	token, _, ok := s.Auth.LoginWithWorkspace(req.Email, req.Password, workspaceSlug)
+	token, userID, ok := s.Auth.LoginWithWorkspace(req.Email, req.Password, workspaceSlug)
 	if !ok {
+		if s.Audit != nil {
+			s.Audit.LogAnonymous("auth.login.failure", db.AuditEvent{
+				Details: map[string]any{"email": req.Email, "workspace_slug": workspaceSlug},
+				IP:      r.RemoteAddr,
+			})
+		}
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	auth.SetTokenCookieHostOnly(w, token, auth.HostOnlySessionCookie(workspaceSlug))
+	if s.Audit != nil {
+		s.Audit.LogAnonymous("auth.login.success", db.AuditEvent{
+			UserID:  userID,
+			Details: map[string]any{"workspace_slug": workspaceSlug},
+			IP:      r.RemoteAddr,
+		})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AuthStatusResponse{Status: "ok"})
 }
