@@ -38,8 +38,10 @@ hydra:
     existingSecret: agentserver-hydra-db-secret
 
 externalSecrets:
+  enabled: false
+
+sealedSecrets:
   enabled: true
-  roleArn: "arn:aws:iam::344729309528:role/agentserver-external-secrets-role"
 
 platform:
   domain: "agentserver.analytics.vtex.com"
