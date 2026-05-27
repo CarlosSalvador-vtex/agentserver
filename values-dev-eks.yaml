@@ -3,7 +3,7 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: auth-slug
+  tag: invites-b01
   pullPolicy: Always
 
 llmproxy:
