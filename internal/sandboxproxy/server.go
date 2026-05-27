@@ -3,6 +3,8 @@ package sandboxproxy
 import (
 	"context"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,9 @@ type Server struct {
 	BaseDomains           []string
 	OpenclawSubdomainPrefix string
 	HermesSubdomainPrefix   string
+	// AgentserverFallback reverse-proxies tenant slug hosts (non-claw, non-hermes)
+	// to the agentserver service. nil disables fallthrough.
+	AgentserverFallback *httputil.ReverseProxy
 
 	activityMu   sync.Mutex
 	activityLast map[string]time.Time
@@ -48,7 +53,7 @@ type Server struct {
 
 // New creates a new sandbox-proxy server.
 func New(cfg Config, authSvc *auth.Auth, database *db.DB, sandboxStore *sbxstore.Store, tunnelReg *tunnel.Registry) *Server {
-	return &Server{
+	s := &Server{
 		Auth:                    authSvc,
 		DB:                      database,
 		Sandboxes:               sandboxStore,
@@ -58,6 +63,21 @@ func New(cfg Config, authSvc *auth.Auth, database *db.DB, sandboxStore *sbxstore
 		HermesSubdomainPrefix:   cfg.HermesSubdomainPrefix,
 		activityLast:            make(map[string]time.Time),
 	}
+	if cfg.AgentserverUpstream != "" {
+		if u, err := url.Parse(cfg.AgentserverUpstream); err == nil && u.Host != "" {
+			rp := httputil.NewSingleHostReverseProxy(u)
+			// Preserve the original Host header so agentserver can extract the
+			// workspace slug from the subdomain (e.g. empresa-a.<base>).
+			origDirector := rp.Director
+			rp.Director = func(req *http.Request) {
+				origHost := req.Host
+				origDirector(req)
+				req.Host = origHost
+			}
+			s.AgentserverFallback = rp
+		}
+	}
+	return s
 }
 
 // throttledActivity updates activity at most once per 30 seconds per sandbox.
@@ -113,6 +133,12 @@ func (s *Server) Router() http.Handler {
 					if strings.HasPrefix(sub, hermesPrefix) {
 						sandboxID := sub[len(hermesPrefix):]
 						s.handleHermesSubdomainProxy(w, r, sandboxID)
+						return
+					}
+					// Tenant slug host (non-sandbox subdomain): reverse-proxy to
+					// agentserver so workspace-aware login/UI serves these hosts.
+					if sub != "" && s.AgentserverFallback != nil {
+						s.AgentserverFallback.ServeHTTP(w, r)
 						return
 					}
 				}

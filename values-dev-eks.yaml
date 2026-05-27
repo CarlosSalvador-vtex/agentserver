@@ -3,7 +3,7 @@
 
 image:
   repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver
-  tag: esm-fix
+  tag: auth-slug
   pullPolicy: Always
 
 llmproxy:
@@ -24,7 +24,7 @@ imbridge:
 sandboxProxy:
   image:
     repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-sandboxproxy
-    tag: hermes
+    tag: tenant-fallback
     pullPolicy: Always
 
 postgresql:

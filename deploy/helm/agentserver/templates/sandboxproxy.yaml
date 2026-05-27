@@ -60,6 +60,11 @@ spec:
               value: {{ .Values.sandbox.openclaw.subdomainPrefix | default "claw" | quote }}
             - name: HERMES_SUBDOMAIN_PREFIX
               value: {{ .Values.sandbox.hermes.subdomainPrefix | default "hermes" | quote }}
+            # Reverse-proxy tenant slug subdomains (non-claw, non-hermes) to
+            # the agentserver service so workspace-aware login/UI serves
+            # https://<slug>.<base-domain>/.
+            - name: AGENTSERVER_UPSTREAM
+              value: "http://{{ .Release.Name }}:{{ .Values.service.port }}"
           livenessProbe:
             httpGet:
               path: /healthz
