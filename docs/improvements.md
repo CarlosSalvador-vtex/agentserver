@@ -150,28 +150,28 @@ Switch sites to use constants. Provider names (`"weixin"`, `"telegram"`, `"matri
 
 ---
 
-### 5. OpenClaw SOUL.md equivalent
+### 5. OpenClaw SOUL.md equivalent — **SHIPPED** (2026-05-27)
 
-**Problem.** Hermes auto-loads `$HERMES_HOME/SOUL.md` (see `docs/lessons-learned.md`). OpenClaw has no equivalent built-in convention — our `/home/agent/.openclaw/soul.md` mount sits there unread. The soul.md mount for OpenClaw sandboxes is dead weight until something reads it.
+**Problem (original).** Hermes auto-loads `$HERMES_HOME/SOUL.md` (see `docs/lessons-learned.md`). OpenClaw had no documented equivalent — our soul mount was dead weight until something read it.
 
-**Solution options.**
+**What shipped (pivot from planning options).** Image dive found OpenClaw **already** loads `~/.openclaw/workspace/SOUL.md` on bootstrap (same convention as bundled auth-profiles). We fixed the mount path and plugin wiring instead of injecting soul from the skill plugin:
 
-**Option A** (recommended): wire the skill plugin's `index.mjs` to read soul.md at boot and prepend it to the LLM's system prompt via the plugin-sdk API. Requires Option B from `docs/openclaw-skill-slash-research.md` (initContainer symlink) — see improvement #16.
+| PR | Change |
+|---|---|
+| #45 / #16 | initContainer symlink so skills can `import "openclaw/plugin-sdk/core"` |
+| #47 (S4-PR1) | Mount composition soul at `/home/agent/.openclaw/workspace/SOUL.md` (`internal/sandbox/composition.go`) |
+| #49 (S4-PR2) | `cobranca/index.mjs` uses native `definePluginEntry`; workspace soul left to OpenClaw bootstrap — **no in-plugin soul read/inject** |
+| #55 (S4-PR4) | `before_prompt_build` injects **skill** persona from `prompt.md` + registers mock tools — separate from workspace `SOUL.md` |
 
-**Option B** (interim): document the mount path in the skill template README. The first skill prompt.md instructs the agent to "read /home/agent/.openclaw/soul.md before answering". Not auto-loaded but functional.
+**Planning options (historical — not what we shipped).**
 
-**Option C**: emit `OPENCLAW_SOUL_FILE=/home/agent/.openclaw/soul.md` env var. If OpenClaw ever respects it (image dive needed), gets picked up; if not, no-op.
+- **Option A** (originally recommended): skill `index.mjs` reads soul at boot and prepends via plugin-sdk. **Not implemented** — native bootstrap made this redundant; skill hook is for skill prompt, not workspace soul.
+- **Option B** (interim): prompt instructs agent to read soul path manually. Superseded by native loader.
+- **Option C**: `OPENCLAW_SOUL_FILE` env probe. Partially present in `manager_config.go` (legacy path `/home/agent/.openclaw/soul.md`); runtime uses `workspace/SOUL.md` mount instead.
 
-**Scope.**
-- Option A: blocked on #16, then ~80 LOC plugin SDK wiring.
-- Option B: ~30 LOC doc + skill template update.
-- Option C: ~10 LOC env wiring + image source probe.
+**Acceptance (met).** OpenClaw sandboxes with a composition soul get persona from the mounted `SOUL.md` without openclaw.json hacks or root-level `agent.systemPrompt` (see `docs/lessons-learned.md` PR #25 row).
 
-**Recommendation.** Ship Option C now (cheap probe), Option B as fallback, Option A after #16.
-
-**Why prioritize.** Tier-1 because OpenClaw soul-injection is currently a lie. Better to fix or remove than leave broken.
-
-**PR shape.** `feat(openclaw): wire soul.md into agent system prompt` (after #16).
+**Follow-up (optional housekeeping).** Align or remove stale `OPENCLAW_SOUL_FILE` in `internal/sandbox/manager_config.go` if nothing in the image reads it.
 
 ---
 
@@ -585,7 +585,7 @@ Land Tier 1 in this order:
 2. #4 integration tests (regression safety)
 3. #1 composition picker (visible UX)
 4. #3 rate limits (security)
-5. #5 OpenClaw SOUL.md equivalent (closes broken promise — option C: env probe + doc)
+5. #5 OpenClaw SOUL.md equivalent — **done** (native `workspace/SOUL.md` bootstrap + plugin-sdk #49)
 
 **Total ~460 LOC**, 5 PRs, deploys per PR.
 
