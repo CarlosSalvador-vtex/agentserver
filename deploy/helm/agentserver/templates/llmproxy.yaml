@@ -52,7 +52,12 @@ spec:
             - name: LLMPROXY_LISTEN_ADDR
               value: ":{{ .Values.llmproxy.port }}"
             - name: LLMPROXY_DATABASE_URL
-              {{- if .Values.llmproxy.externalDatabaseUrl }}
+              {{- if .Values.llmproxy.database.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmproxy.database.existingSecret }}
+                  key: database-url
+              {{- else if .Values.llmproxy.externalDatabaseUrl }}
               value: {{ .Values.llmproxy.externalDatabaseUrl | quote }}
               {{- else }}
               value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.llmproxy.database.name }}?sslmode=disable"

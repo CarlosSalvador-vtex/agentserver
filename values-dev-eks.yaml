@@ -12,6 +12,8 @@ llmproxy:
     repository: 344729309528.dkr.ecr.us-east-1.amazonaws.com/agentserver-llmproxy
     tag: zai-path-fix
     pullPolicy: Always
+  database:
+    existingSecret: agentserver-llmproxy-db-secret   # k8s Secret, key "database-url" → prdk8s-metadata RDS
 
 imbridge:
   image:
@@ -26,14 +28,14 @@ sandboxProxy:
     pullPolicy: Always
 
 postgresql:
-  image:
-    # Override Chinese mirror with standard dockerhub image
-    repository: postgres
-    tag: "16-alpine"
-    pullPolicy: IfNotPresent
-  primary:
-    persistence:
-      storageClass: "gp3"
+  enabled: false
+
+externalDatabase:
+  existingSecret: agentserver-db-secret   # k8s Secret, key "database-url" → prdk8s-metadata RDS
+
+hydra:
+  database:
+    existingSecret: agentserver-hydra-db-secret   # k8s Secret, key "dsn" → prdk8s-metadata RDS
 
 platform:
   domain: "agentserver.analytics.vtex.com"

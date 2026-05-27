@@ -9,7 +9,9 @@ metadata:
     app.kubernetes.io/component: hydra
 type: Opaque
 stringData:
+  {{- if not .Values.hydra.database.existingSecret }}
   dsn: {{ include "agentserver.hydraDsn" . | quote }}
+  {{- end }}
   pg-password: {{ .Values.postgresql.auth.password | quote }}
   {{- if .Values.hydra.secretsSystem }}
   secrets-system: {{ .Values.hydra.secretsSystem | quote }}
@@ -64,7 +66,7 @@ spec:
             - name: DSN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-hydra-secret
+                  name: {{ default (printf "%s-hydra-secret" .Release.Name) .Values.hydra.database.existingSecret }}
                   key: dsn
       containers:
         - name: hydra
@@ -75,7 +77,7 @@ spec:
             - name: DSN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-hydra-secret
+                  name: {{ default (printf "%s-hydra-secret" .Release.Name) .Values.hydra.database.existingSecret }}
                   key: dsn
             - name: URLS_SELF_ISSUER
               value: {{ printf "https://%s" .Values.platform.domain | quote }}
