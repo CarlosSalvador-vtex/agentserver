@@ -79,6 +79,18 @@ func (db *DB) CreateWorkspace(id, name string) error {
 	return err
 }
 
+// EnsureWorkspace creates the workspace when missing. Idempotent for tests and setup.
+func (db *DB) EnsureWorkspace(id, name string) error {
+	w, err := db.GetWorkspace(id)
+	if err != nil {
+		return err
+	}
+	if w != nil {
+		return nil
+	}
+	return db.CreateWorkspace(id, name)
+}
+
 // CreateWorkspaceExplicit creates a workspace with a caller-provided slug.
 func (db *DB) CreateWorkspaceExplicit(id, name, slug, k8sNamespace string) error {
 	if err := ValidateSlug(slug); err != nil {

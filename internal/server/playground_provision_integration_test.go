@@ -86,10 +86,7 @@ func TestProvisionSandbox_CompositionPersistedBeforeGoroutine(t *testing.T) {
 	defer d.Close()
 
 	wsID := "ws-tier1-prov-" + t.Name()
-	if _, err := d.Exec(
-		`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		wsID, "tier1 provision test",
-	); err != nil {
+	if err := d.EnsureWorkspace(wsID, "tier1 provision test"); err != nil {
 		t.Fatalf("insert workspace: %v", err)
 	}
 	t.Cleanup(func() {

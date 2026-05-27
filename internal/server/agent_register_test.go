@@ -49,11 +49,7 @@ func TestAgentRegister_TypeValidation_Integration(t *testing.T) {
 	const testWorkspaceIDVal = "ws-register-test"
 	const testUserID = "user-register-test"
 
-	_, err = database.Exec(
-		`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		testWorkspaceIDVal, "Register Test Workspace",
-	)
-	if err != nil {
+	if err = database.EnsureWorkspace(testWorkspaceIDVal, "Register Test Workspace"); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
 	t.Cleanup(func() { database.Exec(`DELETE FROM workspaces WHERE id = $1`, testWorkspaceIDVal) })
