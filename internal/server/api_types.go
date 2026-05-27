@@ -95,6 +95,44 @@ type MemberRoleUpdateRequest struct {
 	Role string `json:"role" validate:"required" example:"maintainer"`
 } // @name MemberRoleUpdateRequest
 
+// InviteCreateRequest is the body for POST /api/workspaces/{id}/invites.
+type InviteCreateRequest struct {
+	Email string `json:"email" validate:"required" example:"alice@example.com"`
+	Role  string `json:"role" example:"developer"` // optional; defaults to "developer"
+} // @name InviteCreateRequest
+
+// InviteResponse is the response for POST /api/workspaces/{id}/invites and
+// items of GET /api/workspaces/{id}/invites. InviteURL is included only on
+// creation (the plaintext token is never re-readable after that).
+type InviteResponse struct {
+	ID            string  `json:"id"`
+	Email         string  `json:"email"`
+	Role          string  `json:"role"`
+	ExpiresAt     string  `json:"expires_at" example:"2026-06-03T12:00:00Z"`
+	AcceptedAt    *string `json:"accepted_at,omitempty"`
+	CreatedAt     string  `json:"created_at"`
+	InviteURL     string  `json:"invite_url,omitempty"`
+	WorkspaceSlug string  `json:"workspace_slug,omitempty"`
+} // @name InviteResponse
+
+// InviteInfoResponse is returned by GET /api/auth/invite/{token} so the
+// accept-invite page can render workspace + role context before the user
+// commits a password. Sensitive fields (token, hash) are NOT included.
+type InviteInfoResponse struct {
+	WorkspaceName string `json:"workspace_name"`
+	WorkspaceSlug string `json:"workspace_slug"`
+	Email         string `json:"email"`
+	Role          string `json:"role"`
+	ExpiresAt     string `json:"expires_at"`
+} // @name InviteInfoResponse
+
+// InviteAcceptRequest is the body for POST /api/auth/invite/{token}/accept.
+// Password is required when the email does not yet have an account; when the
+// account exists it must match the stored password.
+type InviteAcceptRequest struct {
+	Password string `json:"password" validate:"required"`
+} // @name InviteAcceptRequest
+
 // LLMWorkspaceQuotaPart is the per-workspace quota override stored in the
 // LLM proxy DB. max_rpd is null when no custom limit is configured.
 type LLMWorkspaceQuotaPart struct {

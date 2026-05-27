@@ -14,6 +14,9 @@ Endpoints under the `Workspaces` tag. Auto-generated from [`docs/api/openapi.yam
 | `GET` | [`/api/workspaces/{id}`](#op-get-api-workspaces-id) | Get a workspace by id |
 | `PATCH` | [`/api/workspaces/{id}`](#op-patch-api-workspaces-id) | Rename a workspace |
 | `DELETE` | [`/api/workspaces/{id}`](#op-delete-api-workspaces-id) | Delete a workspace (owner only; cascades to sandboxes + namespace) |
+| `GET` | [`/api/workspaces/{id}/invites`](#op-get-api-workspaces-id-invites) | List workspace invites |
+| `POST` | [`/api/workspaces/{id}/invites`](#op-post-api-workspaces-id-invites) | Create a workspace invite |
+| `DELETE` | [`/api/workspaces/{id}/invites/{inviteId}`](#op-delete-api-workspaces-id-invites-inviteid) | Revoke a pending invite |
 | `GET` | [`/api/workspaces/{id}/llm-config`](#op-get-api-workspaces-id-llm-config) | Get workspace LLM config (owner/maintainer) |
 | `PUT` | [`/api/workspaces/{id}/llm-config`](#op-put-api-workspaces-id-llm-config) | Upsert workspace LLM config (owner/maintainer) |
 | `DELETE` | [`/api/workspaces/{id}/llm-config`](#op-delete-api-workspaces-id-llm-config) | Delete workspace LLM config (owner/maintainer) |
@@ -161,6 +164,81 @@ Delete a workspace (owner only; cascades to sandboxes + namespace)
 | `204` | No Content | — |
 | `403` | owner only | `string` |
 | `500` | internal error | `string` |
+
+
+### `GET /api/workspaces/{id}/invites` {#op-get-api-workspaces-id-invites}
+List workspace invites
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Workspace ID |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | array of [`InviteResponse`](#schema-inviteresponse) |
+| `403` | insufficient permissions | `string` |
+
+
+### `POST /api/workspaces/{id}/invites` {#op-post-api-workspaces-id-invites}
+Create a workspace invite
+Issues a single-use invite. The invite_url is returned ONCE here
+(also sent by email if a real mailer is configured); the
+plaintext token is never persisted nor re-readable.
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Workspace ID |
+
+
+**Request body**
+
+Content-Type: `application/json`
+
+Schema: [`InviteCreateRequest`](#schema-invitecreaterequest)
+
+```yaml
+{
+  email: string
+  role?: string
+}
+```
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `201` | Created | [`InviteResponse`](#schema-inviteresponse) |
+| `400` | bad request | `string` |
+| `403` | insufficient permissions | `string` |
+| `409` | invite already pending for this email | `string` |
+
+
+### `DELETE /api/workspaces/{id}/invites/{inviteId}` {#op-delete-api-workspaces-id-invites-inviteid}
+Revoke a pending invite
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Workspace ID |
+| `inviteId` | `string` | yes | Invite ID |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `204` | No Content | — |
+| `403` | insufficient permissions | `string` |
+| `404` | not found | `string` |
 
 
 ### `GET /api/workspaces/{id}/llm-config` {#op-get-api-workspaces-id-llm-config}
@@ -391,6 +469,30 @@ Remove a member (owner only)
 
 
 ## Schemas
+
+### `InviteCreateRequest` {#schema-invitecreaterequest}
+
+```yaml
+{
+  email: string
+  role?: string
+}
+```
+
+### `InviteResponse` {#schema-inviteresponse}
+
+```yaml
+{
+  accepted_at?: string
+  created_at?: string
+  email?: string
+  expires_at?: string
+  id?: string
+  invite_url?: string
+  role?: string
+  workspace_slug?: string
+}
+```
 
 ### `LLMConfigResponse` {#schema-llmconfigresponse}
 

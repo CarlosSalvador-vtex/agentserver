@@ -1010,6 +1010,75 @@ paths:
       summary: Check session validity
       tags:
         - Auth
+  "/api/auth/invite/{token}":
+    get:
+      parameters:
+        - description: Invite token
+          in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteInfoResponse"
+        "404":
+          description: invalid or expired invite
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Read invite metadata
+      tags:
+        - Auth
+  "/api/auth/invite/{token}/accept":
+    post:
+      parameters:
+        - description: Invite token
+          in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteAcceptRequest"
+        description: Password
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatusResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "401":
+          description: invalid credentials
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: invalid or expired invite
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Accept a workspace invite
+      tags:
+        - Auth
   /api/auth/login:
     post:
       description: Validates credentials; on success sets the session cookie and
@@ -2741,6 +2810,113 @@ paths:
       summary: Bind a WhatsApp Cloud number to a workspace
       tags:
         - IM Channels
+  "/api/workspaces/{id}/invites":
+    get:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/InviteResponse"
+                type: array
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: List workspace invites
+      tags:
+        - Workspaces
+    post:
+      description: |-
+        Issues a single-use invite. The invite_url is returned ONCE here
+        (also sent by email if a real mailer is configured); the
+        plaintext token is never persisted nor re-readable.
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteCreateRequest"
+        description: Invite payload
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: invite already pending for this email
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Create a workspace invite
+      tags:
+        - Workspaces
+  "/api/workspaces/{id}/invites/{inviteId}":
+    delete:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Invite ID
+          in: path
+          name: inviteId
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: insufficient permissions
+          content:
+            "*/*":
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            "*/*":
+              schema:
+                type: string
+      summary: Revoke a pending invite
+      tags:
+        - Workspaces
   "/api/workspaces/{id}/llm-config":
     delete:
       parameters:
@@ -5159,6 +5335,58 @@ components:
       required:
         - connected
         - status
+      type: object
+    InviteAcceptRequest:
+      properties:
+        password:
+          type: string
+      required:
+        - password
+      type: object
+    InviteCreateRequest:
+      properties:
+        email:
+          example: alice@example.com
+          type: string
+        role:
+          description: optional; defaults to "developer"
+          example: developer
+          type: string
+      required:
+        - email
+      type: object
+    InviteInfoResponse:
+      properties:
+        email:
+          type: string
+        expires_at:
+          type: string
+        role:
+          type: string
+        workspace_name:
+          type: string
+        workspace_slug:
+          type: string
+      type: object
+    InviteResponse:
+      properties:
+        accepted_at:
+          type: string
+        created_at:
+          type: string
+        email:
+          type: string
+        expires_at:
+          example: 2026-06-03T12:00:00Z
+          type: string
+        id:
+          type: string
+        invite_url:
+          type: string
+        role:
+          type: string
+        workspace_slug:
+          type: string
       type: object
     LLMConfigResponse:
       properties:

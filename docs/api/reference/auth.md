@@ -9,6 +9,8 @@ Endpoints under the `Auth` tag. Auto-generated from [`docs/api/openapi.yaml`](..
 | Method | Path | Summary |
 |--------|------|---------|
 | `GET` | [`/api/auth/check`](#op-get-api-auth-check) | Check session validity |
+| `GET` | [`/api/auth/invite/{token}`](#op-get-api-auth-invite-token) | Read invite metadata |
+| `POST` | [`/api/auth/invite/{token}/accept`](#op-post-api-auth-invite-token-accept) | Accept a workspace invite |
 | `POST` | [`/api/auth/login`](#op-post-api-auth-login) | Log in with email + password |
 | `POST` | [`/api/auth/logout`](#op-post-api-auth-logout) | Log out (clear session cookie) |
 | `GET` | [`/api/auth/me`](#op-get-api-auth-me) | Get current user profile |
@@ -27,6 +29,57 @@ Check session validity
 |--------|-------------|--------|
 | `200` | OK | [`AuthStatusResponse`](#schema-authstatusresponse) |
 | `401` | unauthorized | `string` |
+
+
+### `GET /api/auth/invite/{token}` {#op-get-api-auth-invite-token}
+Read invite metadata
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `token` | `string` | yes | Invite token |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | [`InviteInfoResponse`](#schema-inviteinforesponse) |
+| `404` | invalid or expired invite | `string` |
+
+
+### `POST /api/auth/invite/{token}/accept` {#op-post-api-auth-invite-token-accept}
+Accept a workspace invite
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `token` | `string` | yes | Invite token |
+
+
+**Request body**
+
+Content-Type: `application/json`
+
+Schema: [`InviteAcceptRequest`](#schema-inviteacceptrequest)
+
+```yaml
+{
+  password: string
+}
+```
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | [`AuthStatusResponse`](#schema-authstatusresponse) |
+| `400` | bad request | `string` |
+| `401` | invalid credentials | `string` |
+| `404` | invalid or expired invite | `string` |
 
 
 ### `POST /api/auth/login` {#op-post-api-auth-login}
@@ -177,6 +230,26 @@ Schema: [`SessionWorkspaceRequest`](#schema-sessionworkspacerequest)
 ```yaml
 {
   status: string
+}
+```
+
+### `InviteAcceptRequest` {#schema-inviteacceptrequest}
+
+```yaml
+{
+  password: string
+}
+```
+
+### `InviteInfoResponse` {#schema-inviteinforesponse}
+
+```yaml
+{
+  email?: string
+  expires_at?: string
+  role?: string
+  workspace_name?: string
+  workspace_slug?: string
 }
 ```
 
