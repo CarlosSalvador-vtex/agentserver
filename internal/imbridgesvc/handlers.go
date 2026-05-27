@@ -3,6 +3,7 @@ package imbridgesvc
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -1213,6 +1214,16 @@ func whatsappWebhookVerifyToken() string {
 	return os.Getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN")
 }
 
+// generateVerifyToken creates a 32-byte random hex string suitable as
+// a per-workspace Meta webhook verify_token.
+func generateVerifyToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 // whatsappAppSecret returns the Meta App Secret used to sign every
 // webhook delivery via X-Hub-Signature-256. Configured via
 // WHATSAPP_APP_SECRET; empty value disables signature verification
@@ -1311,13 +1322,33 @@ func (s *Server) handleWorkspaceWhatsAppConfigure(w http.ResponseWriter, r *http
 		return
 	}
 
+	// Generate a per-workspace verify_token so each tenant's Meta App
+	// webhook handshake is isolated — no shared global env-var token.
+	verifyToken, err := generateVerifyToken()
+	if err != nil {
+		log.Printf("generate verify_token: %v", err)
+		http.Error(w, "failed to generate verify token", http.StatusInternalServerError)
+		return
+	}
+	if err := s.db.SetIMChannelVerifyToken(channelID, verifyToken); err != nil {
+		log.Printf("save verify_token: %v", err)
+		http.Error(w, "failed to save verify token", http.StatusInternalServerError)
+		return
+	}
+
+	host := r.Host
+	if host == "" {
+		host = os.Getenv("PLATFORM_DOMAIN")
+	}
+	webhookURL := fmt.Sprintf("https://%s/webhook/whatsapp/%s", host, wsID)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"connected":  true,
-		"channel_id": channelID,
-		"bot_id":     req.PhoneNumberID,
-		"webhook_hint": "Configure your Meta App webhook URL to POST /webhook/whatsapp on this host; " +
-			"set hub.verify_token to the value of WHATSAPP_WEBHOOK_VERIFY_TOKEN.",
+		"connected":    true,
+		"channel_id":   channelID,
+		"bot_id":       req.PhoneNumberID,
+		"webhook_url":  webhookURL,
+		"verify_token": verifyToken,
 	})
 }
 
@@ -1337,6 +1368,108 @@ func (s *Server) handleWhatsAppWebhookVerify(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(challenge))
+}
+
+// handleWhatsAppWebhookVerifyPerWorkspace handles Meta's webhook handshake
+// for a specific workspace. The verify_token is looked up from DB by
+// (workspace_id, token) instead of a shared env-var, so each tenant's
+// Meta App is independently registered.
+//
+// Route: GET /webhook/whatsapp/{workspace_id}
+func (s *Server) handleWhatsAppWebhookVerifyPerWorkspace(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "workspace_id")
+	mode := r.URL.Query().Get("hub.mode")
+	token := r.URL.Query().Get("hub.verify_token")
+	challenge := r.URL.Query().Get("hub.challenge")
+
+	if mode != "subscribe" || token == "" {
+		http.Error(w, "verification failed", http.StatusForbidden)
+		return
+	}
+	_, err := s.db.GetIMChannelByWorkspaceAndToken(wsID, token)
+	if err != nil {
+		log.Printf("whatsapp webhook verify: no channel for workspace=%s token=<redacted>: %v", wsID, err)
+		http.Error(w, "verification failed", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(challenge))
+}
+
+// handleWhatsAppWebhookInboundPerWorkspace processes Meta webhook deliveries
+// for a specific workspace. workspace_id in the URL path scopes the
+// channel lookup — messages from workspace A never reach workspace B.
+//
+// Route: POST /webhook/whatsapp/{workspace_id}
+func (s *Server) handleWhatsAppWebhookInboundPerWorkspace(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "workspace_id")
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	appSecret := whatsappAppSecret()
+	if whatsappHMACRequired() && appSecret == "" {
+		log.Printf("whatsapp webhook [%s]: HMAC required but secret empty — rejecting", wsID)
+		http.Error(w, "WhatsApp HMAC required but server secret not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if appSecret != "" {
+		if !verifyWhatsAppSignature(r.Header.Get("X-Hub-Signature-256"), body, appSecret) {
+			log.Printf("whatsapp webhook [%s]: invalid X-Hub-Signature-256", wsID)
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	var payload whatsappWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		log.Printf("whatsapp webhook [%s]: decode: %v", wsID, err)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			if change.Field != "messages" {
+				continue
+			}
+			phoneNumberID := change.Value.Metadata.PhoneNumberID
+			if phoneNumberID == "" {
+				continue
+			}
+			// Scope lookup to this workspace — prevents cross-tenant routing.
+			channel, err := s.db.FindIMChannelByWorkspaceAndBot(wsID, "whatsapp", phoneNumberID)
+			if err != nil {
+				log.Printf("whatsapp webhook [%s]: no channel for phone_number_id=%s: %v", wsID, phoneNumberID, err)
+				continue
+			}
+
+			senderName := ""
+			if len(change.Value.Contacts) > 0 {
+				senderName = change.Value.Contacts[0].Profile.Name
+			}
+
+			for _, msg := range change.Value.Messages {
+				if msg.Type != "text" || msg.Text.Body == "" {
+					continue
+				}
+				inbound := imbridge.InboundMessage{
+					FromUserID: msg.From + "@wa",
+					SenderName: senderName,
+					Text:       msg.Text.Body,
+				}
+				if _, err := s.bridge.DispatchInbound(r.Context(), channel.ID, inbound); err != nil {
+					log.Printf("whatsapp webhook [%s]: dispatch channel=%s msg=%s: %v", wsID, channel.ID, msg.ID, err)
+				}
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // whatsappWebhookPayload mirrors the subset of Meta's webhook payload
