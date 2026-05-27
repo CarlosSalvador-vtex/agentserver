@@ -18,6 +18,7 @@ import { Home } from './components/Home/Home'
 import { OAuthConsent } from './components/OAuthConsent'
 import { OAuthDevice } from './components/OAuthDevice'
 import { OAuthLogin, PENDING_LOGIN_CHALLENGE_KEY } from './components/OAuthLogin'
+import { AcceptInvite } from './pages/AcceptInvite'
 
 const PENDING_CONSENT_CHALLENGE_KEY = 'agentserver_pending_consent_challenge'
 const PENDING_DEVICE_PARAMS_KEY = 'agentserver_pending_device_params'
@@ -356,6 +357,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login onSuccess={onLoginSuccess} />} />
+        <Route path="/accept-invite" element={<AcceptInvite onSuccess={onLoginSuccess} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     )

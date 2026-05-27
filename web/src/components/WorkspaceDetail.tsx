@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Box,
   UserPlus,
+  Mail,
   Trash2,
   X,
   MessageSquare,
@@ -439,12 +440,15 @@ function SandboxPanel({
   )
 }
 
+import { InviteMemberModal } from './InviteMemberModal'
+
 function MembersTab({ workspaceId, members, setMembers }: {
   workspaceId: string
   members: WorkspaceMember[]
   setMembers: React.Dispatch<React.SetStateAction<WorkspaceMember[]>>
 }) {
   const [showAdd, setShowAdd] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
   const [addEmail, setAddEmail] = useState('')
   const [addRole, setAddRole] = useState('developer')
   const [addError, setAddError] = useState<string | null>(null)
@@ -485,14 +489,29 @@ function MembersTab({ workspaceId, members, setMembers }: {
         <span className="text-sm font-medium text-[var(--foreground)]">
           {members.length} member{members.length !== 1 ? 's' : ''}
         </span>
-        <button
-          onClick={() => setShowAdd((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
-        >
-          {showAdd ? <X size={13} /> : <UserPlus size={13} />}
-          {showAdd ? 'Cancel' : 'Add member'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInvite(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
+          >
+            <Mail size={13} />
+            Invite by email
+          </button>
+          <button
+            onClick={() => setShowAdd((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
+          >
+            {showAdd ? <X size={13} /> : <UserPlus size={13} />}
+            {showAdd ? 'Cancel' : 'Add existing user'}
+          </button>
+        </div>
       </div>
+      {showInvite && (
+        <InviteMemberModal
+          workspaceId={workspaceId}
+          onClose={() => setShowInvite(false)}
+        />
+      )}
 
       {showAdd && (
         <form onSubmit={handleAdd} className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">

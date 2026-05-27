@@ -1684,6 +1684,119 @@
         }
       }
     },
+    "/api/auth/invite/{token}": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Read invite metadata",
+        "parameters": [
+          {
+            "description": "Invite token",
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteInfoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "invalid or expired invite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/invite/{token}/accept": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Accept a workspace invite",
+        "parameters": [
+          {
+            "description": "Invite token",
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteAcceptRequest"
+              }
+            }
+          },
+          "description": "Password",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "invalid or expired invite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "description": "Validates credentials; on success sets the session cookie and returns {\"status\":\"ok\"}.",
@@ -4574,6 +4687,174 @@
             "description": "internal error",
             "content": {
               "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/invites": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "List workspace invites",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InviteResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Issues a single-use invite. The invite_url is returned ONCE here\n(also sent by email if a real mailer is configured); the\nplaintext token is never persisted nor re-readable.",
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Create a workspace invite",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCreateRequest"
+              }
+            }
+          },
+          "description": "Invite payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "invite already pending for this email",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/invites/{inviteId}": {
+      "delete": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Revoke a pending invite",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Invite ID",
+            "name": "inviteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "*/*": {
                 "schema": {
                   "type": "string"
                 }
@@ -8302,6 +8583,84 @@
           "user_id": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "InviteAcceptRequest": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteCreateRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "alice@example.com"
+          },
+          "role": {
+            "description": "optional; defaults to \"developer\"",
+            "type": "string",
+            "example": "developer"
+          }
+        }
+      },
+      "InviteInfoResponse": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          },
+          "workspace_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteResponse": {
+        "type": "object",
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "example": "2026-06-03T12:00:00Z"
+          },
+          "id": {
+            "type": "string"
+          },
+          "invite_url": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "workspace_slug": {
+            "type": "string"
           }
         }
       },

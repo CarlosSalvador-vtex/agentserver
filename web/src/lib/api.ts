@@ -290,6 +290,68 @@ export async function removeMember(workspaceId: string, userId: string): Promise
   })
 }
 
+// Workspace invite API (B01)
+
+export interface InviteResponse {
+  id: string
+  email: string
+  role: string
+  expires_at: string
+  accepted_at?: string | null
+  created_at: string
+  invite_url?: string
+  workspace_slug?: string
+}
+
+export interface InviteInfo {
+  workspace_name: string
+  workspace_slug: string
+  email: string
+  role: string
+  expires_at: string
+}
+
+export async function listInvites(workspaceId: string): Promise<InviteResponse[]> {
+  return apiFetch<InviteResponse[]>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`,
+  })
+}
+
+export async function createInvite(
+  workspaceId: string,
+  email: string,
+  role?: string,
+): Promise<InviteResponse> {
+  return apiFetch<InviteResponse>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`,
+    body: { email, role: role ?? 'developer' },
+  })
+}
+
+export async function revokeInvite(workspaceId: string, inviteId: string): Promise<void> {
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/invites/${encodeURIComponent(inviteId)}`,
+  })
+}
+
+export async function getInviteInfo(token: string): Promise<InviteInfo> {
+  return apiFetch<InviteInfo>({
+    method: 'GET',
+    path: `/api/auth/invite/${encodeURIComponent(token)}`,
+  })
+}
+
+export async function acceptInvite(token: string, password: string): Promise<void> {
+  await apiFetch<{ status: string }>({
+    method: 'POST',
+    path: `/api/auth/invite/${encodeURIComponent(token)}/accept`,
+    body: { password },
+  })
+}
+
 // Sandbox API
 
 export async function getWorkspaceDefaults(workspaceId: string): Promise<WorkspaceSandboxDefaults> {
