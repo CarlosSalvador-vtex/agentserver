@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { GitFork } from 'lucide-react'
 import {
   listMarketplaceSkills,
@@ -10,11 +11,11 @@ import {
 } from '../lib/api'
 
 export function Marketplace() {
+  const navigate = useNavigate()
   const [skills, setSkills] = useState<MarketplaceSkillSummary[]>([])
   const [souls, setSouls] = useState<MarketplaceSoulSummary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
   const reload = async () => {
     try {
@@ -31,31 +32,27 @@ export function Marketplace() {
     reload()
   }, [])
 
-  const handleForkSkill = async (id: string, name: string) => {
+  const handleForkSkill = async (id: string) => {
     setBusy(true)
-    setSuccess(null)
     setError(null)
     try {
       // empty workspace_id → server resolves to caller's default workspace
-      await forkMarketplaceSkill(id, '')
-      setSuccess(`Skill "${name}" forked to your workspace.`)
+      const forked = await forkMarketplaceSkill(id, '')
+      navigate(`/playground/skills/${encodeURIComponent(forked.id)}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'fork failed')
-    } finally {
       setBusy(false)
     }
   }
 
-  const handleForkSoul = async (id: string, name: string) => {
+  const handleForkSoul = async (id: string) => {
     setBusy(true)
-    setSuccess(null)
     setError(null)
     try {
-      await forkMarketplaceSoul(id, '')
-      setSuccess(`Soul "${name}" forked to your workspace.`)
+      const forked = await forkMarketplaceSoul(id, '')
+      navigate(`/playground/souls/${encodeURIComponent(forked.id)}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'fork failed')
-    } finally {
       setBusy(false)
     }
   }
@@ -72,10 +69,6 @@ export function Marketplace() {
       {error && (
         <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>
       )}
-      {success && (
-        <div className="mb-4 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-400">{success}</div>
-      )}
-
       <MarketplaceSection
         title="Skills"
         items={skills.map((s) => ({
@@ -85,7 +78,7 @@ export function Marketplace() {
           updatedAt: s.updated_at,
         }))}
         busy={busy}
-        onFork={(id, name) => handleForkSkill(id, name)}
+        onFork={(id) => handleForkSkill(id)}
         emptyLabel="No shared skills yet."
       />
 
@@ -99,7 +92,7 @@ export function Marketplace() {
             updatedAt: s.updated_at,
           }))}
           busy={busy}
-          onFork={(id, name) => handleForkSoul(id, name)}
+          onFork={(id) => handleForkSoul(id)}
           emptyLabel="No shared souls yet."
         />
       </div>
@@ -124,7 +117,7 @@ function MarketplaceSection({
   title: string
   items: MarketplaceItem[]
   busy: boolean
-  onFork: (id: string, name: string) => void
+  onFork: (id: string) => void
   emptyLabel: string
 }) {
   return (
@@ -147,10 +140,10 @@ function MarketplaceSection({
                 </div>
               </div>
               <button
-                onClick={() => onFork(it.id, it.name)}
+                onClick={() => onFork(it.id)}
                 disabled={busy}
                 className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
-                title="Fork to my workspace"
+                title="Fork to my workspace and open in Playground"
               >
                 <GitFork size={12} /> Fork
               </button>
