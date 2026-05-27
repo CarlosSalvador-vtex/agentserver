@@ -207,6 +207,38 @@ DELETE /api/playground/souls/{id}
 POST   /api/playground/souls/{id}/promote
 ```
 
+### 5.1a Marketplace (shipped Sprint 5)
+
+Cross-tenant discovery and forking of `shared` drafts. Visibility is controlled by admins; forking copies a draft into the caller's workspace as `private`.
+
+```
+GET    /api/marketplace/skills              role: authenticated (any)
+       → [{id, name, description, author_workspace_id, visibility: "shared", updated_at}]
+
+GET    /api/marketplace/souls               role: authenticated (any)
+       → same shape
+
+POST   /api/marketplace/skills/{id}/fork   role: authenticated (any)
+       → {id, name, ...}   (new private copy in caller's workspace)
+
+POST   /api/marketplace/souls/{id}/fork    role: authenticated (any)
+       → {id, name, ...}
+
+PATCH  /api/admin/playground/skills/{id}/visibility   role: admin only
+Body:  {"visibility": "private" | "shared"}
+       → 200
+
+PATCH  /api/admin/playground/souls/{id}/visibility    role: admin only
+Body:  {"visibility": "private" | "shared"}
+       → 200
+```
+
+`visibility` column: `TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','shared'))` — added by migration 036 to both `skill_drafts` and `soul_drafts`.
+
+Frontend route: `/marketplace` — lists shared entries with a Fork button per row. Only `shared` items appear; `private` items remain invisible to other tenants.
+
+---
+
 ### 5.2 Catalog (read-only — production git + drafts mixed)
 
 ```
@@ -471,7 +503,7 @@ Same pattern for skill `openclaw.plugin.json` if it gains fields.
 ## 14. Out of scope (v2)
 
 - **Tenant-scoped catalog** — only global system templates in MVP.
-- **Marketplace / public sharing** — depends on tenant scoping.
+- **Marketplace / public sharing** — shipped in Sprint 5 (see section 5.1a). Admin-controlled visibility + fork-to-private.
 - **Slash command nativo via plugin-sdk** — see `docs/openclaw-skill-slash-research.md`. Still path-based prompting in v1; native slash needs initContainer symlink (Option B from that doc).
 - **Composition versioning** — sandbox composition is immutable after create; edit = recreate sandbox. v2 may add migration helpers.
 - **Skill marketplace ratings / reviews**.

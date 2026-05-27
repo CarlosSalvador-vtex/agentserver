@@ -2,11 +2,15 @@
 
 Run after merging Tier 1 changes to `main`. Requires dev EKS kube context (`dev-ti-eks-analytics-platform`) and AWS ECR push access.
 
+> **Sprint 5 complete (2026-05-27).** All 20 backlog items shipped. Current image tag: `sprint5-final`.
+> Dev cluster now uses external RDS — see `docs/dev-eks-deploy.md` for k8s secret names and connection details.
+> Staging namespace: `agentserver-staging` on the same dev cluster (`values-staging-eks.yaml` at repo root).
+
 ## Build & deploy
 
 ```bash
-./scripts/build/build-one.sh agentserver tier1-final
-# values-dev-eks.yaml already targets tag: tier1-final
+./scripts/build/build-one.sh agentserver sprint5-final
+# values-dev-eks.yaml targets tag: sprint5-final (updated Sprint 5)
 
 export AWS_PROFILE=<analytics-profile>
 export AWS_REGION=us-east-1

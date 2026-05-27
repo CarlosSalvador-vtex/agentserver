@@ -1,5 +1,9 @@
 # Improvement Roadmap — agentserver fork
 
+> **All 20 items shipped as of Sprint 5 (2026-05-27).** The backlog is complete.
+> Migrations go up to 037. Current image tag: `sprint5-final`.
+> This document is now a historical record; use it for rationale on past decisions.
+
 > 20 prioritized improvements derived from the multi-channel routing,
 > WhatsApp, and playground sprints. Each entry carries rationale,
 > scope estimate, dependencies, and a suggested PR shape. Tiers go
@@ -26,12 +30,12 @@
 | 3 | 12 | Ephemeral ConfigMap orphan reaper | 50 | feat (ops) |
 | 3 | 13 | WhatsApp HMAC enforced mode | 10 | feat (security) |
 | 3 | 14 | Drafts audit log | 100 | feat |
-| 3 | 15 | Staging cluster | infra | infra |
+| 3 | 15 | Staging cluster | infra | infra | **shipped** |
 | 4 | 16 | OpenClaw plugin-sdk initContainer symlink | 80 | feat |
 | 4 | 17 | Tenant-scoped catalog | 120 | feat |
-| 4 | 18 | Soul/skill marketplace (cross-tenant sharing) | 250 | feat |
+| 4 | 18 | Soul/skill marketplace (cross-tenant sharing) | 250 | feat | **shipped** |
 | 4 | 19 | LLM proxy token resolution (workspace_id in body) | 20 | fix |
-| 4 | 20 | Drop legacy `sandboxes.im_channel_id` FK | 30 | chore |
+| 4 | 20 | Drop legacy `sandboxes.im_channel_id` FK | 30 | chore | **shipped** |
 
 ---
 
@@ -394,6 +398,10 @@ Each playground handler appends an event. Frontend renders a timeline tab.
 
 ### 15. Staging cluster
 
+> **Status: shipped (Sprint 5)**
+
+**Shipped implementation.** Namespace `agentserver-staging` created on the existing dev EKS cluster (`dev-ti-eks-analytics-platform`) to avoid a full cluster bootstrap. `values-staging-eks.yaml` added at repo root, mirroring prod-like config. Image tag at time of ship: `sprint5-final`.
+
 **Problem.** Today: dev EKS (`dev-ti-eks-analytics-platform`) → ??? → prod. No middle environment. First prod deploy ever will also be first "non-dev" deploy.
 
 **Solution.** New EKS cluster `staging-ti-eks-analytics-platform` (or share namespace `agentserver-staging` on dev cluster if budget tight). `values-staging-eks.yaml` mirrors prod config (HMAC required, real WhatsApp creds, etc.) but with synthetic data only. CI workflow promotes from dev → staging after smoke pass.
@@ -465,6 +473,15 @@ UI: catalog page gets a scope filter ("System" / current workspace).
 
 ### 18. Soul/skill marketplace (cross-tenant sharing)
 
+> **Status: shipped (Sprint 5)**
+
+**Shipped implementation.**
+- Migration 036 adds `visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','shared'))` to both `skill_drafts` and `soul_drafts`.
+- New read endpoints (any authenticated user): `GET /api/marketplace/skills`, `GET /api/marketplace/souls`.
+- Fork endpoints: `POST /api/marketplace/skills/{id}/fork`, `POST /api/marketplace/souls/{id}/fork` — copies the source draft into the caller's workspace as `private`.
+- Admin-only visibility toggle: `PATCH /api/admin/playground/skills/{id}/visibility`, `PATCH /api/admin/playground/souls/{id}/visibility`.
+- Frontend `/marketplace` page with Fork button per entry.
+
 **Problem.** After #17, tenants are isolated. Useful skills (cobranca-like patterns) get reinvented per tenant. Lost network effect.
 
 **Solution.** Add `visibility` column to drafts: `private` (default) | `shared` (visible to all tenants but not editable). Marketplace page lists `shared` templates from all workspaces. Forking copies to current workspace as `private`.
@@ -509,9 +526,16 @@ If absent → fall back to first workspace (legacy behavior). Frontend dry-run p
 
 ### 20. Drop legacy `sandboxes.im_channel_id` FK
 
+> **Status: shipped (Sprint 5)**
+
+**Shipped implementation.**
+- Migration 037 drops `sandboxes.im_channel_id`.
+- `BindSandboxToChannel` and `UnbindSandboxFromChannel`: dual-write to the column removed.
+- `GetSandboxForChannel` and `GetIMChannelForSandbox`: FK-fallback read paths removed; all routing now goes exclusively through `sandbox_channel_bindings`.
+
 **Problem.** PR #3 introduced the N:M junction table. The FK lived for backward compat + dual-write. Has been dual-written for weeks of dev EKS time + zero data loss observed.
 
-**Solution.** Migration 036:
+**Solution.** Migration 037 (renumbered from 036 — see #18):
 
 ```sql
 -- After confirming all readers use junction first (manual audit):
