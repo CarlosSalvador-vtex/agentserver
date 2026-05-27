@@ -25,6 +25,7 @@ import (
 	"github.com/agentserver/agentserver/internal/codexauth"
 	"github.com/agentserver/agentserver/internal/db"
 	"github.com/agentserver/agentserver/internal/namespace"
+	"github.com/agentserver/agentserver/internal/notif"
 	"github.com/agentserver/agentserver/internal/process"
 	"github.com/agentserver/agentserver/internal/sandbox"
 	"github.com/agentserver/agentserver/internal/sbxstore"
@@ -64,6 +65,10 @@ type Server struct {
 	ModelserverOAuthRedirectURI   string
 	ModelserverProxyURL           string
 	DatabaseURL                  string // PostgreSQL connection URL (needed for Matrix E2EE crypto DB)
+
+	// Mailer sends outbound notifications (workspace invites).
+	// nil = no-op; the admin still gets the invite_url in the response.
+	Mailer notif.Mailer
 
 	// Hydra OAuth2 (for agent Device Flow)
 	HydraClient    *auth.HydraClient
@@ -419,6 +424,10 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/auth/check", s.handleAuthCheck)
 	r.Post("/api/auth/logout", s.handleLogout)
 
+	// Invite acceptance — public (token is the credential). B01.
+	r.Get("/api/auth/invite/{token}", s.handleGetInviteInfo)
+	r.Post("/api/auth/invite/{token}/accept", s.handleAcceptInvite)
+
 	// OIDC endpoints (no auth required)
 	if s.OIDC != nil {
 		r.Get("/api/auth/oidc/providers", func(w http.ResponseWriter, r *http.Request) {
@@ -486,6 +495,11 @@ func (s *Server) Router() http.Handler {
 		r.Post("/api/workspaces/{id}/members", s.handleAddMember)
 		r.Put("/api/workspaces/{id}/members/{userId}", s.handleUpdateMemberRole)
 		r.Delete("/api/workspaces/{id}/members/{userId}", s.handleRemoveMember)
+
+		// Workspace invite routes (B01)
+		r.Get("/api/workspaces/{id}/invites", s.handleListInvites)
+		r.Post("/api/workspaces/{id}/invites", s.handleCreateInvite)
+		r.Delete("/api/workspaces/{id}/invites/{inviteId}", s.handleRevokeInvite)
 
 		// Workspace operations log (read-only, member-gated, wraps /internal/operations)
 		r.Get("/api/workspaces/{id}/operations", s.getWorkspaceOperations)

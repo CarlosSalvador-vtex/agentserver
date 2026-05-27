@@ -40,7 +40,7 @@ func seedInviteFixtures(t *testing.T, d *DB) (wsID, userID string) {
 	if err := d.CreateUser(userID, "invite-test-creator@example.com", "$2a$10$dummy"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if err := d.CreateWorkspace("ws-invite-test", "invite-test-workspace", ""); err != nil {
+	if err := d.CreateWorkspace("ws-invite-test", "invite-test-workspace"); err != nil {
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
 	wsID = "ws-invite-test"
