@@ -441,6 +441,7 @@ func (s *Server) Router() http.Handler {
 		r.Use(s.Auth.Middleware)
 
 		r.Get("/api/auth/me", s.handleMe)
+		r.Post("/api/auth/session/workspace", s.handleSetSessionWorkspace)
 
 		// Workspace routes
 		r.Get("/api/workspaces", s.handleListWorkspaces)
@@ -837,6 +838,53 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if user.Picture != nil && *user.Picture != "" {
 		resp.Picture = user.Picture
 	}
+	if active := auth.ActiveWorkspaceFromContext(r.Context()); active != "" {
+		resp.ActiveWorkspaceID = &active
+	}
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleSetSessionWorkspace binds an active workspace to the current
+// session cookie. Subsequent requests can read it via
+// auth.ActiveWorkspaceFromContext without re-passing workspace_id.
+//
+//	@Summary   Set active workspace for the current session
+//	@Tags      Auth
+//	@Accept    json
+//	@Produce   json
+//	@Param     body  body      SessionWorkspaceRequest  true  "Target workspace (empty to clear)"
+//	@Success   200   {object}  SessionWorkspaceResponse
+//	@Failure   400   {string}  string  "invalid request"
+//	@Failure   403   {string}  string  "not a workspace member"
+//	@Security  CookieAuth
+//	@Router    /api/auth/session/workspace [post]
+func (s *Server) handleSetSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	token := auth.SessionTokenFromContext(r.Context())
+	if token == "" {
+		http.Error(w, "no session", http.StatusUnauthorized)
+		return
+	}
+	var req SessionWorkspaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	ok, err := s.Auth.SetActiveWorkspace(token, userID, req.WorkspaceID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "not a workspace member", http.StatusForbidden)
+		return
+	}
+	resp := SessionWorkspaceResponse{}
+	if req.WorkspaceID != "" {
+		ws := req.WorkspaceID
+		resp.ActiveWorkspaceID = &ws
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
 
