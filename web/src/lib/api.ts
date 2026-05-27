@@ -1020,6 +1020,8 @@ export interface PlaygroundSkillSummary {
   description: string
   status: PlaygroundDraftStatus
   workspace_id?: string  // empty = system template visible to all tenants
+  visibility?: 'private' | 'shared'
+  can_set_visibility?: boolean
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
   promoted_commit?: string
@@ -1037,6 +1039,8 @@ export interface PlaygroundSoulSummary {
   status: PlaygroundDraftStatus
   schema_version: string
   workspace_id?: string  // empty = system template visible to all tenants
+  visibility?: 'private' | 'shared'
+  can_set_visibility?: boolean
   promoted_pr_url?: string
   promoted_pr_state?: PlaygroundPRState
   promoted_commit?: string
@@ -1110,6 +1114,14 @@ export async function dryRunPlaygroundSoul(
   body: { user_message?: string; history?: { role: string; content: string }[]; workspace_id?: string },
 ): Promise<PlaygroundDryRunResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/dry-run`, body })
+}
+
+export async function setPlaygroundSkillVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/playground/skills/${encodeURIComponent(id)}/visibility`, body: { visibility } })
+}
+
+export async function setPlaygroundSoulVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
+  await apiFetch({ method: 'PATCH', path: `/api/playground/souls/${encodeURIComponent(id)}/visibility`, body: { visibility } })
 }
 
 // Draft audit timeline (improvements.md #14).

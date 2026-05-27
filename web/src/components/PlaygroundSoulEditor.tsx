@@ -11,6 +11,7 @@ import {
   type PlaygroundDryRunResponse,
   type Workspace,
 } from '../lib/api'
+import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 
 interface SoulFrontmatter {
   id?: string
@@ -141,6 +142,13 @@ export function PlaygroundSoulEditor() {
         <span className="text-xs text-[var(--muted-foreground)]">({draft.status})</span>
         {dirty && <span className="text-xs text-yellow-400">● unsaved</span>}
         <div className="flex-1" />
+        <MarketplaceVisibilityToggle
+          kind="soul"
+          draftID={draft.id}
+          visibility={draft.visibility ?? 'private'}
+          canSet={draft.can_set_visibility ?? false}
+          onChanged={(v) => setDraft({ ...draft, visibility: v })}
+        />
         <button
           onClick={handleSave}
           disabled={!dirty || saving}

@@ -471,6 +471,8 @@ func (s *Server) Router() http.Handler {
 		// Draft audit timeline (improvements.md #14). Author-only.
 		r.Get("/api/playground/skills/{id}/audit", s.handleListSkillDraftAudit)
 		r.Get("/api/playground/souls/{id}/audit", s.handleListSoulDraftAudit)
+		r.Patch("/api/playground/skills/{id}/visibility", s.handleAuthorSetSkillVisibility)
+		r.Patch("/api/playground/souls/{id}/visibility", s.handleAuthorSetSoulVisibility)
 		// Git-pinned templates (improvements.md picker gap a). Hardcoded
 		// registry today; #17 tenant catalog moves to DB.
 		r.Get("/api/templates/skills", s.handleListSkillTemplates)
@@ -595,7 +597,8 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/api/workspaces/{wid}/api-keys/{id}", s.handleRevokeWorkspaceAPIKey)
 
 		// Marketplace — cross-tenant shared templates (improvements.md #18).
-		// Any authenticated user can list + fork; visibility toggle is admin-only.
+		// Any authenticated user can list + fork; visibility toggle is author
+		// (workspace owner/maintainer) or admin override.
 		r.Get("/api/marketplace/skills", s.handleListMarketplaceSkills)
 		r.Get("/api/marketplace/souls", s.handleListMarketplaceSouls)
 		r.Post("/api/marketplace/skills/{id}/fork", s.handleForkMarketplaceSkill)

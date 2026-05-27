@@ -28,6 +28,8 @@ type playgroundSkillSummary struct {
 	Description     string `json:"description"`
 	Status          string `json:"status"`
 	WorkspaceID     string `json:"workspace_id,omitempty"` // empty = system template
+	Visibility      string `json:"visibility,omitempty"` // private | shared (migration 036)
+	CanSetVisibility bool  `json:"can_set_visibility,omitempty"`
 	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
 	PromotedPRState string `json:"promoted_pr_state,omitempty"`
 	PromotedCommit  string `json:"promoted_commit,omitempty"`
@@ -46,6 +48,8 @@ type playgroundSoulSummary struct {
 	Status          string `json:"status"`
 	SchemaVersion   string `json:"schema_version"`
 	WorkspaceID     string `json:"workspace_id,omitempty"` // empty = system template
+	Visibility      string `json:"visibility,omitempty"` // private | shared (migration 036)
+	CanSetVisibility bool  `json:"can_set_visibility,omitempty"`
 	PromotedPRURL   string `json:"promoted_pr_url,omitempty"`
 	PromotedPRState string `json:"promoted_pr_state,omitempty"`
 	PromotedCommit  string `json:"promoted_commit,omitempty"`
@@ -70,15 +74,7 @@ func (s *Server) handleListSkillDrafts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]playgroundSkillSummary, 0, len(drafts))
 	for _, d := range drafts {
-		out = append(out, playgroundSkillSummary{
-			ID:            d.ID,
-			Name:          d.Name,
-			Description:   d.Description,
-			Status:        d.Status,
-			WorkspaceID:   d.WorkspaceID.String,
-			PromotedPRURL: d.PromotedPRURL.String,
-			UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		})
+		out = append(out, s.summarizeSkillForUser(userID, d))
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"drafts": out})
 }
@@ -128,7 +124,7 @@ func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) 
 	}
 	RecordDraftAction("skill", "created")
 	_ = s.DB.AppendDraftAuditEvent("skill", draft.ID, userID, "created", map[string]interface{}{"name": draft.Name})
-	writeJSON(w, http.StatusCreated, summarizeSkill(draft))
+	writeJSON(w, http.StatusCreated, s.summarizeSkillForUser(userID, draft))
 }
 
 func (s *Server) handleGetSkillDraft(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +140,7 @@ func (s *Server) handleGetSkillDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, playgroundSkillFull{
-		playgroundSkillSummary: summarizeSkill(draft),
+		playgroundSkillSummary: s.summarizeSkillForUser(userID, draft),
 		Files:                  draft.Files,
 	})
 }
@@ -220,16 +216,7 @@ func (s *Server) handleListSoulDrafts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]playgroundSoulSummary, 0, len(drafts))
 	for _, d := range drafts {
-		out = append(out, playgroundSoulSummary{
-			ID:            d.ID,
-			Name:          d.Name,
-			Description:   d.Description,
-			Status:        d.Status,
-			SchemaVersion: d.SchemaVersion,
-			WorkspaceID:   d.WorkspaceID.String,
-			PromotedPRURL: d.PromotedPRURL.String,
-			UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		})
+		out = append(out, s.summarizeSoulForUser(userID, d))
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"drafts": out})
 }
@@ -278,7 +265,7 @@ func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	RecordDraftAction("soul", "created")
 	_ = s.DB.AppendDraftAuditEvent("soul", draft.ID, userID, "created", map[string]interface{}{"name": draft.Name})
-	writeJSON(w, http.StatusCreated, summarizeSoul(draft))
+	writeJSON(w, http.StatusCreated, s.summarizeSoulForUser(userID, draft))
 }
 
 func (s *Server) handleGetSoulDraft(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +281,7 @@ func (s *Server) handleGetSoulDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, playgroundSoulFull{
-		playgroundSoulSummary: summarizeSoul(draft),
+		playgroundSoulSummary: s.summarizeSoulForUser(userID, draft),
 		Frontmatter:           draft.Frontmatter,
 		Body:                  draft.Body,
 	})
@@ -406,11 +393,17 @@ func (s *Server) resolveDraftWorkspaceID(userID, wsChoice string) (string, error
 // --- helpers ---------------------------------------------------------------
 
 func summarizeSkill(d *db.SkillDraft) playgroundSkillSummary {
+	vis := d.Visibility
+	if vis == "" {
+		vis = "private"
+	}
 	return playgroundSkillSummary{
 		ID:              d.ID,
 		Name:            d.Name,
 		Description:     d.Description,
 		Status:          d.Status,
+		WorkspaceID:     d.WorkspaceID.String,
+		Visibility:      vis,
 		PromotedPRURL:   d.PromotedPRURL.String,
 		PromotedPRState: d.PromotedPRState.String,
 		PromotedCommit:  d.PromotedCommit.String,
@@ -419,17 +412,35 @@ func summarizeSkill(d *db.SkillDraft) playgroundSkillSummary {
 }
 
 func summarizeSoul(d *db.SoulDraft) playgroundSoulSummary {
+	vis := d.Visibility
+	if vis == "" {
+		vis = "private"
+	}
 	return playgroundSoulSummary{
 		ID:              d.ID,
 		Name:            d.Name,
 		Description:     d.Description,
 		Status:          d.Status,
 		SchemaVersion:   d.SchemaVersion,
+		WorkspaceID:     d.WorkspaceID.String,
+		Visibility:      vis,
 		PromotedPRURL:   d.PromotedPRURL.String,
 		PromotedPRState: d.PromotedPRState.String,
 		PromotedCommit:  d.PromotedCommit.String,
 		UpdatedAt:       d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
+}
+
+func (s *Server) summarizeSkillForUser(userID string, d *db.SkillDraft) playgroundSkillSummary {
+	out := summarizeSkill(d)
+	out.CanSetVisibility = s.userCanSetDraftVisibility(userID, d.WorkspaceID)
+	return out
+}
+
+func (s *Server) summarizeSoulForUser(userID string, d *db.SoulDraft) playgroundSoulSummary {
+	out := summarizeSoul(d)
+	out.CanSetVisibility = s.userCanSetDraftVisibility(userID, d.WorkspaceID)
+	return out
 }
 
 // writeJSON mirrors the Content-Type + encode pattern used elsewhere

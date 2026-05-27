@@ -13,6 +13,7 @@ import {
 } from '../lib/api'
 import { PromotedDiff } from './PromotedDiff'
 import { DraftAuditTimeline } from './DraftAuditTimeline'
+import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 
 export function PlaygroundSkillEditor() {
   const { id } = useParams<{ id: string }>()
@@ -141,6 +142,13 @@ export function PlaygroundSkillEditor() {
         <span className="text-xs text-[var(--muted-foreground)]">({draft.status})</span>
         {dirty && <span className="text-xs text-yellow-400">● unsaved</span>}
         <div className="flex-1" />
+        <MarketplaceVisibilityToggle
+          kind="skill"
+          draftID={draft.id}
+          visibility={draft.visibility ?? 'private'}
+          canSet={draft.can_set_visibility ?? false}
+          onChanged={(v) => setDraft({ ...draft, visibility: v })}
+        />
         <button
           onClick={handleSave}
           disabled={!dirty || saving}
