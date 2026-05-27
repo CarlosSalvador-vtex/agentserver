@@ -19,7 +19,7 @@ This reference covers the **external developer surface** of agentserver: the end
 
 | Tag | Endpoints | Page |
 |-----|-----------|------|
-| Auth | 5 | [`auth.md`](auth.md) |
+| Auth | 6 | [`auth.md`](auth.md) |
 | Workspaces | 14 | [`workspaces.md`](workspaces.md) |
 | Workspace API Keys | 4 | [`workspace-api-keys.md`](workspace-api-keys.md) |
 | Sandboxes | 8 | [`sandboxes.md`](sandboxes.md) |
