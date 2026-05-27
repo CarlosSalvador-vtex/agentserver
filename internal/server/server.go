@@ -724,12 +724,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if workspaceSlug == "" {
 		workspaceSlug = s.workspaceSlugFromHost(r)
 	}
+	// Resolve workspace_id from slug so audit rows can be filtered per tenant.
+	var wsID string
+	if workspaceSlug != "" {
+		if ws, _ := s.DB.GetWorkspaceBySlug(workspaceSlug); ws != nil {
+			wsID = ws.ID
+		}
+	}
+
 	token, userID, ok := s.Auth.LoginWithWorkspace(req.Email, req.Password, workspaceSlug)
 	if !ok {
 		if s.Audit != nil {
 			s.Audit.LogAnonymous("auth.login.failure", db.AuditEvent{
-				Details: map[string]any{"email": req.Email, "workspace_slug": workspaceSlug},
-				IP:      r.RemoteAddr,
+				WorkspaceID: wsID,
+				Details:     map[string]any{"email": req.Email, "workspace_slug": workspaceSlug},
+				IP:          r.RemoteAddr,
 			})
 		}
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
@@ -738,9 +747,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	auth.SetTokenCookieHostOnly(w, token, auth.HostOnlySessionCookie(workspaceSlug))
 	if s.Audit != nil {
 		s.Audit.LogAnonymous("auth.login.success", db.AuditEvent{
-			UserID:  userID,
-			Details: map[string]any{"workspace_slug": workspaceSlug},
-			IP:      r.RemoteAddr,
+			UserID:      userID,
+			WorkspaceID: wsID,
+			Details:     map[string]any{"workspace_slug": workspaceSlug},
+			IP:          r.RemoteAddr,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
