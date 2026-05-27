@@ -29,11 +29,7 @@ func testWorkspaceID(t *testing.T, s *Server) string {
 	t.Helper()
 	n := wsSeq.Add(1)
 	id := fmt.Sprintf("test-ws-%d", n)
-	_, err := s.DB.Exec(
-		`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		id, fmt.Sprintf("Test Workspace %d", n),
-	)
-	if err != nil {
+	if err := s.DB.EnsureWorkspace(id, fmt.Sprintf("Test Workspace %d", n)); err != nil {
 		t.Fatalf("create test workspace: %v", err)
 	}
 	t.Cleanup(func() {

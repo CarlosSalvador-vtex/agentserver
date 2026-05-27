@@ -43,6 +43,7 @@ Schema: [`AuthCredentials`](#schema-authcredentials)
 {
   email: string
   password: string
+  workspace_slug?: string
 }
 ```
 
@@ -94,6 +95,7 @@ Schema: [`AuthCredentials`](#schema-authcredentials)
 {
   email: string
   password: string
+  workspace_slug?: string
 }
 ```
 
@@ -144,6 +146,7 @@ Schema: [`SessionWorkspaceRequest`](#schema-sessionworkspacerequest)
 {
   email: string
   password: string
+  workspace_slug?: string
 }
 ```
 

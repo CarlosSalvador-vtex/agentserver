@@ -36,6 +36,12 @@ type OIDCManager struct {
 	baseURL        string
 	auth           *Auth
 	OnUserCreated  func(userID string) // called when a brand-new user is created via OIDC
+
+	// Subdomain workspace binding on OAuth callback (Opção A).
+	BaseDomains             []string
+	OpenclawSubdomainPrefix string
+	HermesSubdomainPrefix   string
+	CodexAuthHost           string
 }
 
 // NewOIDCManager creates a new manager. baseURL is the external redirect base (e.g. "https://app.example.com").
@@ -253,7 +259,29 @@ func (m *OIDCManager) HandleCallback(w http.ResponseWriter, r *http.Request, pro
 		return
 	}
 
-	SetTokenCookie(w, authToken)
+	workspaceSlug := ResolveWorkspaceSlugFromHost(
+		r.Host,
+		m.BaseDomains,
+		m.OpenclawSubdomainPrefix,
+		m.HermesSubdomainPrefix,
+		m.CodexAuthHost,
+	)
+	if workspaceSlug != "" {
+		database := m.auth.DB()
+		ws, err := database.GetWorkspaceBySlug(workspaceSlug)
+		if err != nil || ws == nil {
+			_ = m.auth.InvalidateToken(authToken)
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			return
+		}
+		bound, err := m.auth.SetActiveWorkspace(authToken, userID, ws.ID)
+		if err != nil || !bound {
+			_ = m.auth.InvalidateToken(authToken)
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			return
+		}
+	}
+	SetTokenCookieHostOnly(w, authToken, HostOnlySessionCookie(workspaceSlug))
 
 	dest := "/"
 	if c, err := r.Cookie(nextCookieName); err == nil {

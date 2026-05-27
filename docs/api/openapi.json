@@ -7632,6 +7632,10 @@
           "password": {
             "type": "string",
             "example": "hunter2"
+          },
+          "workspace_slug": {
+            "type": "string",
+            "example": "empresa-a"
           }
         }
       },
@@ -8966,6 +8970,7 @@
           "created_at",
           "id",
           "name",
+          "slug",
           "updated_at"
         ],
         "properties": {
@@ -8976,6 +8981,9 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "slug": {
             "type": "string"
           },
           "updated_at": {
@@ -9105,6 +9113,10 @@
           "name": {
             "type": "string",
             "example": "My Workspace"
+          },
+          "slug": {
+            "type": "string",
+            "example": "my-workspace"
           }
         }
       },

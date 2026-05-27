@@ -4688,6 +4688,9 @@ components:
         password:
           example: hunter2
           type: string
+        workspace_slug:
+          example: empresa-a
+          type: string
       required:
         - email
         - password
@@ -5630,12 +5633,15 @@ components:
           type: string
         name:
           type: string
+        slug:
+          type: string
         updated_at:
           type: string
       required:
         - created_at
         - id
         - name
+        - slug
         - updated_at
       type: object
     WorkspaceAPIKey:
@@ -5724,6 +5730,9 @@ components:
       properties:
         name:
           example: My Workspace
+          type: string
+        slug:
+          example: my-workspace
           type: string
       required:
         - name

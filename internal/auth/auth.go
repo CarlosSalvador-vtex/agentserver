@@ -74,6 +74,32 @@ func (a *Auth) Login(email, password string) (string, string, bool) {
 	return token, user.ID, true
 }
 
+// LoginWithWorkspace verifies credentials and, if workspaceSlug is non-empty,
+// resolves the slug and stamps active_workspace_id on the new session token.
+// Returns ok=false for bad credentials, unknown slug, or non-membership (same
+// response as wrong password). On membership failure after token issue, the
+// token is invalidated.
+func (a *Auth) LoginWithWorkspace(email, password, workspaceSlug string) (string, string, bool) {
+	token, userID, ok := a.Login(email, password)
+	if !ok {
+		return "", "", false
+	}
+	if workspaceSlug == "" {
+		return token, userID, true
+	}
+	ws, err := a.db.GetWorkspaceBySlug(workspaceSlug)
+	if err != nil || ws == nil {
+		_ = a.InvalidateToken(token)
+		return "", "", false
+	}
+	bound, err := a.SetActiveWorkspace(token, userID, ws.ID)
+	if err != nil || !bound {
+		_ = a.InvalidateToken(token)
+		return "", "", false
+	}
+	return token, userID, true
+}
+
 // IssueToken generates a random token, stores it, and returns it.
 func (a *Auth) IssueToken(userID string) (string, error) {
 	token, err := secrets.RandomHex(32)
@@ -236,14 +262,42 @@ func (a *Auth) DB() *db.DB {
 }
 
 func SetTokenCookie(w http.ResponseWriter, token string) {
+	SetTokenCookieHostOnly(w, token, false)
+}
+
+// SetTokenCookieHostOnly sets the session cookie. When hostOnly is true, Domain
+// is omitted so the cookie is scoped to the current host (tenant subdomain).
+func SetTokenCookieHostOnly(w http.ResponseWriter, token string, hostOnly bool) {
+	domain := cookieDomain()
+	if hostOnly {
+		domain = ""
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
-		Domain:   cookieDomain(),
+		Domain:   domain,
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(tokenTTL.Seconds()),
+	})
+}
+
+// ClearTokenCookie removes the session cookie using the same Domain policy as issuance.
+func ClearTokenCookie(w http.ResponseWriter, hostOnly bool) {
+	domain := cookieDomain()
+	if hostOnly {
+		domain = ""
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   domain,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 }

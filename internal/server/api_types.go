@@ -20,8 +20,9 @@ import "time"
 // AuthCredentials is the email+password body for POST /api/auth/login
 // and POST /api/auth/register.
 type AuthCredentials struct {
-	Email    string `json:"email" example:"alice@example.com" validate:"required"`
-	Password string `json:"password" example:"hunter2" validate:"required"`
+	Email         string `json:"email" example:"alice@example.com" validate:"required"`
+	Password      string `json:"password" example:"hunter2" validate:"required"`
+	WorkspaceSlug string `json:"workspace_slug,omitempty" example:"empresa-a"`
 } //@name AuthCredentials
 
 // AuthStatusResponse is the {"status":"ok"} envelope returned by
@@ -68,6 +69,7 @@ type SessionWorkspaceResponse struct {
 // WorkspaceCreateRequest is the body for POST /api/workspaces.
 type WorkspaceCreateRequest struct {
 	Name string `json:"name" validate:"required" example:"My Workspace"`
+	Slug string `json:"slug,omitempty" example:"my-workspace"`
 } // @name WorkspaceCreateRequest
 
 // WorkspaceRenameRequest is the body for PATCH /api/workspaces/{id}.

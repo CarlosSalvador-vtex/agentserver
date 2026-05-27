@@ -2,13 +2,18 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
 
+// ErrSlugTaken is returned when a workspace slug is already in use.
+var ErrSlugTaken = errors.New("slug already taken")
+
 type Workspace struct {
 	ID           string
 	Name         string
+	Slug         string
 	K8sNamespace sql.NullString
 	// ChannelRoutingStrategy controls how IM channels map to sandboxes:
 	// "shared" (N channels → 1 sandbox), "per_agent" (1:1), or "hybrid"
@@ -33,10 +38,79 @@ type WorkspaceMember struct {
 	CreatedAt   time.Time
 }
 
-func (db *DB) CreateWorkspace(id, name string) error {
+// CreateWorkspaceWithSlug creates a workspace with an auto-generated slug
+// derived from name. On collision, suffixes -2, -3, ... until unique.
+func (db *DB) CreateWorkspaceWithSlug(id, name, k8sNamespace string) (string, error) {
+	base := Slugify(name)
+	if err := ValidateSlug(base); err != nil {
+		base = base + "-1"
+	}
+	slug := base
+	for i := 2; ; i++ {
+		existing, err := db.GetWorkspaceBySlug(slug)
+		if err != nil {
+			return "", err
+		}
+		if existing == nil {
+			break
+		}
+		slug = fmt.Sprintf("%s-%d", base, i)
+		if i > 1000 {
+			return "", fmt.Errorf("could not allocate unique slug for %q", name)
+		}
+	}
+	var ns sql.NullString
+	if k8sNamespace != "" {
+		ns = sql.NullString{String: k8sNamespace, Valid: true}
+	}
 	_, err := db.Exec(
-		`INSERT INTO workspaces (id, name) VALUES ($1, $2)`,
-		id, name,
+		`INSERT INTO workspaces (id, name, slug, k8s_namespace, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+		id, name, slug, ns,
+	)
+	if err != nil {
+		return "", fmt.Errorf("create workspace: %w", err)
+	}
+	return slug, nil
+}
+
+func (db *DB) CreateWorkspace(id, name string) error {
+	_, err := db.CreateWorkspaceWithSlug(id, name, "")
+	return err
+}
+
+// EnsureWorkspace creates the workspace when missing. Idempotent for tests and setup.
+func (db *DB) EnsureWorkspace(id, name string) error {
+	w, err := db.GetWorkspace(id)
+	if err != nil {
+		return err
+	}
+	if w != nil {
+		return nil
+	}
+	return db.CreateWorkspace(id, name)
+}
+
+// CreateWorkspaceExplicit creates a workspace with a caller-provided slug.
+func (db *DB) CreateWorkspaceExplicit(id, name, slug, k8sNamespace string) error {
+	if err := ValidateSlug(slug); err != nil {
+		return err
+	}
+	existing, err := db.GetWorkspaceBySlug(slug)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return ErrSlugTaken
+	}
+	var ns sql.NullString
+	if k8sNamespace != "" {
+		ns = sql.NullString{String: k8sNamespace, Valid: true}
+	}
+	_, err = db.Exec(
+		`INSERT INTO workspaces (id, name, slug, k8s_namespace, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+		id, name, slug, ns,
 	)
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
@@ -44,12 +118,31 @@ func (db *DB) CreateWorkspace(id, name string) error {
 	return nil
 }
 
+func (db *DB) GetWorkspaceBySlug(slug string) (*Workspace, error) {
+	if slug == "" {
+		return nil, nil
+	}
+	w := &Workspace{}
+	err := db.QueryRow(
+		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
+		 FROM workspaces WHERE slug = $1`,
+		slug,
+	).Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get workspace by slug: %w", err)
+	}
+	return w, nil
+}
+
 func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	w := &Workspace{}
 	err := db.QueryRow(
-		`SELECT id, name, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at FROM workspaces WHERE id = $1`,
+		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at FROM workspaces WHERE id = $1`,
 		id,
-	).Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt)
+	).Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -77,7 +170,7 @@ func (db *DB) UpdateWorkspaceName(id, name string) error {
 
 func (db *DB) ListWorkspacesByUser(userID string) ([]*Workspace, error) {
 	rows, err := db.Query(
-		`SELECT w.id, w.name, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at
+		`SELECT w.id, w.name, w.slug, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at
 		 FROM workspaces w
 		 JOIN workspace_members wm ON w.id = wm.workspace_id
 		 WHERE wm.user_id = $1
@@ -92,7 +185,7 @@ func (db *DB) ListWorkspacesByUser(userID string) ([]*Workspace, error) {
 	var workspaces []*Workspace
 	for rows.Next() {
 		w := &Workspace{}
-		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, w)
@@ -229,7 +322,7 @@ func (db *DB) GetAllWorkspaceNamespaces() ([]string, error) {
 
 func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 	rows, err := db.Query(
-		`SELECT id, name, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
+		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
 		 FROM workspaces
 		 WHERE k8s_namespace IS NULL OR k8s_namespace = ''`,
 	)
@@ -241,7 +334,7 @@ func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 	var workspaces []*Workspace
 	for rows.Next() {
 		w := &Workspace{}
-		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, w)
@@ -251,7 +344,7 @@ func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 
 func (db *DB) ListAllWorkspaces() ([]*Workspace, error) {
 	rows, err := db.Query(
-		`SELECT id, name, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
+		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
 		 FROM workspaces ORDER BY created_at ASC`,
 	)
 	if err != nil {
@@ -262,7 +355,7 @@ func (db *DB) ListAllWorkspaces() ([]*Workspace, error) {
 	var workspaces []*Workspace
 	for rows.Next() {
 		w := &Workspace{}
-		if err := rows.Scan(&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, w)
@@ -282,7 +375,7 @@ type AdminWorkspaceInfo struct {
 
 func (db *DB) ListAllWorkspacesAdmin() ([]*AdminWorkspaceInfo, error) {
 	rows, err := db.Query(
-		`SELECT w.id, w.name, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at,
+		`SELECT w.id, w.name, w.slug, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at,
 		        u.id, u.email, u.name, u.picture,
 		        (SELECT COUNT(*) FROM sandboxes s WHERE s.workspace_id = w.id)
 		 FROM workspaces w
@@ -299,7 +392,7 @@ func (db *DB) ListAllWorkspacesAdmin() ([]*AdminWorkspaceInfo, error) {
 	for rows.Next() {
 		w := &AdminWorkspaceInfo{}
 		if err := rows.Scan(
-			&w.ID, &w.Name, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt,
+			&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt,
 			&w.OwnerID, &w.OwnerEmail, &w.OwnerName, &w.OwnerPicture,
 			&w.SandboxCount,
 		); err != nil {

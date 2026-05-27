@@ -18,14 +18,10 @@ func setupAPIKeyFixtures(t *testing.T, d *DB) (workspaceID, userID string) {
 	workspaceID = "ws_wak_" + suffix
 	userID = "u_wak_" + suffix
 
-	_, err := d.Exec(
-		`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		workspaceID, "test workspace "+suffix,
-	)
-	if err != nil {
+	if err := d.EnsureWorkspace(workspaceID, "test workspace "+suffix); err != nil {
 		t.Fatalf("insert workspace: %v", err)
 	}
-	_, err = d.Exec(
+	_, err := d.Exec(
 		`INSERT INTO users (id, username, email) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 		userID, "wak_user_"+suffix, "wak_user_"+suffix+"@example.com",
 	)

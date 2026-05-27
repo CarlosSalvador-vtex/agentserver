@@ -41,10 +41,7 @@ func seedUser(t *testing.T, d *db.DB, id string) {
 func seedSandbox(t *testing.T, d *db.DB, sbxID string) {
 	t.Helper()
 	wsID := "ws-integ-" + sbxID
-	if _, err := d.Exec(
-		`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		wsID, "integ test ws",
-	); err != nil {
+	if err := d.EnsureWorkspace(wsID, "integ test ws"); err != nil {
 		t.Fatalf("seed workspace %q: %v", wsID, err)
 	}
 	if _, err := d.Exec(

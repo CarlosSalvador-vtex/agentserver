@@ -34,7 +34,7 @@ func openTestDBForServer(t *testing.T) (*db.DB, error) {
 
 func seedWorkspaceMember(t *testing.T, d *db.DB, wid, uid, role string) {
 	t.Helper()
-	if _, err := d.Exec(`INSERT INTO workspaces (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`, wid, "test ws"); err != nil {
+	if err := d.EnsureWorkspace(wid, "test ws"); err != nil {
 		t.Fatalf("insert workspace: %v", err)
 	}
 	if _, err := d.Exec(`INSERT INTO users (id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING`, uid, uid+"@test"); err != nil {
