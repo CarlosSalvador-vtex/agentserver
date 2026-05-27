@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 
+	"github.com/agentserver/agentserver/internal/audit"
 	"github.com/agentserver/agentserver/internal/auth"
 	"github.com/agentserver/agentserver/internal/codexauth"
 	"github.com/agentserver/agentserver/internal/crypto"
@@ -224,6 +225,8 @@ var serveCmd = &cobra.Command{
 
 		srv := server.New(authSvc, oidcMgr, database, sandboxStore, procMgr, driveMgr, nsMgr, tunnel.NewRegistry(), staticFS, !strings.EqualFold(os.Getenv("PASSWORD_AUTH_ENABLED"), "false"))
 		srv.DatabaseURL = dbURL
+		srv.Audit = audit.NewService(database, 1000)
+		defer srv.Audit.Shutdown(5 * time.Second)
 		srv.IMBridgeURL = os.Getenv("IMBRIDGE_URL")
 		srv.LLMProxyURL = os.Getenv("LLMPROXY_URL")
 		srv.ModelserverOAuthClientID = os.Getenv("MODELSERVER_OAUTH_CLIENT_ID")
