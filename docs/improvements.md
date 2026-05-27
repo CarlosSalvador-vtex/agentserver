@@ -1,7 +1,10 @@
 # Improvement Roadmap — agentserver fork
 
-> **All 20 items shipped as of Sprint 5 (2026-05-27).** The backlog is complete.
-> Migrations go up to 037. Current image tag: `sprint5-final`.
+> **All 20 items shipped + SaaS webhook isolation (2026-05-27).** The backlog is complete.
+> Migrations go up to 038. Current image tag: `saas-webhook`.
+> cobranca skill now uses native plugin-sdk imports (definePluginEntry); soul persona
+> delivered natively by OpenClaw workspace bootstrap from SOUL.md — no in-plugin
+> injection needed.
 > This document is now a historical record; use it for rationale on past decisions.
 
 > 20 prioritized improvements derived from the multi-channel routing,
