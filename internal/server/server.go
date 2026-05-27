@@ -151,6 +151,10 @@ func New(a *auth.Auth, oidcMgr *auth.OIDCManager, database *db.DB, sandboxStore 
 	}
 	if s.OIDC != nil {
 		s.OIDC.OnUserCreated = s.createDefaultWorkspace
+		s.OIDC.BaseDomains = s.BaseDomains
+		s.OIDC.OpenclawSubdomainPrefix = s.OpenclawSubdomainPrefix
+		s.OIDC.HermesSubdomainPrefix = s.HermesSubdomainPrefix
+		s.OIDC.CodexAuthHost = s.codexAuthHost()
 	}
 	// Background sweep for expired device code flows (OIDC).
 	go s.sweepExpiredDeviceFlows()
@@ -693,12 +697,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	token, _, ok := s.Auth.Login(req.Email, req.Password)
+	workspaceSlug := strings.TrimSpace(req.WorkspaceSlug)
+	if workspaceSlug == "" {
+		workspaceSlug = s.workspaceSlugFromHost(r)
+	}
+	token, _, ok := s.Auth.LoginWithWorkspace(req.Email, req.Password, workspaceSlug)
 	if !ok {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	auth.SetTokenCookie(w, token)
+	auth.SetTokenCookieHostOnly(w, token, auth.HostOnlySessionCookie(workspaceSlug))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AuthStatusResponse{Status: "ok"})
 }
@@ -798,18 +806,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 			log.Printf("logout: invalidate token: %v", err)
 		}
 	}
-	// Cookie Domain must match the issuance side (auth.SetTokenCookie)
-	// or the browser won't actually clear the cross-subdomain cookie.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "agentserver-token",
-		Value:    "",
-		Path:     "/",
-		Domain:   os.Getenv("AGENTSERVER_COOKIE_DOMAIN"),
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	auth.ClearTokenCookie(w, auth.HostOnlySessionCookie(s.workspaceSlugFromHost(r)))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AuthStatusResponse{Status: "ok"})
 }
@@ -893,6 +890,7 @@ func (s *Server) handleSetSessionWorkspace(w http.ResponseWriter, r *http.Reques
 type workspaceResponse struct {
 	ID        string `json:"id" validate:"required"`
 	Name      string `json:"name" validate:"required"`
+	Slug      string `json:"slug" validate:"required"`
 	CreatedAt string `json:"created_at" validate:"required"`
 	UpdatedAt string `json:"updated_at" validate:"required"`
 } // @name Workspace
@@ -959,9 +957,31 @@ func (s *Server) toWorkspaceResponse(ws *db.Workspace) workspaceResponse {
 	return workspaceResponse{
 		ID:        ws.ID,
 		Name:      ws.Name,
+		Slug:      ws.Slug,
 		CreatedAt: ws.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: ws.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+func (s *Server) codexAuthHost() string {
+	if s.CodexAuthIssuerURL == "" {
+		return ""
+	}
+	u, err := url.Parse(s.CodexAuthIssuerURL)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func (s *Server) workspaceSlugFromHost(r *http.Request) string {
+	return auth.ResolveWorkspaceSlugFromHost(
+		r.Host,
+		s.BaseDomains,
+		s.OpenclawSubdomainPrefix,
+		s.HermesSubdomainPrefix,
+		s.codexAuthHost(),
+	)
 }
 
 // baseDomainForRequest returns the base domain that best matches the request's
@@ -1200,8 +1220,22 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := uuid.New().String()
-	if err := s.DB.CreateWorkspace(id, req.Name); err != nil {
-		log.Printf("failed to create workspace: %v", err)
+	var createErr error
+	if slug := strings.TrimSpace(req.Slug); slug != "" {
+		if err := db.ValidateSlug(slug); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		createErr = s.DB.CreateWorkspaceExplicit(id, req.Name, slug, "")
+	} else {
+		_, createErr = s.DB.CreateWorkspaceWithSlug(id, req.Name, "")
+	}
+	if createErr != nil {
+		if errors.Is(createErr, db.ErrSlugTaken) {
+			http.Error(w, "slug already taken", http.StatusConflict)
+			return
+		}
+		log.Printf("failed to create workspace: %v", createErr)
 		http.Error(w, "failed to create workspace", http.StatusInternalServerError)
 		return
 	}

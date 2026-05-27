@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "openapi:gen": "openapi-typescript ../docs/api/openapi.yaml -o src/lib/api-generated/schema.d.ts"
+    "openapi:gen": "openapi-typescript ../docs/api/openapi.yaml -o src/lib/api-generated/schema.d.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
@@ -37,7 +38,8 @@
     "swagger2openapi": "^7.0.8",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.2.4"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

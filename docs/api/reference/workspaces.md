@@ -53,6 +53,7 @@ Schema: [`WorkspaceCreateRequest`](#schema-workspacecreaterequest)
 ```yaml
 {
   name: string
+  slug?: string
 }
 ```
 
@@ -474,6 +475,7 @@ Remove a member (owner only)
   created_at: string
   id: string
   name: string
+  slug: string
   updated_at: string
 }
 ```
@@ -483,6 +485,7 @@ Remove a member (owner only)
 ```yaml
 {
   name: string
+  slug?: string
 }
 ```
 

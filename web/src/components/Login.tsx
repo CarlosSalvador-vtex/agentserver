@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { login, register, getOIDCProviders } from '../lib/api'
+import { extractWorkspaceSlug } from '../lib/hostname'
 
 interface LoginProps {
   onSuccess: () => void
@@ -20,6 +21,7 @@ export function Login({ onSuccess }: LoginProps) {
   const [oidcProviders, setOidcProviders] = useState<string[]>([])
   const [passwordAuth, setPasswordAuth] = useState(false)
   const [providersLoaded, setProvidersLoaded] = useState(false)
+  const workspaceSlug = extractWorkspaceSlug(window.location.hostname)
 
   useEffect(() => {
     getOIDCProviders().then((data) => {
@@ -38,7 +40,7 @@ export function Login({ onSuccess }: LoginProps) {
         const ok = await register(email, password)
         if (ok) {
           // Auto-login after registration.
-          const loginOk = await login(email, password)
+          const loginOk = await login(email, password, workspaceSlug || undefined)
           if (loginOk) {
             onSuccess()
           } else {
@@ -48,7 +50,7 @@ export function Login({ onSuccess }: LoginProps) {
           setError('Registration failed')
         }
       } else {
-        const ok = await login(email, password)
+        const ok = await login(email, password, workspaceSlug || undefined)
         if (ok) {
           onSuccess()
         } else {
@@ -74,6 +76,11 @@ export function Login({ onSuccess }: LoginProps) {
           <div className="flex justify-center py-4">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--muted-foreground)] border-t-transparent" />
           </div>
+        )}
+        {workspaceSlug && (
+          <p className="mb-4 text-center text-sm text-[var(--muted-foreground)]">
+            Signing in to workspace <code className="rounded bg-[var(--secondary)] px-1">{workspaceSlug}</code>
+          </p>
         )}
         {providersLoaded && !passwordAuth && oidcProviders.length === 0 && (
           <p className="text-center text-sm text-[var(--destructive)]">

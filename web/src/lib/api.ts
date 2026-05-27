@@ -70,12 +70,16 @@ export type SandboxUsageSummary = components['schemas']['SandboxUsageSummary']
 
 export type AgentInfo = components['schemas']['AgentInfo']
 
-export async function login(email: string, password: string): Promise<boolean> {
+export async function login(email: string, password: string, workspaceSlug?: string): Promise<boolean> {
   try {
+    const body: components['schemas']['AuthCredentials'] = { email, password }
+    if (workspaceSlug) {
+      body.workspace_slug = workspaceSlug
+    }
     await apiFetch<components['schemas']['AuthStatusResponse']>({
       method: 'POST',
       path: '/api/auth/login',
-      body: { email, password } satisfies components['schemas']['AuthCredentials'],
+      body,
     })
     return true
   } catch (err) {
@@ -121,7 +125,14 @@ export async function getOIDCProviders(): Promise<{ providers: string[]; passwor
   }
 }
 
-export async function getMe(): Promise<{ id: string; email: string; name?: string | null; picture?: string | null; role: string }> {
+export async function getMe(): Promise<{
+  id: string
+  email: string
+  name?: string | null
+  picture?: string | null
+  role: string
+  active_workspace_id?: string | null
+}> {
   const data = await apiFetch<components['schemas']['AuthMeResponse']>({
     method: 'GET',
     path: '/api/auth/me',
@@ -132,7 +143,17 @@ export async function getMe(): Promise<{ id: string; email: string; name?: strin
     name: data.name ?? null,
     picture: data.picture ?? null,
     role: data.role,
+    active_workspace_id: data.active_workspace_id ?? null,
   }
+}
+
+export async function setSessionWorkspace(workspaceId: string): Promise<string | null> {
+  const data = await apiFetch<components['schemas']['SessionWorkspaceResponse']>({
+    method: 'POST',
+    path: '/api/auth/session/workspace',
+    body: { workspace_id: workspaceId } satisfies components['schemas']['SessionWorkspaceRequest'],
+  })
+  return data.active_workspace_id ?? null
 }
 
 export async function logout(): Promise<void> {
@@ -153,12 +174,16 @@ export async function listWorkspaces(): Promise<Workspace[]> {
   return apiFetch<Workspace[]>({ method: 'GET', path: '/api/workspaces' })
 }
 
-export async function createWorkspace(name?: string): Promise<Workspace> {
+export async function createWorkspace(name?: string, slug?: string): Promise<Workspace> {
   try {
+    const body: components['schemas']['WorkspaceCreateRequest'] = { name: name || 'New Workspace' }
+    if (slug?.trim()) {
+      body.slug = slug.trim()
+    }
     return await apiFetch<Workspace>({
       method: 'POST',
       path: '/api/workspaces',
-      body: { name: name || 'New Workspace' } satisfies components['schemas']['WorkspaceCreateRequest'],
+      body,
     })
   } catch (err) {
     if (err instanceof ApiError) {

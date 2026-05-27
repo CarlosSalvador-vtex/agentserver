@@ -7,7 +7,9 @@ import {
   logout,
 } from '../lib/api'
 import type { UserInfo } from '../App'
-import { ConfirmModal, PromptModal } from './Modals'
+import { ConfirmModal } from './Modals'
+import { CreateWorkspaceModal } from './CreateWorkspaceModal'
+import { isTenantSubdomain } from '../lib/hostname'
 
 interface TopBarProps {
   workspaces: Workspace[]
@@ -97,11 +99,13 @@ export function TopBar({
     setShowCreateWs(true)
   }
 
-  const doCreateWorkspace = async (name: string) => {
+  const tenantHost = isTenantSubdomain()
+
+  const doCreateWorkspace = async (name: string, slug: string) => {
     setShowCreateWs(false)
     setQuotaError(null)
     try {
-      const ws = await createWorkspace(name)
+      const ws = await createWorkspace(name, slug)
       setWorkspaces((prev) => [...prev, ws])
       onSelectWorkspace(ws.id)
     } catch (err: unknown) {
@@ -149,6 +153,7 @@ export function TopBar({
         <div className="flex items-center gap-4">
           <span className="text-sm font-semibold text-[var(--foreground)]">agentserver</span>
 
+          {!tenantHost && (
           <div className="relative" ref={wsDropdownRef}>
             <button
               onClick={() => setWsDropdownOpen((v) => !v)}
@@ -206,6 +211,7 @@ export function TopBar({
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* Right: user menu */}
@@ -308,11 +314,7 @@ export function TopBar({
       )}
 
       {showCreateWs && (
-        <PromptModal
-          title="New Workspace"
-          label="Workspace name"
-          defaultValue="New Workspace"
-          confirmLabel="Create"
+        <CreateWorkspaceModal
           onConfirm={doCreateWorkspace}
           onCancel={() => setShowCreateWs(false)}
         />
