@@ -44,6 +44,12 @@ externalSecrets:
     hydra: "prd/rds/k8s-metadata-instance/agentserver-hydra"
     llmproxy: "prd/rds/k8s-metadata-instance/agentserver-llmproxy"
 
+sealedSecrets:
+  # Set to true to deploy SealedSecret resources (requires Sealed Secrets controller in cluster).
+  # SealedSecret YAMLs in templates/sealed-secret-*.yaml are cluster+namespace-bound —
+  # re-encrypt with kubeseal if migrating to a different cluster.
+  enabled: false
+
 models:
   anthropicApiKey: ""
   anthropicBaseUrl: ""
