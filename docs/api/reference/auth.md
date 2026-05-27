@@ -13,6 +13,7 @@ Endpoints under the `Auth` tag. Auto-generated from [`docs/api/openapi.yaml`](..
 | `POST` | [`/api/auth/logout`](#op-post-api-auth-logout) | Log out (clear session cookie) |
 | `GET` | [`/api/auth/me`](#op-get-api-auth-me) | Get current user profile |
 | `POST` | [`/api/auth/register`](#op-post-api-auth-register) | Register a new user |
+| `POST` | [`/api/auth/session/workspace`](#op-post-api-auth-session-workspace) | Set active workspace for the current session |
 
 ### `GET /api/auth/check` {#op-get-api-auth-check}
 Check session validity
@@ -107,6 +108,34 @@ Schema: [`AuthCredentials`](#schema-authcredentials)
 | `500` | internal error / failed to create user | `string` |
 
 
+### `POST /api/auth/session/workspace` {#op-post-api-auth-session-workspace}
+Set active workspace for the current session
+
+**Auth:** `CookieAuth`
+
+
+**Request body**
+
+Content-Type: `application/json`
+
+Schema: [`SessionWorkspaceRequest`](#schema-sessionworkspacerequest)
+
+```yaml
+{
+  workspace_id?: string
+}
+```
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | [`SessionWorkspaceResponse`](#schema-sessionworkspaceresponse) |
+| `400` | invalid request | `string` |
+| `403` | not a workspace member | `string` |
+
+
 ## Schemas
 
 ### `AuthCredentials` {#schema-authcredentials}
@@ -122,6 +151,7 @@ Schema: [`AuthCredentials`](#schema-authcredentials)
 
 ```yaml
 {
+  active_workspace_id?: string
   email: string
   id: string
   name?: string
@@ -144,5 +174,21 @@ Schema: [`AuthCredentials`](#schema-authcredentials)
 ```yaml
 {
   status: string
+}
+```
+
+### `SessionWorkspaceRequest` {#schema-sessionworkspacerequest}
+
+```yaml
+{
+  workspace_id?: string
+}
+```
+
+### `SessionWorkspaceResponse` {#schema-sessionworkspaceresponse}
+
+```yaml
+{
+  active_workspace_id?: string
 }
 ```

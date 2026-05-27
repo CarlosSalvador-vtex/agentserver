@@ -41,13 +41,27 @@ type AuthRegisterResponse struct {
 // Name and Picture are populated from OIDC profile data when present
 // (login via password leaves both empty). Both fields are always present
 // in the JSON response — nil pointers serialize as null (not omitted).
+// ActiveWorkspaceID is the workspace currently bound to the session
+// cookie (migration 039); empty when none selected.
 type AuthMeResponse struct {
-	ID      string  `json:"id" validate:"required"`
-	Email   string  `json:"email" validate:"required"`
-	Name    *string `json:"name" extensions:"x-nullable=true"`
-	Picture *string `json:"picture" extensions:"x-nullable=true"`
-	Role    string  `json:"role" example:"developer" validate:"required"`
+	ID                string  `json:"id" validate:"required"`
+	Email             string  `json:"email" validate:"required"`
+	Name              *string `json:"name" extensions:"x-nullable=true"`
+	Picture           *string `json:"picture" extensions:"x-nullable=true"`
+	Role              string  `json:"role" example:"developer" validate:"required"`
+	ActiveWorkspaceID *string `json:"active_workspace_id" extensions:"x-nullable=true"`
 } //@name AuthMeResponse
+
+// SessionWorkspaceRequest sets the active workspace for the current
+// session. Empty string clears the selection.
+type SessionWorkspaceRequest struct {
+	WorkspaceID string `json:"workspace_id" example:"ws-abc123"`
+} // @name SessionWorkspaceRequest
+
+// SessionWorkspaceResponse echoes the workspace now bound to the session.
+type SessionWorkspaceResponse struct {
+	ActiveWorkspaceID *string `json:"active_workspace_id" extensions:"x-nullable=true"`
+} // @name SessionWorkspaceResponse
 
 // --- Workspaces ---
 

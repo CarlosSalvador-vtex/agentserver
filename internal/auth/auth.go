@@ -28,7 +28,11 @@ func cookieDomain() string {
 
 type contextKey string
 
-const userIDKey contextKey = "userID"
+const (
+	userIDKey            contextKey = "userID"
+	activeWorkspaceIDKey contextKey = "activeWorkspaceID"
+	sessionTokenKey      contextKey = "sessionToken"
+)
 
 type Auth struct {
 	db *db.DB
@@ -91,6 +95,35 @@ func (a *Auth) ValidateToken(token string) (string, bool) {
 	return userID, true
 }
 
+// ValidateTokenWithWorkspace returns (userID, activeWorkspaceID, ok).
+// activeWorkspaceID is "" when the session has no workspace selected.
+func (a *Auth) ValidateTokenWithWorkspace(token string) (string, string, bool) {
+	userID, ws, err := a.db.ValidateTokenWithWorkspace(token)
+	if err != nil || userID == "" {
+		return "", "", false
+	}
+	return userID, ws, true
+}
+
+// SetActiveWorkspace validates the user is a member of the workspace then
+// persists active_workspace_id on the session token. Pass empty workspaceID
+// to clear. Returns false if not a member.
+func (a *Auth) SetActiveWorkspace(token, userID, workspaceID string) (bool, error) {
+	if workspaceID != "" {
+		ok, err := a.db.IsWorkspaceMember(workspaceID, userID)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+	if err := a.db.SetTokenActiveWorkspace(token, workspaceID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // InvalidateToken removes the token row so the same cookie value cannot
 // re-authenticate even if the browser fails to clear the cookie.
 func (a *Auth) InvalidateToken(token string) error {
@@ -99,6 +132,7 @@ func (a *Auth) InvalidateToken(token string) error {
 
 // Middleware authenticates web requests via session cookie. The TUI / agent
 // CLI does NOT use this — it goes through BearerMiddleware on /api/agents/*.
+// Injects userID, sessionToken, and activeWorkspaceID into the request context.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(cookieName)
@@ -106,12 +140,14 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userID, ok := a.ValidateToken(cookie.Value)
+		userID, activeWS, ok := a.ValidateTokenWithWorkspace(cookie.Value)
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		ctx = context.WithValue(ctx, sessionTokenKey, cookie.Value)
+		ctx = context.WithValue(ctx, activeWorkspaceIDKey, activeWS)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -156,11 +192,32 @@ func UserIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// ActiveWorkspaceFromContext returns the workspace currently bound to the
+// session. Empty string when the user has not selected one (fresh login,
+// or workspace was deleted).
+func ActiveWorkspaceFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(activeWorkspaceIDKey).(string)
+	return v
+}
+
+// SessionTokenFromContext returns the raw cookie value for the current
+// request. Used by handlers that need to mutate session state (e.g.
+// switching active workspace).
+func SessionTokenFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(sessionTokenKey).(string)
+	return v
+}
+
 // ContextWithUserID returns a copy of ctx with userID injected under the same
 // key that Middleware uses. Intended for use in tests that bypass the real
 // auth middleware.
 func ContextWithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, userIDKey, userID)
+}
+
+// ContextWithActiveWorkspace injects an active workspace ID for tests.
+func ContextWithActiveWorkspace(ctx context.Context, workspaceID string) context.Context {
+	return context.WithValue(ctx, activeWorkspaceIDKey, workspaceID)
 }
 
 // GetUserByID returns user info by ID.
