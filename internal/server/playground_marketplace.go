@@ -260,7 +260,7 @@ func (s *Server) handleAuthorSetSoulVisibility(w http.ResponseWriter, r *http.Re
 //
 //	@Summary		Admin set skill visibility
 //	@Description	Admin-only visibility patch for marketplace moderation.
-//	@Tags			marketplace
+//	@Tags			admin
 //	@Accept			json
 //	@Produce		json
 //	@Security		ApiKeyAuth
@@ -270,7 +270,7 @@ func (s *Server) handleAuthorSetSoulVisibility(w http.ResponseWriter, r *http.Re
 //	@Failure		400	{object}	map[string]string
 //	@Failure		401	{object}	map[string]string
 //	@Failure		404	{object}	map[string]string
-//	@Router			/api/playground/marketplace/skills/{id}/visibility [patch]
+//	@Router			/api/admin/playground/skills/{id}/visibility [patch]
 func (s *Server) handleSetSkillVisibility(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -291,7 +291,7 @@ func (s *Server) handleSetSkillVisibility(w http.ResponseWriter, r *http.Request
 //	@Failure		400	{object}	map[string]string
 //	@Failure		401	{object}	map[string]string
 //	@Failure		404	{object}	map[string]string
-//	@Router			/api/playground/marketplace/souls/{id}/visibility [patch]
+//	@Router			/api/admin/playground/souls/{id}/visibility [patch]
 func (s *Server) handleSetSoulVisibility(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -392,6 +392,7 @@ func soulCompatibleSkills(fm map[string]interface{}) []string {
 
 const previewMaxBytes = 4 * 1024
 
+// marketplaceSkillPreview is a read-only marketplace skill snippet (swagger).
 type marketplaceSkillPreview struct {
 	ID                string   `json:"id"`
 	Name              string   `json:"name"`
@@ -406,6 +407,7 @@ type marketplaceSkillPreview struct {
 	FileList map[string]int `json:"file_list,omitempty"`
 }
 
+// marketplaceSoulPreview is a read-only marketplace soul snippet (swagger).
 type marketplaceSoulPreview struct {
 	ID                string   `json:"id"`
 	Name              string   `json:"name"`
@@ -420,7 +422,16 @@ type marketplaceSoulPreview struct {
 	SchemaVersion string `json:"schema_version,omitempty"`
 }
 
-// handleGetMarketplaceSkillPreview — GET /api/marketplace/skills/{id}/preview
+// handleGetMarketplaceSkillPreview returns a bounded preview of a shared skill draft.
+//
+//	@Summary		Preview marketplace skill
+//	@Description	Returns description and file excerpts for a shared skill (not the full draft).
+//	@Tags			marketplace
+//	@Produce		json
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Success		200	{object}	server.marketplaceSkillPreview
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/marketplace/skills/{id}/preview [get]
 func (s *Server) handleGetMarketplaceSkillPreview(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	d, err := s.DB.GetSkillDraft(id)
@@ -453,7 +464,16 @@ func (s *Server) handleGetMarketplaceSkillPreview(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, preview)
 }
 
-// handleGetMarketplaceSoulPreview — GET /api/marketplace/souls/{id}/preview
+// handleGetMarketplaceSoulPreview returns a bounded preview of a shared soul draft.
+//
+//	@Summary		Preview marketplace soul
+//	@Description	Returns description and body excerpt for a shared soul (not the full draft).
+//	@Tags			marketplace
+//	@Produce		json
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Success		200	{object}	server.marketplaceSoulPreview
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/marketplace/souls/{id}/preview [get]
 func (s *Server) handleGetMarketplaceSoulPreview(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	d, err := s.DB.GetSoulDraft(id)
@@ -499,12 +519,14 @@ func truncate(s string, max int) string {
 // POST /api/admin/marketplace/skills/import — create shared skill (admin)
 // POST /api/admin/marketplace/souls/import  — create shared soul  (admin)
 
+// skillExportPayload is the JSON export/import shape for skills (swagger).
 type skillExportPayload struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 	Files       map[string]string `json:"files"`
 }
 
+// soulExportPayload is the JSON export/import shape for souls (swagger).
 type soulExportPayload struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
@@ -512,6 +534,16 @@ type soulExportPayload struct {
 	Body        string                 `json:"body"`
 }
 
+// handleExportMarketplaceSkill downloads a shared skill draft as JSON.
+//
+//	@Summary		Export marketplace skill
+//	@Description	Downloads full skill draft JSON (shared visibility only).
+//	@Tags			marketplace
+//	@Produce		json
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Success		200	{object}	server.skillExportPayload
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/marketplace/skills/{id}/export [get]
 func (s *Server) handleExportMarketplaceSkill(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	d, err := s.DB.GetSkillDraft(id)
@@ -529,6 +561,16 @@ func (s *Server) handleExportMarketplaceSkill(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, payload)
 }
 
+// handleExportMarketplaceSoul downloads a shared soul draft as JSON.
+//
+//	@Summary		Export marketplace soul
+//	@Description	Downloads full soul draft JSON (shared visibility only).
+//	@Tags			marketplace
+//	@Produce		json
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Success		200	{object}	server.soulExportPayload
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/marketplace/souls/{id}/export [get]
 func (s *Server) handleExportMarketplaceSoul(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	d, err := s.DB.GetSoulDraft(id)
@@ -563,6 +605,19 @@ func sanitizeFilename(name string) string {
 	return s
 }
 
+// handleImportMarketplaceSkill creates a shared system skill from export JSON (admin).
+//
+//	@Summary		Import marketplace skill (admin)
+//	@Description	Creates a shared skill draft from export payload JSON.
+//	@Tags			admin
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			body	body		server.skillExportPayload	true	"Skill export JSON"
+//	@Success		201	{object}	server.playgroundSkillFull
+//	@Failure		400	{object}	map[string]string
+//	@Failure		500	{object}	map[string]string
+//	@Router			/api/admin/marketplace/skills/import [post]
 func (s *Server) handleImportMarketplaceSkill(w http.ResponseWriter, r *http.Request) {
 	var req skillExportPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -593,6 +648,19 @@ func (s *Server) handleImportMarketplaceSkill(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusCreated, summarizeSkill(d))
 }
 
+// handleImportMarketplaceSoul creates a shared system soul from export JSON (admin).
+//
+//	@Summary		Import marketplace soul (admin)
+//	@Description	Creates a shared soul draft from export payload JSON.
+//	@Tags			admin
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			body	body		server.soulExportPayload	true	"Soul export JSON"
+//	@Success		201	{object}	server.playgroundSoulFull
+//	@Failure		400	{object}	map[string]string
+//	@Failure		500	{object}	map[string]string
+//	@Router			/api/admin/marketplace/souls/import [post]
 func (s *Server) handleImportMarketplaceSoul(w http.ResponseWriter, r *http.Request) {
 	var req soulExportPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -629,6 +697,16 @@ func (s *Server) handleImportMarketplaceSoul(w http.ResponseWriter, r *http.Requ
 
 // --- Admin system skills/souls management -----------------------------------
 
+// handleAdminListSystemSkills lists system-owned shared skill drafts (admin).
+//
+//	@Summary		List system skills (admin)
+//	@Description	Lists skill drafts owned by the system workspace (shared visibility).
+//	@Tags			admin
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{object}	server.marketplaceSkillListResponse
+//	@Failure		500	{object}	map[string]string
+//	@Router			/api/admin/marketplace/skills [get]
 func (s *Server) handleAdminListSystemSkills(w http.ResponseWriter, r *http.Request) {
 	drafts, err := s.DB.ListSystemSkillDrafts()
 	if err != nil {
@@ -646,6 +724,16 @@ func (s *Server) handleAdminListSystemSkills(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]interface{}{"skills": out})
 }
 
+// handleAdminListSystemSouls lists system-owned shared soul drafts (admin).
+//
+//	@Summary		List system souls (admin)
+//	@Description	Lists soul drafts owned by the system workspace (shared visibility).
+//	@Tags			admin
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{object}	server.marketplaceSoulListResponse
+//	@Failure		500	{object}	map[string]string
+//	@Router			/api/admin/marketplace/souls [get]
 func (s *Server) handleAdminListSystemSouls(w http.ResponseWriter, r *http.Request) {
 	drafts, err := s.DB.ListSystemSoulDrafts()
 	if err != nil {
@@ -663,6 +751,16 @@ func (s *Server) handleAdminListSystemSouls(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]interface{}{"souls": out})
 }
 
+// handleAdminArchiveSkill archives a system skill draft (admin).
+//
+//	@Summary		Archive system skill (admin)
+//	@Description	Soft-deletes a system-owned skill draft.
+//	@Tags			admin
+//	@Param			id	path	string	true	"Skill draft ID"
+//	@Success		204	""
+//	@Failure		404	{object}	map[string]string
+//	@Failure		500	{object}	map[string]string
+//	@Router			/api/admin/marketplace/skills/{id} [delete]
 func (s *Server) handleAdminArchiveSkill(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	d, err := s.DB.GetSkillDraft(id)
@@ -677,6 +775,16 @@ func (s *Server) handleAdminArchiveSkill(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleAdminArchiveSoul archives a system soul draft (admin).
+//
+//	@Summary		Archive system soul (admin)
+//	@Description	Soft-deletes a system-owned soul draft.
+//	@Tags			admin
+//	@Param			id	path	string	true	"Soul draft ID"
+//	@Success		204	""
+//	@Failure		404	{object}	map[string]string
+//	@Failure		500	{object}	map[string]string
+//	@Router			/api/admin/marketplace/souls/{id} [delete]
 func (s *Server) handleAdminArchiveSoul(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	d, err := s.DB.GetSoulDraft(id)

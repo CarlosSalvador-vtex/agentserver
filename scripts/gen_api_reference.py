@@ -36,6 +36,11 @@ EXTERNAL_TAGS: list[tuple[str, str]] = [
     ("IM Channels", "im-channels.md"),
 ]
 
+# OpenAPI tags merged into a single reference page (playground + marketplace + admin).
+COMBINED_TAG_PAGES: list[tuple[list[str], str]] = [
+    (["playground", "marketplace", "admin"], "playground.md"),
+]
+
 METHOD_ORDER = ["get", "post", "put", "patch", "delete"]
 
 
@@ -267,7 +272,11 @@ def render_tag_page(spec: dict, tag: str, ops: list[tuple[str, str, dict]]) -> s
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_index(spec: dict, tag_ops: dict[str, list]) -> str:
+def render_index(
+    spec: dict,
+    tag_ops: dict[str, list],
+    combined_written: set[str] | None = None,
+) -> str:
     info = spec.get("info", {})
     title = info.get("title", "API")
     version = info.get("version", "")
@@ -296,11 +305,21 @@ def render_index(spec: dict, tag_ops: dict[str, list]) -> str:
     lines.append("")
     lines.append("| Tag | Endpoints | Page |")
     lines.append("|-----|-----------|------|")
+    combined_skip = combined_written or set()
     for tag, filename in EXTERNAL_TAGS:
+        if filename in combined_skip:
+            continue
         ops = tag_ops.get(tag, [])
         if not ops:
             continue
         lines.append(f"| {tag} | {len(ops)} | [`{filename}`]({filename}) |")
+    for _tags, filename in COMBINED_TAG_PAGES:
+        if filename not in combined_skip:
+            continue
+        ops_count = sum(len(tag_ops.get(t, [])) for t in _tags)
+        lines.append(
+            f"| Playground & Marketplace | {ops_count} | [`{filename}`]({filename}) |"
+        )
     lines.append("")
     lines.append("## Related docs")
     lines.append("")
@@ -309,6 +328,23 @@ def render_index(spec: dict, tag_ops: dict[str, list]) -> str:
     lines.append("- [`../mobile-integration.md`](../mobile-integration.md) — mobile/IM integration notes.")
     lines.append("- [`../openapi.yaml`](../openapi.yaml) — machine-readable source of truth.")
     return "\n".join(lines) + "\n"
+
+
+def render_combined_page(spec: dict, title: str, ops: list[tuple[str, str, dict]]) -> str:
+    """Single reference page covering multiple OpenAPI tags (e.g. Playground + marketplace + admin)."""
+    lines = [
+        f"# {title}",
+        "",
+        f"Generated from [`openapi.yaml`](../openapi.yaml). "
+        f"Regenerate with `make api-docs`.",
+        "",
+        f"**{len(ops)} endpoints** in this section.",
+        "",
+    ]
+    for path, method, op in ops:
+        lines.append(render_operation(spec, path, method, op))
+        lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> int:
@@ -322,9 +358,13 @@ def main() -> int:
     spec = yaml.safe_load(args.spec.read_text())
     paths = spec.get("paths", {})
 
-    # Index: tag -> [(path, method, op)]
-    tag_ops: dict[str, list[tuple[str, str, dict]]] = {t: [] for t, _ in EXTERNAL_TAGS}
     wanted = {t for t, _ in EXTERNAL_TAGS}
+    for tags, _ in COMBINED_TAG_PAGES:
+        for t in tags:
+            wanted.add(t)
+
+    # Index: tag -> [(path, method, op)]
+    tag_ops: dict[str, list[tuple[str, str, dict]]] = {t: [] for t in wanted}
 
     for path in sorted(paths.keys()):
         methods = paths[path]
@@ -347,8 +387,32 @@ def main() -> int:
         out_path.write_text(render_tag_page(spec, tag, ops))
         print(f"wrote {out_path}")
 
+    combined_written: set[str] = set()
+    for tags, filename in COMBINED_TAG_PAGES:
+        ops: list[tuple[str, str, dict]] = []
+        seen: set[tuple[str, str]] = set()
+        for path in sorted(paths.keys()):
+            methods = paths[path]
+            for method in METHOD_ORDER:
+                op = methods.get(method)
+                if not op:
+                    continue
+                if any(t in op.get("tags", []) for t in tags):
+                    key = (path, method)
+                    if key not in seen:
+                        seen.add(key)
+                        ops.append((path, method, op))
+        if not ops:
+            print(f"warning: combined page '{filename}' has no operations — skipping", file=sys.stderr)
+        else:
+            title = "Playground & Marketplace"
+            out_path = args.output / filename
+            out_path.write_text(render_combined_page(spec, title, ops))
+            print(f"wrote {out_path} ({len(ops)} operations)")
+            combined_written.add(filename)
+
     index_path = args.output / "README.md"
-    index_path.write_text(render_index(spec, tag_ops))
+    index_path.write_text(render_index(spec, tag_ops, combined_written))
     print(f"wrote {index_path}")
 
     return 0
