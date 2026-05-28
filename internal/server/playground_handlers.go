@@ -231,7 +231,12 @@ func (s *Server) handlePatchSkillDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not your draft", http.StatusForbidden)
 		return
 	}
-	if existing.Status != "draft" {
+	// Editable in 'draft' and 'published' states. Editing a published draft
+	// updates the live workspace skill in-place (the sandbox resolves the
+	// published draft from the DB). 'promoting'/'promoted' (git flow) and
+	// 'archived' stay locked. Matches UpdateSkillDraft/UpdateSoulDraft, which
+	// already gate on status != 'archived'.
+	if existing.Status != "draft" && existing.Status != "published" {
 		http.Error(w, fmt.Sprintf("not editable: status=%s", existing.Status), http.StatusConflict)
 		return
 	}
@@ -442,7 +447,12 @@ func (s *Server) handlePatchSoulDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not your draft", http.StatusForbidden)
 		return
 	}
-	if existing.Status != "draft" {
+	// Editable in 'draft' and 'published' states. Editing a published draft
+	// updates the live workspace skill in-place (the sandbox resolves the
+	// published draft from the DB). 'promoting'/'promoted' (git flow) and
+	// 'archived' stay locked. Matches UpdateSkillDraft/UpdateSoulDraft, which
+	// already gate on status != 'archived'.
+	if existing.Status != "draft" && existing.Status != "published" {
 		http.Error(w, fmt.Sprintf("not editable: status=%s", existing.Status), http.StatusConflict)
 		return
 	}
