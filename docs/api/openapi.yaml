@@ -8,6 +8,292 @@ info:
   title: agentserver API
   version: 0.1.0
 paths:
+  /api/admin/marketplace/skills:
+    get:
+      description: Lists skill drafts owned by the system workspace (shared visibility).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.marketplaceSkillListResponse"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List system skills (admin)
+      tags:
+        - admin
+  "/api/admin/marketplace/skills/{id}":
+    delete:
+      description: Soft-deletes a system-owned skill draft.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: ""
+        "404":
+          description: Not Found
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "500":
+          description: Internal Server Error
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      summary: Archive system skill (admin)
+      tags:
+        - admin
+  /api/admin/marketplace/skills/import:
+    post:
+      description: Creates a shared skill draft from export payload JSON.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/server.skillExportPayload"
+        description: Skill export JSON
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSkillFull"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Import marketplace skill (admin)
+      tags:
+        - admin
+  /api/admin/marketplace/souls:
+    get:
+      description: Lists soul drafts owned by the system workspace (shared visibility).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.marketplaceSoulListResponse"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List system souls (admin)
+      tags:
+        - admin
+  "/api/admin/marketplace/souls/{id}":
+    delete:
+      description: Soft-deletes a system-owned soul draft.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: ""
+        "404":
+          description: Not Found
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "500":
+          description: Internal Server Error
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      summary: Archive system soul (admin)
+      tags:
+        - admin
+  /api/admin/marketplace/souls/import:
+    post:
+      description: Creates a shared soul draft from export payload JSON.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/server.soulExportPayload"
+        description: Soul export JSON
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSoulFull"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Import marketplace soul (admin)
+      tags:
+        - admin
+  "/api/admin/playground/skills/{id}/visibility":
+    patch:
+      description: Admin-only visibility patch for marketplace moderation.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/Body"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Admin set skill visibility
+      tags:
+        - admin
+  "/api/admin/playground/souls/{id}/visibility":
+    patch:
+      description: Admin-only visibility patch for marketplace moderation.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/Body"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Admin set soul visibility
+      tags:
+        - marketplace
   /api/admin/quotas/defaults:
     get:
       responses:
@@ -1366,6 +1652,34 @@ paths:
       summary: List marketplace skills
       tags:
         - marketplace
+  "/api/marketplace/skills/{id}/export":
+    get:
+      description: Downloads full skill draft JSON (shared visibility only).
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.skillExportPayload"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      summary: Export marketplace skill
+      tags:
+        - marketplace
   "/api/marketplace/skills/{id}/fork":
     post:
       description: Creates a private copy of a shared marketplace skill draft in the
@@ -1415,6 +1729,35 @@ paths:
       summary: Fork marketplace skill
       tags:
         - marketplace
+  "/api/marketplace/skills/{id}/preview":
+    get:
+      description: Returns description and file excerpts for a shared skill (not the
+        full draft).
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.marketplaceSkillPreview"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      summary: Preview marketplace skill
+      tags:
+        - marketplace
   /api/marketplace/souls:
     get:
       description: Returns soul drafts shared to the marketplace catalog.
@@ -1436,6 +1779,34 @@ paths:
       security:
         - ApiKeyAuth: []
       summary: List marketplace souls
+      tags:
+        - marketplace
+  "/api/marketplace/souls/{id}/export":
+    get:
+      description: Downloads full soul draft JSON (shared visibility only).
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.soulExportPayload"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      summary: Export marketplace soul
       tags:
         - marketplace
   "/api/marketplace/souls/{id}/fork":
@@ -1487,59 +1858,10 @@ paths:
       summary: Fork marketplace soul
       tags:
         - marketplace
-  "/api/playground/marketplace/skills/{id}/visibility":
-    patch:
-      description: Admin-only visibility patch for marketplace moderation.
-      parameters:
-        - description: Skill draft ID
-          in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      requestBody:
-        $ref: "#/components/requestBodies/Body"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-      security:
-        - ApiKeyAuth: []
-      summary: Admin set skill visibility
-      tags:
-        - marketplace
-  "/api/playground/marketplace/souls/{id}/visibility":
-    patch:
-      description: Admin-only visibility patch for marketplace moderation.
+  "/api/marketplace/souls/{id}/preview":
+    get:
+      description: Returns description and body excerpt for a shared soul (not the
+        full draft).
       parameters:
         - description: Soul draft ID
           in: path
@@ -1547,33 +1869,13 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        $ref: "#/components/requestBodies/Body"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                additionalProperties:
-                  type: string
-                type: object
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
+                $ref: "#/components/schemas/server.marketplaceSoulPreview"
         "404":
           description: Not Found
           content:
@@ -1582,9 +1884,7 @@ paths:
                 additionalProperties:
                   type: string
                 type: object
-      security:
-        - ApiKeyAuth: []
-      summary: Admin set soul visibility
+      summary: Preview marketplace soul
       tags:
         - marketplace
   /api/playground/skills:
@@ -5395,13 +5695,6 @@ components:
             $ref: "#/components/schemas/server.marketplaceForkRequest"
       description: Target workspace
       required: true
-    AgentTaskCreateRequest:
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/AgentTaskCreateRequest"
-      description: Task details
-      required: true
     Body:
       content:
         application/json:
@@ -5410,6 +5703,13 @@ components:
               type: string
             type: object
       description: "visibility: public|private"
+      required: true
+    AgentTaskCreateRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AgentTaskCreateRequest"
+      description: Task details
       required: true
     server.playgroundDryRunRequest:
       content:
@@ -7341,6 +7641,33 @@ components:
           description: empty = system template
           type: string
       type: object
+    server.marketplaceSkillPreview:
+      properties:
+        author_workspace_id:
+          type: string
+        description:
+          type: string
+        file_list:
+          additionalProperties:
+            type: integer
+          description: FileList is filename → byte size for orientation (no content).
+          type: object
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        prompt_excerpt:
+          description: PromptExcerpt is the first previewMaxBytes of prompt.md (if any).
+          type: string
+        tags:
+          items:
+            type: string
+          type: array
+        updated_at:
+          type: string
+      type: object
     server.marketplaceSoulListResponse:
       properties:
         souls:
@@ -7381,6 +7708,31 @@ components:
           type: string
         workspace_id:
           description: empty = system template
+          type: string
+      type: object
+    server.marketplaceSoulPreview:
+      properties:
+        author_workspace_id:
+          type: string
+        body_excerpt:
+          description: BodyExcerpt is the first previewMaxBytes of the soul body.
+          type: string
+        compatible_skills:
+          items:
+            type: string
+          type: array
+        description:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        schema_version:
+          description: SchemaVersion + selected frontmatter keys without secrets.
+          type: string
+        updated_at:
           type: string
       type: object
     server.playgroundAuditListResponse:
@@ -7650,5 +8002,28 @@ components:
         head_sha:
           type: string
         pr_url:
+          type: string
+      type: object
+    server.skillExportPayload:
+      properties:
+        description:
+          type: string
+        files:
+          additionalProperties:
+            type: string
+          type: object
+        name:
+          type: string
+      type: object
+    server.soulExportPayload:
+      properties:
+        body:
+          type: string
+        description:
+          type: string
+        frontmatter:
+          additionalProperties: true
+          type: object
+        name:
           type: string
       type: object

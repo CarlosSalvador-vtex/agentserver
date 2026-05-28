@@ -7,6 +7,476 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/admin/marketplace/skills": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Lists skill drafts owned by the system workspace (shared visibility).",
+        "tags": [
+          "admin"
+        ],
+        "summary": "List system skills (admin)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.marketplaceSkillListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/marketplace/skills/import": {
+      "post": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Creates a shared skill draft from export payload JSON.",
+        "tags": [
+          "admin"
+        ],
+        "summary": "Import marketplace skill (admin)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/server.skillExportPayload"
+              }
+            }
+          },
+          "description": "Skill export JSON",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.playgroundSkillFull"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/marketplace/skills/{id}": {
+      "delete": {
+        "description": "Soft-deletes a system-owned skill draft.",
+        "tags": [
+          "admin"
+        ],
+        "summary": "Archive system skill (admin)",
+        "parameters": [
+          {
+            "description": "Skill draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/marketplace/souls": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Lists soul drafts owned by the system workspace (shared visibility).",
+        "tags": [
+          "admin"
+        ],
+        "summary": "List system souls (admin)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.marketplaceSoulListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/marketplace/souls/import": {
+      "post": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Creates a shared soul draft from export payload JSON.",
+        "tags": [
+          "admin"
+        ],
+        "summary": "Import marketplace soul (admin)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/server.soulExportPayload"
+              }
+            }
+          },
+          "description": "Soul export JSON",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.playgroundSoulFull"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/marketplace/souls/{id}": {
+      "delete": {
+        "description": "Soft-deletes a system-owned soul draft.",
+        "tags": [
+          "admin"
+        ],
+        "summary": "Archive system soul (admin)",
+        "parameters": [
+          {
+            "description": "Soul draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/playground/skills/{id}/visibility": {
+      "patch": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Admin-only visibility patch for marketplace moderation.",
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin set skill visibility",
+        "parameters": [
+          {
+            "description": "Skill draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Body"
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/playground/souls/{id}/visibility": {
+      "patch": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Admin-only visibility patch for marketplace moderation.",
+        "tags": [
+          "marketplace"
+        ],
+        "summary": "Admin set soul visibility",
+        "parameters": [
+          {
+            "description": "Soul draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Body"
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/quotas/defaults": {
       "get": {
         "security": [
@@ -2275,6 +2745,51 @@
         }
       }
     },
+    "/api/marketplace/skills/{id}/export": {
+      "get": {
+        "description": "Downloads full skill draft JSON (shared visibility only).",
+        "tags": [
+          "marketplace"
+        ],
+        "summary": "Export marketplace skill",
+        "parameters": [
+          {
+            "description": "Skill draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.skillExportPayload"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/marketplace/skills/{id}/fork": {
       "post": {
         "security": [
@@ -2354,6 +2869,51 @@
         }
       }
     },
+    "/api/marketplace/skills/{id}/preview": {
+      "get": {
+        "description": "Returns description and file excerpts for a shared skill (not the full draft).",
+        "tags": [
+          "marketplace"
+        ],
+        "summary": "Preview marketplace skill",
+        "parameters": [
+          {
+            "description": "Skill draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.marketplaceSkillPreview"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/marketplace/souls": {
       "get": {
         "security": [
@@ -2379,6 +2939,51 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/marketplace/souls/{id}/export": {
+      "get": {
+        "description": "Downloads full soul draft JSON (shared visibility only).",
+        "tags": [
+          "marketplace"
+        ],
+        "summary": "Export marketplace soul",
+        "parameters": [
+          {
+            "description": "Soul draft ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/server.soulExportPayload"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2472,100 +3077,13 @@
         }
       }
     },
-    "/api/playground/marketplace/skills/{id}/visibility": {
-      "patch": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Admin-only visibility patch for marketplace moderation.",
+    "/api/marketplace/souls/{id}/preview": {
+      "get": {
+        "description": "Returns description and body excerpt for a shared soul (not the full draft).",
         "tags": [
           "marketplace"
         ],
-        "summary": "Admin set skill visibility",
-        "parameters": [
-          {
-            "description": "Skill draft ID",
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "$ref": "#/components/requestBodies/Body"
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/playground/marketplace/souls/{id}/visibility": {
-      "patch": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Admin-only visibility patch for marketplace moderation.",
-        "tags": [
-          "marketplace"
-        ],
-        "summary": "Admin set soul visibility",
+        "summary": "Preview marketplace soul",
         "parameters": [
           {
             "description": "Soul draft ID",
@@ -2577,45 +3095,13 @@
             }
           }
         ],
-        "requestBody": {
-          "$ref": "#/components/requestBodies/Body"
-        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
+                  "$ref": "#/components/schemas/server.marketplaceSoulPreview"
                 }
               }
             }
@@ -8913,17 +9399,6 @@
         "description": "Target workspace",
         "required": true
       },
-      "AgentTaskCreateRequest": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/AgentTaskCreateRequest"
-            }
-          }
-        },
-        "description": "Task details",
-        "required": true
-      },
       "Body": {
         "content": {
           "application/json": {
@@ -8936,6 +9411,17 @@
           }
         },
         "description": "visibility: public|private",
+        "required": true
+      },
+      "AgentTaskCreateRequest": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AgentTaskCreateRequest"
+            }
+          }
+        },
+        "description": "Task details",
         "required": true
       },
       "server.playgroundDryRunRequest": {
@@ -11701,6 +12187,46 @@
           }
         }
       },
+      "server.marketplaceSkillPreview": {
+        "type": "object",
+        "properties": {
+          "author_workspace_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "file_list": {
+            "description": "FileList is filename → byte size for orientation (no content).",
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "promoted_commit": {
+            "type": "string"
+          },
+          "prompt_excerpt": {
+            "description": "PromptExcerpt is the first previewMaxBytes of prompt.md (if any).",
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
       "server.marketplaceSoulListResponse": {
         "type": "object",
         "properties": {
@@ -11760,6 +12286,43 @@
           },
           "workspace_id": {
             "description": "empty = system template",
+            "type": "string"
+          }
+        }
+      },
+      "server.marketplaceSoulPreview": {
+        "type": "object",
+        "properties": {
+          "author_workspace_id": {
+            "type": "string"
+          },
+          "body_excerpt": {
+            "description": "BodyExcerpt is the first previewMaxBytes of the soul body.",
+            "type": "string"
+          },
+          "compatible_skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "promoted_commit": {
+            "type": "string"
+          },
+          "schema_version": {
+            "description": "SchemaVersion + selected frontmatter keys without secrets.",
+            "type": "string"
+          },
+          "updated_at": {
             "type": "string"
           }
         }
@@ -12152,6 +12715,41 @@
             "type": "string"
           },
           "pr_url": {
+            "type": "string"
+          }
+        }
+      },
+      "server.skillExportPayload": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "files": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "server.soulExportPayload": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "frontmatter": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "name": {
             "type": "string"
           }
         }
