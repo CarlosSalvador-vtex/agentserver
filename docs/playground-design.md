@@ -32,6 +32,22 @@ composition = soul ⊕ skills[] ⊕ config   (what a sandbox runs)
 | Skill | `deploy/helm/agentserver/skills/<name>/` (git) | `skill_drafts` row (Postgres) |
 | Composition | `sandbox_compositions` row | N/A — drafts referenced by `draft:<uuid>` |
 
+---
+
+## Decisions Locked
+
+| ID | Question | Decision |
+|----|----------|----------|
+| D1 | Playground MVP scope | **A** — metrics, diff, promote, soul dry-run, marketplace MVP, tenant catalog |
+| D2 | Marketplace MVP | **A** — list + install/uninstall + tenant filter; no ratings in MVP |
+| D3 | Promote flow | **A** — promote draft → published with diff preview; polling until terminal |
+| D4 | Soul dry-run | **A** — Tier 1 mount/env/skill prompt (PR [#25](https://github.com/CarlosSalvador-vtex/agentserver/pull/25)); Tier 4 plugin-sdk (PR [#47](https://github.com/CarlosSalvador-vtex/agentserver/pull/47)) |
+| D5 | Metrics panel | **A** — token/cost/latency from existing usage tables |
+| D6 | Diff view | **A** — side-by-side draft vs published for souls/skills |
+| D7 | Tenant catalog | **A** — souls/skills filtered by workspace membership (PR [#17](https://github.com/CarlosSalvador-vtex/agentserver/pull/17)) |
+
+---
+
 ## 3. Decisions made (sign-off matrix)
 
 | # | Question | Decision | Why |
