@@ -109,6 +109,16 @@ func (s *Server) handleSkillDraftTestSandbox(w http.ResponseWriter, r *http.Requ
 	sbx, err := s.provisionSandbox(r.Context(), req.WorkspaceID, provisionInput{
 		Name: name,
 		Type: req.SandboxType,
+		// Persist the draft composition BEFORE the container-start goroutine
+		// runs, so manager.ResolveComposition sees the row and mounts the
+		// (possibly edited) draft. Writing it AFTER provisionSandbox returned
+		// raced the goroutine: ResolveComposition read an empty composition,
+		// the ephemeral draft ConfigMap was skipped, and the pod silently fell
+		// back to the git/chart skill — so test sandboxes never ran the edit.
+		Composition: &SandboxCompositionRequest{
+			Soul:   req.SoulRef,
+			Skills: []string{"draft:" + skill.ID},
+		},
 	})
 	var pe *provisionError
 	if errors.As(err, &pe) {
@@ -119,14 +129,6 @@ func (s *Server) handleSkillDraftTestSandbox(w http.ResponseWriter, r *http.Requ
 		log.Printf("playground test sandbox: provision: %v", err)
 		http.Error(w, "failed to provision test sandbox", http.StatusInternalServerError)
 		return
-	}
-
-	// Composition row carrying the draft ref (and optional soul ref).
-	skillRefs := []string{"draft:" + skill.ID}
-	if compErr := s.DB.CreateSandboxComposition(
-		sbx.ID, req.SoulRef, skillRefs, nil, false,
-	); compErr != nil {
-		log.Printf("playground test sandbox: composition row %s: %v", sbx.ID, compErr)
 	}
 
 	if err := s.DB.CreatePlaygroundTestSandbox(sbx.ID, userID, playgroundTestSandboxTTL); err != nil {
