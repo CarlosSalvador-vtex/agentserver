@@ -62,8 +62,8 @@ func TestAnonymizeUser_scrubsPIIAndRevokesAccess(t *testing.T) {
 	}
 
 	_, err = database.ExecContext(ctx, `
-		INSERT INTO auth_tokens (user_id, token_hash, expires_at)
-		VALUES ($1, 'deadbeef', NOW() + INTERVAL '1 day')`, userID)
+		INSERT INTO auth_tokens (token, user_id, expires_at)
+		VALUES ($1, $2, NOW() + INTERVAL '1 day')`, "tok-anon-target", userID)
 	if err != nil {
 		t.Fatalf("insert auth token: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestWorkspacesWhereUserIsLastOwner(t *testing.T) {
 
 	_, err = database.ExecContext(ctx, `
 		INSERT INTO workspace_members (workspace_id, user_id, role)
-		VALUES ($1, $2, 'owner'), ($3, $4, 'owner')`,
+		VALUES ($1, $2, 'owner'), ($3, $2, 'owner'), ($3, $4, 'owner')`,
 		wsSolo, ownerID, wsShared, otherID)
 	if err != nil {
 		t.Fatalf("insert members: %v", err)

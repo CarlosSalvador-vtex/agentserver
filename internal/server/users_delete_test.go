@@ -121,7 +121,7 @@ func TestDeleteUser_success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert credential: %v", err)
 	}
-	_, err = d.Exec(`INSERT INTO auth_tokens (user_id, token_hash, expires_at) VALUES ($1, 'cafebabe', NOW() + INTERVAL '1 day')`, targetID)
+	_, err = d.Exec(`INSERT INTO auth_tokens (token, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 day')`, "tok-victim-del", targetID)
 	if err != nil {
 		t.Fatalf("insert token: %v", err)
 	}
