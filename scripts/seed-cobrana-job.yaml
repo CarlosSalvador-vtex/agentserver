@@ -1,0 +1,55 @@
+---
+# Kubernetes Job that seeds the cobrança marketplace templates.
+# Runs inside the cluster so it can reach RDS via the existing secret.
+#
+# Usage:
+#   kubectl apply -f scripts/seed-cobrana-job.yaml -n agentserver
+#   kubectl logs -n agentserver job/seed-cobrana-templates -f
+#   kubectl delete job seed-cobrana-templates -n agentserver   # cleanup
+#
+# The Job is idempotent: safe to re-apply (SQL uses WHERE NOT EXISTS).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-cobrana-templates
+  namespace: agentserver
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: python:3.12-slim
+          command:
+            - sh
+            - -c
+            - |
+              pip install psycopg2-binary --quiet && \
+              python3 /scripts/seed-cobrana-templates.py
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agentserver-db-secret
+                  key: database-url
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: skill-files
+              mountPath: /deploy/helm/agentserver/skills/cobranca
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: scripts
+          configMap:
+            name: seed-cobrana-script
+        - name: skill-files
+          configMap:
+            name: seed-cobrana-skill-files
