@@ -205,6 +205,7 @@ export default function App() {
               workspaces: ws,
               activeWorkspaceId: me?.active_workspace_id,
               urlWorkspaceId: match?.[1] ?? null,
+              currentPath: window.location.pathname,
             })
             navigate(path, { replace: true })
             if (path.startsWith('/w/')) {
@@ -354,6 +355,7 @@ export default function App() {
             apex: isApexHost(),
             workspaces: ws,
             activeWorkspaceId: me?.active_workspace_id,
+            currentPath: window.location.pathname,
           })
           navigate(path, { replace: true })
           if (path.startsWith('/w/')) {

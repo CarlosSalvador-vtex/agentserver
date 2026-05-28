@@ -54,4 +54,55 @@ describe('resolveAuthedLandingPath', () => {
       }),
     ).toBe('/choose-workspace')
   })
+
+  it('preserves a playground deep link on cold load (does not bounce to /w/)', () => {
+    expect(
+      resolveAuthedLandingPath({
+        apex: false,
+        workspaces: ws,
+        activeWorkspaceId: 'a',
+        currentPath: '/playground/skills/3c629319',
+      }),
+    ).toBe('/playground/skills/3c629319')
+  })
+
+  it.each([
+    '/playground',
+    '/playground/souls/abc',
+    '/marketplace',
+    '/admin/users',
+    '/workspaces',
+    '/oauth2/device',
+  ])('preserves deep link %s', (path) => {
+    expect(
+      resolveAuthedLandingPath({
+        apex: true,
+        workspaces: ws,
+        activeWorkspaceId: 'b',
+        currentPath: path,
+      }),
+    ).toBe(path)
+  })
+
+  it('does NOT treat /w/ or root as a preservable deep link', () => {
+    expect(
+      resolveAuthedLandingPath({
+        apex: false,
+        workspaces: ws,
+        activeWorkspaceId: 'b',
+        currentPath: '/',
+      }),
+    ).toBe('/w/b')
+  })
+
+  it('does not preserve a lookalike prefix (/playgrounds)', () => {
+    expect(
+      resolveAuthedLandingPath({
+        apex: false,
+        workspaces: ws,
+        activeWorkspaceId: 'a',
+        currentPath: '/playgrounds-fake',
+      }),
+    ).toBe('/w/a')
+  })
 })
