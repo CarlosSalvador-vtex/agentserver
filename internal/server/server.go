@@ -626,6 +626,8 @@ func (s *Server) Router() http.Handler {
 		r.Get("/api/marketplace/souls", s.handleListMarketplaceSouls)
 		r.Get("/api/marketplace/skills/{id}/preview", s.handleGetMarketplaceSkillPreview)
 		r.Get("/api/marketplace/souls/{id}/preview", s.handleGetMarketplaceSoulPreview)
+		r.Get("/api/marketplace/skills/{id}/export", s.handleExportMarketplaceSkill)
+		r.Get("/api/marketplace/souls/{id}/export", s.handleExportMarketplaceSoul)
 		r.Post("/api/marketplace/skills/{id}/fork", s.handleForkMarketplaceSkill)
 		r.Post("/api/marketplace/souls/{id}/fork", s.handleForkMarketplaceSoul)
 
@@ -657,6 +659,10 @@ func (s *Server) Router() http.Handler {
 			// Marketplace visibility moderation (improvements.md #18)
 			r.Patch("/playground/skills/{id}/visibility", s.handleSetSkillVisibility)
 			r.Patch("/playground/souls/{id}/visibility", s.handleSetSoulVisibility)
+
+			// Marketplace import (admin creates shared drafts from external JSON)
+			r.Post("/marketplace/skills/import", s.handleImportMarketplaceSkill)
+			r.Post("/marketplace/souls/import", s.handleImportMarketplaceSoul)
 		})
 	})
 

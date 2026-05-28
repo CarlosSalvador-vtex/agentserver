@@ -453,7 +453,7 @@ export default function App() {
         <Route path="/playground/skills/:id" element={<PlaygroundSkillEditor />} />
         <Route path="/playground/souls/:id" element={<PlaygroundSoulEditor />} />
         */}
-        <Route path="/marketplace" element={<Marketplace />} />
+        <Route path="/marketplace" element={<Marketplace isAdmin={user?.role === 'admin'} />} />
         <Route path="*" element={selectedWorkspaceId ? <Navigate to={`/w/${selectedWorkspaceId}`} replace /> : null} />
       </Routes>
     </div>
