@@ -14,11 +14,32 @@ const (
 var (
 	slugRe         = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	nonAlnumRe     = regexp.MustCompile(`[^a-z0-9]+`)
-	reservedSlugs  = map[string]struct{}{
+	reservedSlugs = map[string]struct{}{
+		// Core platform (existing)
 		"www": {}, "api": {}, "admin": {}, "app": {},
 		"root": {}, "auth": {}, "login": {}, "register": {},
 		"static": {}, "assets": {}, "agentserver": {},
 		"openclaw": {}, "hermes": {},
+		// Operational / email
+		"mail": {}, "email": {}, "mailbox": {}, "mx": {}, "smtp": {}, "imap": {}, "pop": {},
+		// Support
+		"support": {}, "help": {}, "helpdesk": {}, "kb": {}, "faq": {}, "contact": {},
+		// Status / monitoring
+		"status": {}, "health": {}, "metrics": {}, "dashboard": {}, "grafana": {}, "prometheus": {},
+		// Docs
+		"docs": {}, "documentation": {}, "wiki": {}, "blog": {}, "news": {},
+		// Infra
+		"cdn": {}, "proxy": {}, "ingress": {}, "lb": {}, "node": {}, "pod": {}, "k8s": {},
+		// Commercial
+		"billing": {}, "pay": {}, "payments": {}, "pricing": {}, "enterprise": {}, "sales": {},
+		// Marketing
+		"signup": {}, "trial": {}, "demo": {}, "marketing": {}, "landing": {},
+		// Compliance / legal
+		"legal": {}, "terms": {}, "privacy": {}, "tos": {}, "gdpr": {}, "lgpd": {}, "compliance": {},
+		// Resources
+		"media": {}, "images": {}, "files": {}, "download": {}, "upload": {},
+		// Special hosts
+		"localhost": {}, "internal": {}, "external": {}, "public": {}, "private": {},
 	}
 	reservedPrefixes = []string{"claw-", "hermes-"}
 )
