@@ -65,7 +65,7 @@ func TestDeleteUser_lastOwnerConflict(t *testing.T) {
 	insertUserForDeleteTest(t, d, "usr-admin-del", "admin@example.com", "admin")
 	insertUserForDeleteTest(t, d, "usr-owner-del", "owner@example.com", "user")
 
-	_, err := d.Exec(`INSERT INTO workspaces (id, name, owner_id) VALUES ('ws-solo-del', 'Solo', 'usr-owner-del')`)
+	_, err := d.Exec(`INSERT INTO workspaces (id, name, slug) VALUES ('ws-solo-del', 'Solo', 'solo-del')`)
 	if err != nil {
 		t.Fatalf("insert workspace: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestDeleteUser_success(t *testing.T) {
 	targetID := "usr-victim-del"
 	email := "victim@example.com"
 	insertUserForDeleteTest(t, d, targetID, email, "user")
-	_, err := d.Exec(`INSERT INTO user_credentials (user_id, provider, subject, email) VALUES ($1, 'github', 'gh-del', $2)`, targetID, email)
+	_, err := d.Exec(`INSERT INTO user_credentials (user_id, password_hash) VALUES ($1, 'fake-hash')`, targetID)
 	if err != nil {
 		t.Fatalf("insert credential: %v", err)
 	}

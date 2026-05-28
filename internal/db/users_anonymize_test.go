@@ -38,7 +38,7 @@ func TestAnonymizeUser_scrubsPIIAndRevokesAccess(t *testing.T) {
 
 	wsID := "ws-anon-member"
 	_, err = database.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, owner_id) VALUES ($1, 'Anon WS', 'other-owner')`,
+		INSERT INTO workspaces (id, name, slug) VALUES ($1, 'Anon WS', 'anon-ws')`,
 		wsID)
 	if err != nil {
 		t.Fatalf("insert workspace: %v", err)
@@ -55,8 +55,8 @@ func TestAnonymizeUser_scrubsPIIAndRevokesAccess(t *testing.T) {
 	}
 
 	_, err = database.ExecContext(ctx, `
-		INSERT INTO user_credentials (user_id, provider, subject, email)
-		VALUES ($1, 'github', 'gh-subject', $2)`, userID, email)
+		INSERT INTO user_credentials (user_id, password_hash)
+		VALUES ($1, 'fake-hash')`, userID)
 	if err != nil {
 		t.Fatalf("insert credential: %v", err)
 	}
@@ -166,8 +166,8 @@ func TestWorkspacesWhereUserIsLastOwner(t *testing.T) {
 	}
 
 	_, err = database.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, owner_id) VALUES ($1, 'Solo', $2), ($3, 'Shared', $4)`,
-		wsSolo, ownerID, wsShared, otherID)
+		INSERT INTO workspaces (id, name, slug) VALUES ($1, 'Solo', 'solo'), ($2, 'Shared', 'shared')`,
+		wsSolo, wsShared)
 	if err != nil {
 		t.Fatalf("insert workspaces: %v", err)
 	}

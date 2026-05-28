@@ -32,8 +32,14 @@ type AdminDeleteUserConflictResponse struct {
 //	@Security		CookieAuth
 //	@Router			/api/admin/users/{id} [delete]
 func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
-	targetID := chi.URLParam(r, "id")
 	actorID := auth.UserIDFromContext(r.Context())
+	actor, err := s.Auth.GetUserByID(actorID)
+	if err != nil || actor == nil || actor.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	targetID := chi.URLParam(r, "id")
 
 	u, err := s.DB.GetUserByID(targetID)
 	if err != nil {

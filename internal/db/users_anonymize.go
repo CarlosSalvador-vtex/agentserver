@@ -21,13 +21,12 @@ type LastOwnerWorkspace struct {
 // WorkspacesWhereUserIsLastOwner returns workspaces owned by userID that have no other owner.
 func (db *DB) WorkspacesWhereUserIsLastOwner(ctx context.Context, userID string) ([]LastOwnerWorkspace, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT w.id, w.name
-		FROM workspaces w
-		WHERE w.owner_id = $1
-		  AND NOT EXISTS (
-		    SELECT 1 FROM workspace_members wm
-		    WHERE wm.workspace_id = w.id AND wm.role = 'owner' AND wm.user_id <> $1
-		  )`, userID)
+		SELECT wm.workspace_id, w.name
+		FROM workspace_members wm
+		JOIN workspaces w ON w.id = wm.workspace_id
+		WHERE wm.user_id = $1 AND wm.role = 'owner'
+		  AND (SELECT COUNT(*) FROM workspace_members wm2
+		       WHERE wm2.workspace_id = wm.workspace_id AND wm2.role = 'owner') = 1`, userID)
 	if err != nil {
 		return nil, err
 	}
