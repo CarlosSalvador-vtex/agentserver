@@ -153,6 +153,57 @@ kubectl exec -n "$NS" "$SBX" -c agent -- bash -c '
 
 ---
 
+## Soul/persona injection: native mount vs plugin-sdk (the decision rubric)
+
+> **Supersedes the "OpenClaw soul.md (Tier 1)" section above.** That section
+> assumed OpenClaw has *no* auto-load. The #47 image dive proved otherwise:
+> OpenClaw **does** load `~/.openclaw/workspace/SOUL.md` on bootstrap, same
+> convention as bundled auth-profiles. The legacy `/home/agent/.openclaw/soul.md`
+> mount + `OPENCLAW_SOUL_FILE` env are dead unless something reads them.
+
+We kept re-deriving "should this go through the plugin-sdk hook or just a
+mounted file?" — across Hermes (#29), OpenClaw Tier 1, #47, #49, #55. The
+answer is a one-line rule. Capturing it so the next persona PR doesn't re-run
+the analysis.
+
+### Rule
+
+- **Static workspace persona → mount `SOUL.md`. Default.** The agent
+  (Hermes `$HERMES_HOME/SOUL.md`, OpenClaw `~/.openclaw/workspace/SOUL.md`)
+  reads it on boot. **Zero plugin code.** This is what shipped (#47, S4-PR1).
+- **Dynamic behavior → plugin-sdk `before_prompt_build` hook.** Use only when
+  you need templating, conditional/per-turn injection, function-calling tools,
+  or first-class slash commands. This is what S4-PR4 (#55) did — for the
+  **skill** persona (`prompt.md`), not the workspace soul.
+
+### Why "Option A" (skill `index.mjs` reads soul + prepends via plugin-sdk) was dropped
+
+`docs/improvements.md` #5 originally recommended Option A. **Not implemented**
+— native bootstrap made it redundant. For a *static* file the SDK path adds
+only cost, no gain:
+
+| Axis | Native mount (shipped) | plugin-sdk inject (Option A) |
+|---|---|---|
+| Code | none | skill reads + prepends in hook |
+| Resolvability | n/a | needs `openclaw/plugin-sdk/*` on import path → initContainer symlink (~50–100ms/pod boot) |
+| Failure mode | file missing = no persona | `MODULE_NOT_FOUND` → plugin never registers, fails silently |
+| ConfigMap | small | compiled SDK ~957 KiB, near the ~1 MiB etcd limit |
+| Templating / tools / slash | no | yes |
+
+### Takeaway
+
+Arquivo estático basta? Não use SDK. SDK só quando precisa de lógica, tools,
+ou comando first-class. See `docs/improvements.md` #5 and
+`docs/openclaw-skill-slash-research.md` (Option A–D = the *import-resolution*
+axis; orthogonal to this static-vs-dynamic axis).
+
+**Housekeeping:** stale `OPENCLAW_SOUL_FILE` + legacy `/home/agent/.openclaw/soul.md`
+path linger in `internal/sandbox/manager_config.go`. Runtime uses the
+`workspace/SOUL.md` mount instead — align or remove if nothing in the image
+reads the legacy path (`docs/improvements.md` #5 follow-up).
+
+---
+
 ## Sprint 4 — Playground, marketplace, workspace auth, OpenClaw Tier 4
 
 Sprint theme: tenant-scoped catalog, playground/marketplace waves, subdomain workspace auth (B01/B07), cobrança wedge docs, deploy hygiene.
@@ -243,7 +294,7 @@ We saved hours on PR #29 by SSH'ing into a running hermes pod and grepping the s
 When opening a new PR that touches:
 
 - **OpenClaw plugin manifest** — verify `openclaw.plugin.json` shape against `/app/extensions/openshell/openclaw.plugin.json` in the image.
-- **OpenClaw persona** — mount `soul.md` + env `OPENCLAW_SOUL_FILE` / `AGENTSERVER_SOUL_BODY`; do not add root `agent` key to openclaw.json.
+- **OpenClaw persona** — static persona: mount at `~/.openclaw/workspace/SOUL.md` (OpenClaw auto-loads it on boot); do not add root `agent` key to openclaw.json. Reach for the plugin-sdk hook only for dynamic/templated persona or tools (see "Soul/persona injection" rubric above). The legacy `/home/agent/.openclaw/soul.md` + `OPENCLAW_SOUL_FILE` are dead — don't rely on them.
 - **Hermes persona** — go straight to `/opt/data/SOUL.md`. Don't touch config.yaml.
 - **Sandbox pod spec** — remember existing sandboxes won't update. Spawn a fresh one to test.
 - **DB writes before goroutines** — invariants must hold before `go func() { ... }()`. Don't write after.
