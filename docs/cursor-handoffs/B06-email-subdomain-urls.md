@@ -5,6 +5,12 @@
 **Tempo:** 1-2h
 **Dependências:** B01 (mailer infra) ou outro mailer existente
 
+## Status
+
+- **State:** OPEN — unblocked
+- **Dependencies:** B01 invite/mailer infra — shipped (PR #71)
+- **Estimated PR size:** S (~30 LOC)
+
 ## Goal
 
 Todos os links em emails (invites, reset password, notifications) usam `<slug>.<base>` em vez de `<base>` apex. User clica e cai no tenant certo, sem precisar escolher workspace.

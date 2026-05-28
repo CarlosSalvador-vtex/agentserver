@@ -5,6 +5,12 @@
 **Tempo:** 1 sprint (após B04 mergeado)
 **Dependências:** B04 completo
 
+## Status
+
+- **State:** OPEN — not started
+- **Dependencies:** B04 (SSO per workspace) must ship first
+- **Estimated PR size:** M (+150 LOC on top of B04)
+
 ## Goal
 
 Adicionar fallback de senha local em workspaces com SSO configurado, para casos break-glass (IdP fora do ar) ou usuários convidados que ainda não têm conta no IdP.

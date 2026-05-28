@@ -5,6 +5,12 @@
 **Tempo:** 3 sprints (1 design + 2 impl + 1 audit)
 **Dependências:** Sealed Secrets infra (PR #51 — já em prod-ready)
 
+## Status
+
+- **State:** OPEN — not started
+- **Dependencies:** Sealed Secrets infra (PR #51)
+- **Estimated PR size:** XL (~600 LOC)
+
 ## Goal
 
 Cada workspace configura seu próprio Identity Provider (Google Workspace, Okta, Azure AD). User com email `@empresa-a.com` é redirecionado pro IdP da Empresa A. Sem isso, agentserver é não-vendável para enterprise.

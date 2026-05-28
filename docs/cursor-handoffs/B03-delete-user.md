@@ -5,6 +5,12 @@
 **Tempo:** 1 dia
 **Dependências:** B07 (audit log) recomendado — preservar history corretamente
 
+## Status
+
+- **State:** OPEN — not started
+- **Dependencies:** B07 (audit log) — shipped (PR #72); recommended before implement
+- **Estimated PR size:** L (~120 LOC)
+
 ## Goal
 
 Endpoint `DELETE /api/users/{id}` (global admin only) que anonimiza dados pessoais sem quebrar integridade referencial. Atende direito ao esquecimento (LGPD Art. 18 / GDPR Art. 17).
