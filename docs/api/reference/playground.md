@@ -2,7 +2,7 @@
 
 Generated from [`openapi.yaml`](../openapi.yaml). Regenerate with `make api-docs`.
 
-**35 endpoints** in this section.
+**37 endpoints** in this section.
 
 ### `GET /api/admin/marketplace/skills` {#op-get-api-admin-marketplace-skills}
 List system skills (admin)
@@ -631,6 +631,27 @@ Creates a branch and pull request from the draft (requires maintainer/owner and 
 | `503` | Service Unavailable | `object` |
 
 
+### `POST /api/playground/skills/{id}/publish` {#op-post-api-playground-skills-id-publish}
+Publish skill draft
+Sets the draft status to 'published'. The sandbox manager resolves published workspace drafts before git system templates.
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Skill draft ID |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | `object` |
+| `400` | Bad Request | `string` |
+| `403` | Forbidden | `string` |
+| `404` | Not Found | `string` |
+
+
 ### `POST /api/playground/skills/{id}/test-sandbox` {#op-post-api-playground-skills-id-test-sandbox}
 Test skill draft in sandbox
 Runs the draft skill in a sandbox and returns sandbox metadata (strategy test).
@@ -939,6 +960,27 @@ Creates a branch and pull request from the draft (requires maintainer/owner and 
 | `401` | Unauthorized | `object` |
 | `403` | Forbidden | `object` |
 | `503` | Service Unavailable | `object` |
+
+
+### `POST /api/playground/souls/{id}/publish` {#op-post-api-playground-souls-id-publish}
+Publish soul draft
+Sets the draft status to 'published'. The sandbox manager resolves published workspace drafts before git system templates.
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | yes | Soul draft ID |
+
+
+**Responses**
+
+| Status | Description | Schema |
+|--------|-------------|--------|
+| `200` | OK | `object` |
+| `400` | Bad Request | `string` |
+| `403` | Forbidden | `string` |
+| `404` | Not Found | `string` |
 
 
 ### `PATCH /api/playground/souls/{id}/visibility` {#op-patch-api-playground-souls-id-visibility}

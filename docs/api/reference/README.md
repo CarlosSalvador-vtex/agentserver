@@ -27,7 +27,7 @@ This reference covers the **external developer surface** of agentserver: the end
 | Codex Tokens | 3 | [`codex-tokens.md`](codex-tokens.md) |
 | Codex Browser Sessions | 1 | [`codex-browser-sessions.md`](codex-browser-sessions.md) |
 | IM Channels | 11 | [`im-channels.md`](im-channels.md) |
-| Playground & Marketplace | 35 | [`playground.md`](playground.md) |
+| Playground & Marketplace | 37 | [`playground.md`](playground.md) |
 
 ## Related docs
 
