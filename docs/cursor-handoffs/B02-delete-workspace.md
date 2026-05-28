@@ -11,6 +11,15 @@
 - **Dependencies:** none
 - **Estimated PR size:** M (~80 LOC)
 
+> **Impact note (publish-without-git, PR #107 / migration 043).** `skill_drafts` e
+> `soul_drafts` agora têm status `published` (draft servida direto do DB ao sandbox,
+> sem git). A coluna `workspace_id` **não tem FK cascade** — cleanup é manual. Ao
+> deletar/purgar um workspace, deletar drafts de **todos os status** (incluindo
+> `published`), sem filtrar `status='draft'`. Caso contrário, draft `published`
+> órfã continua resolvível em `ResolveComposition` (`GetPublished{Skill,Soul}DraftByName`).
+> Query: `DELETE FROM skill_drafts WHERE workspace_id=$1` (sem cláusula de status);
+> idem `soul_drafts`.
+
 ## Goal
 
 Endpoint `DELETE /api/workspaces/{id}` que limpa workspace + cascade dos recursos (membros, sandboxes, drafts). Soft delete por default.
