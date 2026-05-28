@@ -474,6 +474,7 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/api/playground/skills/{id}", s.handlePatchSkillDraft)
 		r.Delete("/api/playground/skills/{id}", s.handleArchiveSkillDraft)
 		r.Post("/api/playground/skills/{id}/promote", s.handlePromoteSkillDraft)
+		r.Post("/api/playground/skills/{id}/publish", s.handlePublishSkillDraft)
 		r.Post("/api/playground/skills/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSkillDraftDryRun))
 		r.Post("/api/playground/skills/{id}/test-sandbox", s.testSandboxLimiter.middleware(20, s.handleSkillDraftTestSandbox))
 		r.Get("/api/playground/souls", s.handleListSoulDrafts)
@@ -482,6 +483,7 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/api/playground/souls/{id}", s.handlePatchSoulDraft)
 		r.Delete("/api/playground/souls/{id}", s.handleArchiveSoulDraft)
 		r.Post("/api/playground/souls/{id}/promote", s.handlePromoteSoulDraft)
+		r.Post("/api/playground/souls/{id}/publish", s.handlePublishSoulDraft)
 		r.Post("/api/playground/souls/{id}/dry-run", s.dryRunLimiter.middleware(6, s.handleSoulDraftDryRun))
 		// Draft audit timeline (improvements.md #14). Author-only.
 		r.Get("/api/playground/skills/{id}/audit", s.handleListSkillDraftAudit)

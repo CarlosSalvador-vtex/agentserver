@@ -105,6 +105,17 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, 
 		return &ResolvedComposition{}, nil
 	}
 
+	// Fetch workspace ID so we can check for published drafts that override
+	// git system templates.
+	sbx, err := m.db.GetSandbox(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("load sandbox for composition: %w", err)
+	}
+	var workspaceID string
+	if sbx != nil {
+		workspaceID = sbx.WorkspaceID
+	}
+
 	resolved = &ResolvedComposition{}
 
 	// --- Soul ---
@@ -131,10 +142,26 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, 
 			resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, cm)
 			resolved.ExtraVolumes = append(resolved.ExtraVolumes, vol)
 			resolved.ExtraMounts = append(resolved.ExtraMounts, mount)
+		} else if soulRef != nil && soulRef.Kind == RefKindGit.String() && workspaceID != "" {
+			// Workspace published draft overrides the git system template.
+			pub, err := m.db.GetPublishedSoulDraftByName(soulRef.Name, workspaceID)
+			if err != nil {
+				return nil, fmt.Errorf("lookup published soul %q: %w", soulRef.Name, err)
+			}
+			if pub != nil {
+				resolved.SoulBody = pub.Body
+				resolved.SoulConstraints = extractSoulConstraints(pub.Frontmatter)
+
+				cm, vol, mount, err := buildSoulConfigMapAndMount(sandboxID, namespace, pub, platform)
+				if err != nil {
+					return nil, fmt.Errorf("build published soul mount: %w", err)
+				}
+				resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, cm)
+				resolved.ExtraVolumes = append(resolved.ExtraVolumes, vol)
+				resolved.ExtraMounts = append(resolved.ExtraMounts, mount)
+			}
+			// No published draft → fall through to git path (chart-mounted ConfigMap).
 		}
-		// git: soul body is read in-pod from the chart-mounted ConfigMap.
-		// We don't mount it here — the chart already does via a future
-		// souls-configmap.yaml template (out of this PR).
 	}
 
 	// --- Skills ---
@@ -143,13 +170,33 @@ func (m *Manager) ResolveComposition(ctx context.Context, sandboxID, namespace, 
 		if err != nil {
 			return nil, fmt.Errorf("skill_ref %q: %w", refStr, err)
 		}
-		if ref == nil || ref.Kind != RefKindDraft.String() {
-			// Git skill: the chart's skills-configmap.yaml already mounts
-			// it via env-driven SkillConfigMaps. Composition records the
-			// intent; the existing path materializes it.
-			if ref != nil && ref.Kind == RefKindGit.String() {
-				resolved.EnabledSkillNames = append(resolved.EnabledSkillNames, ref.Name)
+		if ref == nil {
+			continue
+		}
+		if ref.Kind == RefKindGit.String() {
+			// Workspace published draft overrides the git system template.
+			if workspaceID != "" {
+				pub, err := m.db.GetPublishedSkillDraftByName(ref.Name, workspaceID)
+				if err != nil {
+					return nil, fmt.Errorf("lookup published skill %q: %w", ref.Name, err)
+				}
+				if pub != nil {
+					cm, vols, mounts, err := buildSkillConfigMapAndMounts(sandboxID, namespace, pub, platform)
+					if err != nil {
+						return nil, fmt.Errorf("build published skill mount %s: %w", pub.Name, err)
+					}
+					resolved.EphemeralConfigMaps = append(resolved.EphemeralConfigMaps, cm)
+					resolved.ExtraVolumes = append(resolved.ExtraVolumes, vols...)
+					resolved.ExtraMounts = append(resolved.ExtraMounts, mounts...)
+					resolved.EnabledSkillNames = append(resolved.EnabledSkillNames, pub.Name)
+					continue
+				}
 			}
+			// No published draft → chart's skills-configmap.yaml handles it.
+			resolved.EnabledSkillNames = append(resolved.EnabledSkillNames, ref.Name)
+			continue
+		}
+		if ref.Kind != RefKindDraft.String() {
 			continue
 		}
 		skill, err := m.db.GetSkillDraft(ref.UUID)
