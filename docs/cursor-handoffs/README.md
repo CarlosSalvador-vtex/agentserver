@@ -9,18 +9,18 @@ constraints e decision points.
 
 ## Order of execution (recommended)
 
-| # | File | Item | LOC | Why this order |
-|---|---|---|---|---|
-| 1 | [B10](B10-reserved-slugs.md) | Reservar mais slugs | ~5 | Warm-up — valida workflow |
-| 2 | [B02](B02-delete-workspace.md) | DELETE workspace | ~80 | Limpa ws de teste, valor imediato |
-| 3 | [B01](B01-invite-email.md) | Invite por email | ~200 | Feature visível, desbloqueia B6 |
-| 4 | [B06](B06-email-subdomain-urls.md) | URLs subdomínio em emails | ~30 | Depende de B1 |
-| 5 | [B07](B07-audit-log-per-workspace.md) | Audit log por workspace | ~150 | Compliance pré-SOC2 |
-| 6 | [B03](B03-delete-user.md) | DELETE user LGPD | ~120 | Compliance GDPR/LGPD |
-| 7 | [B09](B09-choose-workspace-apex.md) | "Choose workspace" UI no apex | ~130 | UX cross-tenant |
-| 8 | [B08](B08-codex-auth-vs-cookie.md) | codex-auth × cookie host-only | 0-200 | Decisão arquitetural |
-| 9 | [B04](B04-sso-per-workspace.md) | SSO por workspace (Opção B) | ~600 | Enterprise readiness |
-| 10 | [B05](B05-hybrid-sso-password.md) | Híbrido SSO + senha (Opção C) | +150 | Depende de B4 |
+| # | File | Item | LOC | Status | Why this order |
+|---|---|---|---|---|---|
+| 1 | [B10](B10-reserved-slugs.md) | Reservar mais slugs | ~5 | | Warm-up — valida workflow |
+| 2 | [B02](B02-delete-workspace.md) | DELETE workspace | ~80 | | Limpa ws de teste, valor imediato |
+| 3 | [B01](B01-invite-email.md) | Invite por email | ~200 | ✅ PR #71 | Feature visível, desbloqueia B6 |
+| 4 | [B06](B06-email-subdomain-urls.md) | URLs subdomínio em emails | ~30 | | Depende de B1 |
+| 5 | [B07](B07-audit-log-per-workspace.md) | Audit log por workspace | ~150 | ✅ PR #72 | Compliance pré-SOC2 |
+| 6 | [B03](B03-delete-user.md) | DELETE user LGPD | ~120 | | Compliance GDPR/LGPD |
+| 7 | [B09](B09-choose-workspace-apex.md) | "Choose workspace" UI no apex | ~130 | | UX cross-tenant |
+| 8 | [B08](B08-codex-auth-vs-cookie.md) | codex-auth × cookie host-only | 0-200 | | Decisão arquitetural |
+| 9 | [B04](B04-sso-per-workspace.md) | SSO por workspace (Opção B) | ~600 | | Enterprise readiness |
+| 10 | [B05](B05-hybrid-sso-password.md) | Híbrido SSO + senha (Opção C) | +150 | | Depende de B4 |
 
 ## Como usar com Cursor
 
