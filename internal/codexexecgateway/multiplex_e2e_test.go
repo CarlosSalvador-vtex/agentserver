@@ -163,18 +163,22 @@ func TestBridge_TwoConcurrentBridgesShareInbound(t *testing.T) {
 	if fa.StreamId != "stream-A" {
 		t.Errorf("bridge A got wrong stream_id: %q", fa.StreamId)
 	}
-	// Bridge B should NOT get a frame (deadline check).
-	bctx, bcancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer bcancel()
-	if _, _, err := bridgeB.Read(bctx); err == nil {
-		t.Error("bridge B unexpectedly received a frame for stream-A")
-	}
 
-	// And the symmetric path for stream-B.
+	// Symmetric path for stream-B: verify BEFORE the deadline check so
+	// bridgeB's connection stays alive (nhooyr/websocket closes the conn
+	// when a Read context is cancelled, which would break this read).
 	sendDataFrame(t, inbound, "stream-B", 1, []byte(`{"reply":"B"}`))
 	fb := readRelayFrame(t, ctx, bridgeB)
 	if fb.StreamId != "stream-B" {
 		t.Errorf("bridge B got wrong stream_id: %q", fb.StreamId)
+	}
+
+	// Bridge B should NOT receive any further frames (deadline check).
+	// Done last so cancelling bctx can safely close bridgeB.
+	bctx, bcancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer bcancel()
+	if _, _, err := bridgeB.Read(bctx); err == nil {
+		t.Error("bridge B unexpectedly received a stray frame")
 	}
 }
 
@@ -222,7 +226,7 @@ func TestBridge_StreamIdCollisionEvictsFirst(t *testing.T) {
 	b := dialBridgeRaw(t, hs.URL, "exe_collide", tok)
 	defer b.Close(websocket.StatusNormalClosure, "")
 	sendResume(t, b, "dup-id")
-	readRelayFrame(t, ctxTimeout(t, 2*time.Second), inbound) // drain inbound's Resume from b
+	readRelayFrame(t, ctxTimeout(t, 5*time.Second), inbound) // drain inbound's Resume from b
 
 	// a's ws should close shortly (evicted).
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

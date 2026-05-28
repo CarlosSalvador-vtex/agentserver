@@ -23,7 +23,7 @@ func TestWorkspaceBinding_PostListDelete(t *testing.T) {
 	})
 
 	// POST
-	body := bytes.NewReader([]byte(`{"exe_id":"exe_w1","is_default":true}`))
+	body := bytes.NewReader([]byte(`{"exe_id":"exe_w1","name":"alpha","is_default":true}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/codex-exec/workspaces/ws_a/executors", body)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
