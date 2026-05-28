@@ -36,6 +36,19 @@ func TestValidateSlug(t *testing.T) {
 	}
 }
 
+func TestValidateSlugReservedExpanded(t *testing.T) {
+	// One representative slug per B10 category (operational, support, status, docs, infra, commercial, marketing, compliance, resources, special hosts).
+	samples := []string{
+		"mail", "support", "status", "docs", "cdn",
+		"billing", "signup", "legal", "media", "localhost",
+	}
+	for _, slug := range samples {
+		if err := ValidateSlug(slug); err == nil {
+			t.Fatalf("ValidateSlug(%q) expected reserved error, got nil", slug)
+		}
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	cases := map[string]string{
 		"Empresa A":       "empresa-a",
