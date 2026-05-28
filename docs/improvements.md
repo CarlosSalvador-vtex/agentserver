@@ -17,28 +17,28 @@
 
 ## Index
 
-| Tier | # | Title | Est. LOC | Type |
-|---|---|---|---|---|
-| 1 | 1 | Composition picker in sandbox create modal | 150 | feat (UI) |
-| 1 | 2 | Magic strings → typed constants | 80 | refactor |
-| 1 | 3 | Rate limit dry-run + test-sandbox | 50 | feat (security) |
-| 1 | 4 | Integration tests for composition resolution | 100 | test |
-| 1 | 5 | OpenClaw SOUL.md equivalent | 80 | feat |
-| 2 | 6 | Prometheus metrics for playground | 120 | feat (observability) |
-| 2 | 7 | Diff view: draft vs last promoted | 80 | feat (UI) |
-| 2 | 8 | Promote PR status polling | 60 | feat (UI) |
-| 2 | 9 | Soul standalone dry-run | 80 | feat |
-| 2 | 10 | Manager.go refactor (split StartContainerWithIP) | 300 | refactor |
-| 3 | 11 | CI/CD automation (GitHub Actions) | 200 | infra |
-| 3 | 12 | Ephemeral ConfigMap orphan reaper | 50 | feat (ops) |
-| 3 | 13 | WhatsApp HMAC enforced mode | 10 | feat (security) |
-| 3 | 14 | Drafts audit log | 100 | feat |
-| 3 | 15 | Staging cluster | infra | infra | **shipped** |
-| 4 | 16 | OpenClaw plugin-sdk initContainer symlink | 80 | feat |
-| 4 | 17 | Tenant-scoped catalog | 120 | feat |
-| 4 | 18 | Soul/skill marketplace (cross-tenant sharing) | 250 | feat | **shipped** |
-| 4 | 19 | LLM proxy token resolution (workspace_id in body) | 20 | fix |
-| 4 | 20 | Drop legacy `sandboxes.im_channel_id` FK | 30 | chore | **shipped** |
+| Tier | # | Title | Status | Est. LOC | Type |
+|---|---|---|---|---|---|
+| 1 | 1 | Composition picker in sandbox create modal | ✅ Shipped | 150 | feat (UI) |
+| 1 | 2 | Magic strings → typed constants | ✅ Shipped | 80 | refactor |
+| 1 | 3 | Rate limit dry-run + test-sandbox | ✅ Shipped | 50 | feat (security) |
+| 1 | 4 | Integration tests for composition resolution | ✅ Shipped | 100 | test |
+| 1 | 5 | OpenClaw SOUL.md equivalent | ✅ Shipped | 80 | feat |
+| 2 | 6 | Prometheus metrics for playground | ✅ Shipped | 120 | feat (observability) |
+| 2 | 7 | Diff view: draft vs last promoted | ✅ Shipped | 80 | feat (UI) |
+| 2 | 8 | Promote PR status polling | ✅ Shipped | 60 | feat (UI) |
+| 2 | 9 | Soul standalone dry-run | ✅ Shipped | 80 | feat |
+| 2 | 10 | Manager.go refactor (split StartContainerWithIP) | ✅ Shipped | 300 | refactor |
+| 3 | 11 | CI/CD automation (GitHub Actions) | ✅ Shipped | 200 | infra |
+| 3 | 12 | Ephemeral ConfigMap orphan reaper | ✅ Shipped | 50 | feat (ops) |
+| 3 | 13 | WhatsApp HMAC enforced mode | ✅ Shipped | 10 | feat (security) |
+| 3 | 14 | Drafts audit log | ✅ Shipped | 100 | feat |
+| 3 | 15 | Staging cluster | ✅ Shipped | 200 | infra |
+| 4 | 16 | OpenClaw plugin-sdk initContainer symlink | ✅ Shipped | 80 | feat |
+| 4 | 17 | Tenant-scoped catalog | ✅ Shipped | 120 | feat |
+| 4 | 18 | Soul/skill marketplace (cross-tenant sharing) | ✅ Shipped | 250 | feat |
+| 4 | 19 | LLM proxy token resolution (workspace_id in body) | ✅ Shipped | 20 | fix |
+| 4 | 20 | Drop legacy `sandboxes.im_channel_id` FK | ✅ Shipped | 30 | chore |
 
 ---
 
@@ -150,7 +150,7 @@ Switch sites to use constants. Provider names (`"weixin"`, `"telegram"`, `"matri
 
 ---
 
-### 5. OpenClaw SOUL.md equivalent — **SHIPPED** (2026-05-27)
+### 5. OpenClaw SOUL.md equivalent
 
 **Problem (original).** Hermes auto-loads `$HERMES_HOME/SOUL.md` (see `docs/lessons-learned.md`). OpenClaw had no documented equivalent — our soul mount was dead weight until something read it.
 
@@ -401,8 +401,6 @@ Each playground handler appends an event. Frontend renders a timeline tab.
 
 ### 15. Staging cluster
 
-> **Status: shipped (Sprint 5)**
-
 **Shipped implementation.** Namespace `agentserver-staging` created on the existing dev EKS cluster (`dev-ti-eks-analytics-platform`) to avoid a full cluster bootstrap. `values-staging-eks.yaml` added at repo root, mirroring prod-like config. Image tag at time of ship: `sprint5-final`.
 
 **Problem.** Today: dev EKS (`dev-ti-eks-analytics-platform`) → ??? → prod. No middle environment. First prod deploy ever will also be first "non-dev" deploy.
@@ -476,8 +474,6 @@ UI: catalog page gets a scope filter ("System" / current workspace).
 
 ### 18. Soul/skill marketplace (cross-tenant sharing)
 
-> **Status: shipped (Sprint 5)**
-
 **Shipped implementation.**
 - Migration 036 adds `visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','shared'))` to both `skill_drafts` and `soul_drafts`.
 - New read endpoints (any authenticated user): `GET /api/marketplace/skills`, `GET /api/marketplace/souls`.
@@ -528,8 +524,6 @@ If absent → fall back to first workspace (legacy behavior). Frontend dry-run p
 ---
 
 ### 20. Drop legacy `sandboxes.im_channel_id` FK
-
-> **Status: shipped (Sprint 5)**
 
 **Shipped implementation.**
 - Migration 037 drops `sandboxes.im_channel_id`.
