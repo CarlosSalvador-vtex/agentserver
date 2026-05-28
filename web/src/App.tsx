@@ -14,6 +14,9 @@ import {
   type Sandbox,
 } from './lib/api'
 import { Login } from './components/Login'
+import { ChooseWorkspace } from './components/ChooseWorkspace'
+import { isApexHost } from './lib/hostname'
+import { resolveAuthedLandingPath } from './lib/workspaceRouting'
 import { Home } from './components/Home/Home'
 import { OAuthConsent } from './components/OAuthConsent'
 import { OAuthDevice } from './components/OAuthDevice'
@@ -197,22 +200,15 @@ export default function App() {
             setWorkspaces(ws)
             if (me) setUser(me)
             const match = window.location.pathname.match(/^\/w\/([^/]+)/)
-            const urlWsId = match?.[1]
-            let chosen: string | null =
-              urlWsId && ws.some((w) => w.id === urlWsId) ? urlWsId : null
-            if (
-              !chosen &&
-              me?.active_workspace_id &&
-              ws.some((w) => w.id === me.active_workspace_id)
-            ) {
-              chosen = me.active_workspace_id
-            }
-            if (!chosen && ws.length > 0) chosen = ws[0].id
-            if (chosen) {
-              setSelectedWorkspaceId(chosen)
-              if (!urlWsId || urlWsId !== chosen) {
-                navigate(`/w/${chosen}`, { replace: true })
-              }
+            const path = resolveAuthedLandingPath({
+              apex: isApexHost(),
+              workspaces: ws,
+              activeWorkspaceId: me?.active_workspace_id,
+              urlWorkspaceId: match?.[1] ?? null,
+            })
+            navigate(path, { replace: true })
+            if (path.startsWith('/w/')) {
+              setSelectedWorkspaceId(path.slice(3))
             }
           })
           .catch(() => {})
@@ -311,6 +307,10 @@ export default function App() {
     )
   }
 
+  if (authed && location.pathname === '/choose-workspace') {
+    return <ChooseWorkspace />
+  }
+
   // Already authenticated and landed here via ?next= (typically codex-auth's
   // device/PKCE redirect). Bounce to next before rendering the dashboard, or
   // the user sees the dashboard instead of the codex-auth verify form.
@@ -346,11 +346,21 @@ export default function App() {
         return
       }
       setAuthed(true)
-      listWorkspaces().then((ws) => {
-        setWorkspaces(ws)
-        if (ws.length > 0) setSelectedWorkspaceId(ws[0].id)
-      }).catch(() => {})
-      getMe().then(setUser).catch(() => {})
+      Promise.all([listWorkspaces(), getMe().catch(() => null)])
+        .then(([ws, me]) => {
+          setWorkspaces(ws)
+          if (me) setUser(me)
+          const path = resolveAuthedLandingPath({
+            apex: isApexHost(),
+            workspaces: ws,
+            activeWorkspaceId: me?.active_workspace_id,
+          })
+          navigate(path, { replace: true })
+          if (path.startsWith('/w/')) {
+            setSelectedWorkspaceId(path.slice(3))
+          }
+        })
+        .catch(() => {})
     }
 
     return (
@@ -451,7 +461,17 @@ export default function App() {
         <Route path="/playground/skills/:id" element={<PlaygroundSkillEditor isDevMode={user?.role === 'admin'} />} />
         <Route path="/playground/souls/:id" element={<PlaygroundSoulEditor isDevMode={user?.role === 'admin'} />} />
         <Route path="/marketplace" element={<Marketplace />} />
-        <Route path="*" element={selectedWorkspaceId ? <Navigate to={`/w/${selectedWorkspaceId}`} replace /> : null} />
+        <Route path="/choose-workspace" element={<ChooseWorkspace />} />
+        <Route
+          path="*"
+          element={
+            selectedWorkspaceId ? (
+              <Navigate to={`/w/${selectedWorkspaceId}`} replace />
+            ) : isApexHost() ? (
+              <Navigate to="/choose-workspace" replace />
+            ) : null
+          }
+        />
       </Routes>
     </div>
   )
