@@ -26,9 +26,10 @@ import { TopBar } from './components/TopBar'
 import { SandboxDetail } from './components/SandboxDetail'
 import { ManageWorkspaces } from './components/ManageWorkspaces'
 import { AdminPanel } from './components/AdminPanel'
-import { Playground } from './components/Playground'
-import { PlaygroundSkillEditor } from './components/PlaygroundSkillEditor'
-import { PlaygroundSoulEditor } from './components/PlaygroundSoulEditor'
+// PLAYGROUND DISABLED — skills are created externally; marketplace remains active
+// import { Playground } from './components/Playground'
+// import { PlaygroundSkillEditor } from './components/PlaygroundSkillEditor'
+// import { PlaygroundSoulEditor } from './components/PlaygroundSoulEditor'
 import { Marketplace } from './components/Marketplace'
 import { WorkspaceDetail, tabFromSlug, type Tab as WorkspaceTab } from './components/WorkspaceDetail'
 
@@ -374,7 +375,7 @@ export default function App() {
         onLogout={handleLogout}
         onShowAdmin={user?.role === 'admin' ? () => navigate('/admin') : undefined}
         onShowManageWorkspaces={() => navigate('/workspaces')}
-        onShowPlayground={() => navigate('/playground')}
+        // onShowPlayground={() => navigate('/playground')} // PLAYGROUND DISABLED
         onShowMarketplace={() => navigate('/marketplace')}
       />
       <Routes>
@@ -447,9 +448,11 @@ export default function App() {
         />
         <Route path="/oauth2/consent" element={<OAuthConsentRoute />} />
         <Route path="/oauth2/device" element={<OAuthDeviceRoute />} />
+        {/* PLAYGROUND DISABLED — re-enable by uncommenting imports + routes below
         <Route path="/playground" element={<Playground />} />
         <Route path="/playground/skills/:id" element={<PlaygroundSkillEditor />} />
         <Route path="/playground/souls/:id" element={<PlaygroundSoulEditor />} />
+        */}
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="*" element={selectedWorkspaceId ? <Navigate to={`/w/${selectedWorkspaceId}`} replace /> : null} />
       </Routes>
