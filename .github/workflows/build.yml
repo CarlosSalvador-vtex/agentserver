@@ -10,16 +10,17 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # ⚠️ CI BLOCKER — image namespace is hardcoded to the UPSTREAM org `agentserver`
-  # (ghcr.io/agentserver/*), which this fork (CarlosSalvador-vtex/agentserver) has
-  # NO write access to. `docker login` succeeds with secrets.GHCR_TOKEN, but every
-  # `docker push` fails: `denied: permission_denied: write_package`.
-  # → builds/deploy on main are RED; dev cluster keeps running the old image.
-  # Fix: repoint to this fork's own namespace, e.g. use the lowercased repo owner:
-  #   IMAGE_NS: ${{ github.repository_owner }}   # → carlossalvador-vtex (GHCR lowercases)
-  # and replace `agentserver/<name>` below with `${IMAGE_NS}/<name>`.
-  # Then: PAT with write:packages on the fork's namespace + make packages public
-  # (or add an imagePullSecret on EKS, since new packages default to private).
+  # Image namespace = this fork's GHCR namespace (NOT the upstream org `agentserver`,
+  # which the fork has no write access to). github.repository_owner = CarlosSalvador-vtex;
+  # GHCR requires lowercase, so the literal `carlossalvador-vtex` is used in the image
+  # paths below and in deploy/helm/agentserver/values.yaml — the two MUST stay in sync.
+  IMAGE_NS: carlossalvador-vtex
+  # ⚠️ CODE REPOINTED, BUT DEPLOY STILL NEEDS OWNER ACTIONS before main goes green:
+  #   1. secrets.GHCR_TOKEN = classic PAT with write:packages on this namespace
+  #   2. make the pushed packages public (GHCR → package → visibility → Public)
+  #      OR add an imagePullSecret on EKS (new packages default to private)
+  # Until both are done, `docker push` to ghcr.io/carlossalvador-vtex/* may still fail
+  # (write:packages) and/or the dev pull may fail (private without pull-secret).
   # Full write-up + decision matrix: docs/ops/ci-ghcr-namespace-blocker.md
 
 permissions:
@@ -135,9 +136,8 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          # FIXME(ci-ghcr-namespace-blocker): `agentserver` = upstream org, no push access.
-          # Repoint to ${{ github.repository_owner }} (lowercased). See docs/ops/ci-ghcr-namespace-blocker.md
-          images: ${{ env.REGISTRY }}/agentserver/agentserver
+          # Repointed to the fork namespace (was upstream `agentserver`). See docs/ops/ci-ghcr-namespace-blocker.md
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NS }}/agentserver
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -173,8 +173,8 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          # FIXME(ci-ghcr-namespace-blocker): upstream-org namespace, no push access. See docs/ops/ci-ghcr-namespace-blocker.md
-          images: ${{ env.REGISTRY }}/agentserver/llmproxy
+          # Repointed to the fork namespace (was upstream `agentserver`). See docs/ops/ci-ghcr-namespace-blocker.md
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NS }}/llmproxy
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -210,8 +210,8 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          # FIXME(ci-ghcr-namespace-blocker): upstream-org namespace, no push access. See docs/ops/ci-ghcr-namespace-blocker.md
-          images: ${{ env.REGISTRY }}/agentserver/imbridge
+          # Repointed to the fork namespace (was upstream `agentserver`). See docs/ops/ci-ghcr-namespace-blocker.md
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NS }}/imbridge
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -247,8 +247,8 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          # FIXME(ci-ghcr-namespace-blocker): upstream-org namespace, no push access. See docs/ops/ci-ghcr-namespace-blocker.md
-          images: ${{ env.REGISTRY }}/agentserver/credentialproxy
+          # Repointed to the fork namespace (was upstream `agentserver`). See docs/ops/ci-ghcr-namespace-blocker.md
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NS }}/credentialproxy
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -284,8 +284,8 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          # FIXME(ci-ghcr-namespace-blocker): upstream-org namespace, no push access. See docs/ops/ci-ghcr-namespace-blocker.md
-          images: ${{ env.REGISTRY }}/agentserver/sandboxproxy
+          # Repointed to the fork namespace (was upstream `agentserver`). See docs/ops/ci-ghcr-namespace-blocker.md
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NS }}/sandboxproxy
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -321,8 +321,8 @@ jobs:
       - name: Package and push Helm chart
         run: |
           helm package deploy/helm/agentserver
-          # FIXME(ci-ghcr-namespace-blocker): upstream-org namespace, no push access. See docs/ops/ci-ghcr-namespace-blocker.md
-          helm push agentserver-*.tgz oci://${{ env.REGISTRY }}/agentserver/charts
+          # Repointed to the fork namespace (was upstream `agentserver`). See docs/ops/ci-ghcr-namespace-blocker.md
+          helm push agentserver-*.tgz oci://${{ env.REGISTRY }}/${{ env.IMAGE_NS }}/charts
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
