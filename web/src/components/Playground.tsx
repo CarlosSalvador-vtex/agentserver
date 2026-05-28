@@ -23,9 +23,10 @@ type ScopeFilter = 'all' | 'system' | 'mine'
 
 export function Playground({ user }: { user: UserInfo | null }) {
   const navigate = useNavigate()
+  const isDevMode = user?.role === 'admin'
   const [skills, setSkills] = useState<PlaygroundSkillSummary[]>([])
   const [souls, setSouls] = useState<PlaygroundSoulSummary[]>([])
-  const [scope, setScope] = useState<ScopeFilter>('all')
+  const [scope, setScope] = useState<ScopeFilter>(isDevMode ? 'all' : 'mine')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createKind, setCreateKind] = useState<'skill' | 'soul' | null>(null)
@@ -126,21 +127,23 @@ export function Playground({ user }: { user: UserInfo | null }) {
             {forking ? <Loader2 size={12} className="animate-spin" /> : null}
             {forking ? 'Configurando...' : '+ Usar modelo de cobrança'}
           </button>
-          <div className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] p-0.5">
-            {(['all', 'system', 'mine'] as ScopeFilter[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setScope(s)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  scope === s
-                    ? 'bg-orange-500/20 text-orange-400'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                {s === 'all' ? 'All' : s === 'system' ? 'System' : 'My workspace'}
-              </button>
-            ))}
-          </div>
+          {isDevMode && (
+            <div className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] p-0.5">
+              {(['all', 'system', 'mine'] as ScopeFilter[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setScope(s)}
+                  className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                    scope === s
+                      ? 'bg-orange-500/20 text-orange-400'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  {s === 'all' ? 'All' : s === 'system' ? 'System' : 'My workspace'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

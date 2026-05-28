@@ -341,7 +341,7 @@ function SkillsTab() {
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() => handleVisibilityToggle(item.id, item.status === 'shared' ? 'shared' : (item as any).visibility ?? 'private')}
+                      onClick={() => handleVisibilityToggle(item.id, (item as any).visibility === 'shared' ? 'shared' : (item as any).visibility ?? 'private')}
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
                         (item as any).visibility === 'shared'
                           ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
