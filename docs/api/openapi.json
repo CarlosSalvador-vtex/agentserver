@@ -5839,7 +5839,7 @@
         "tags": [
           "Workspaces"
         ],
-        "summary": "Delete a workspace (owner only; cascades to sandboxes + namespace)",
+        "summary": "Delete a workspace (owner only; soft delete)",
         "parameters": [
           {
             "description": "Workspace id",
@@ -5857,6 +5857,16 @@
           },
           "403": {
             "description": "owner only",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "workspace not found",
             "content": {
               "*/*": {
                 "schema": {

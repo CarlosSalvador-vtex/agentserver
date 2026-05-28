@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1404,11 +1405,12 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.toWorkspaceResponse(ws))
 }
 
-//	@Summary    Delete a workspace (owner only; cascades to sandboxes + namespace)
+//	@Summary    Delete a workspace (owner only; soft delete)
 //	@Tags       Workspaces
 //	@Param      id   path  string  true  "Workspace id"
 //	@Success    204
 //	@Failure    403  {string}  string  "owner only"
+//	@Failure    404  {string}  string  "workspace not found"
 //	@Failure    500  {string}  string  "internal error"
 //	@Security   CookieAuth
 //	@Router     /api/workspaces/{id} [delete]
@@ -1418,26 +1420,25 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up workspace for namespace info.
 	ws, err := s.DB.GetWorkspace(id)
 	if err != nil {
 		log.Printf("failed to get workspace %s: %v", id, err)
 		http.Error(w, "failed to delete workspace", http.StatusInternalServerError)
 		return
 	}
+	if ws == nil {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
 
-	// Resolve namespace for StopBySandboxName calls.
 	var wsNamespace string
-	if ws != nil && ws.K8sNamespace.Valid {
+	if ws.K8sNamespace.Valid {
 		wsNamespace = ws.K8sNamespace.String
 	}
 
-	// Stop all sandboxes in the workspace.
 	sandboxes := s.Sandboxes.ListByWorkspace(id)
 	for _, sbx := range sandboxes {
 		if sbx.IsLocal {
-			// TODO: tunnel close is now a no-op here; sandbox-proxy owns tunnel connections.
-			// Tunnel will terminate when the agent's next heartbeat finds the sandbox deleted.
 			if t, ok := s.TunnelRegistry.Get(sbx.ID); ok {
 				t.Close()
 			}
@@ -1456,20 +1457,31 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
-
-	// Delete the K8s namespace (cascades all resources).
-	if s.NamespaceManager != nil && wsNamespace != "" {
-		if err := s.NamespaceManager.DeleteNamespace(r.Context(), wsNamespace); err != nil {
-			log.Printf("failed to delete namespace %s for workspace %s: %v", wsNamespace, id, err)
+		if err := s.Sandboxes.Delete(sbx.ID); err != nil {
+			log.Printf("delete sandbox %s during workspace delete %s: %v", sbx.ID, id, err)
 		}
 	}
 
-	if err := s.DB.DeleteWorkspace(id); err != nil {
-		log.Printf("failed to delete workspace %s: %v", id, err)
+	if err := s.DB.SoftDeleteWorkspace(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "workspace not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("soft delete workspace %s: %v", id, err)
 		http.Error(w, "failed to delete workspace", http.StatusInternalServerError)
 		return
 	}
+
+	if err := s.DB.DeleteWorkspaceDrafts(id); err != nil {
+		log.Printf("delete workspace drafts for %s: %v", id, err)
+		http.Error(w, "failed to delete workspace", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.DB.ClearActiveWorkspace(id); err != nil {
+		log.Printf("clear active_workspace_id for workspace %s: %v", id, err)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
