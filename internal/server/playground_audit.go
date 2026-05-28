@@ -14,6 +14,10 @@ import (
 // events for the draft, newest first. Author-only (matches the rest of
 // the per-draft endpoints).
 
+type playgroundAuditListResponse struct {
+	Events []auditEventOut `json:"events"`
+}
+
 type auditEventOut struct {
 	ID          int64                  `json:"id"`
 	DraftKind   string                 `json:"draft_kind"`
@@ -24,10 +28,36 @@ type auditEventOut struct {
 	CreatedAt   string                 `json:"created_at"`
 }
 
+// handleListSkillDraftAudit returns the audit trail for a skill draft.
+//
+//	@Summary		List skill draft audit events
+//	@Description	Returns recent audit events for the skill draft, newest first.
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Param			limit	query		int		false	"Max events (default 50)"
+//	@Success		200	{object}	playgroundAuditListResponse
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/skills/{id}/audit [get]
 func (s *Server) handleListSkillDraftAudit(w http.ResponseWriter, r *http.Request) {
 	s.handleListDraftAudit(w, r, "skill")
 }
 
+// handleListSoulDraftAudit returns the audit trail for a soul draft.
+//
+//	@Summary		List soul draft audit events
+//	@Description	Returns recent audit events for the soul draft, newest first.
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Param			limit	query		int		false	"Max events (default 50)"
+//	@Success		200	{object}	playgroundAuditListResponse
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/souls/{id}/audit [get]
 func (s *Server) handleListSoulDraftAudit(w http.ResponseWriter, r *http.Request) {
 	s.handleListDraftAudit(w, r, "soul")
 }

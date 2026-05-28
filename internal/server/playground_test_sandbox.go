@@ -36,9 +36,22 @@ type playgroundTestSandboxResponse struct {
 	Strategy  string `json:"strategy"` // always "test" — distinguishes from prod compositions
 }
 
-// handleSkillDraftTestSandbox spawns a short-lived sandbox bound to a
-// draft skill + optional draft soul. Enforces a per-user concurrency
-// cap; the reaper goroutine deletes the pod when the TTL elapses.
+// handleSkillDraftTestSandbox spawns a short-lived sandbox bound to a draft skill.
+//
+//	@Summary		Test skill draft in sandbox
+//	@Description	Runs the draft skill in a sandbox and returns sandbox metadata (strategy test).
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Param			body	body		playgroundTestSandboxRequest	false	"Sandbox test options"
+//	@Success		200	{object}	playgroundTestSandboxResponse
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Failure		503	{object}	map[string]string
+//	@Router			/api/playground/skills/{id}/test-sandbox [post]
 func (s *Server) handleSkillDraftTestSandbox(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	draftID := chi.URLParam(r, "id")

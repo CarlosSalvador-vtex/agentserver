@@ -1343,6 +1343,1135 @@ paths:
       summary: Revoke a Codex token
       tags:
         - Codex Tokens
+  /api/marketplace/skills:
+    get:
+      description: Returns skill drafts shared to the marketplace catalog.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.marketplaceSkillListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List marketplace skills
+      tags:
+        - marketplace
+  "/api/marketplace/skills/{id}/fork":
+    post:
+      description: Creates a private copy of a shared marketplace skill draft in the
+        target workspace.
+      parameters:
+        - description: Marketplace skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/server.marketplaceForkRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSkillSummary"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Fork marketplace skill
+      tags:
+        - marketplace
+  /api/marketplace/souls:
+    get:
+      description: Returns soul drafts shared to the marketplace catalog.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.marketplaceSoulListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List marketplace souls
+      tags:
+        - marketplace
+  "/api/marketplace/souls/{id}/fork":
+    post:
+      description: Creates a private copy of a shared marketplace soul draft in the
+        target workspace.
+      parameters:
+        - description: Marketplace soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/server.marketplaceForkRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSoulSummary"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Fork marketplace soul
+      tags:
+        - marketplace
+  "/api/playground/marketplace/skills/{id}/visibility":
+    patch:
+      description: Admin-only visibility patch for marketplace moderation.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/Body"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Admin set skill visibility
+      tags:
+        - marketplace
+  "/api/playground/marketplace/souls/{id}/visibility":
+    patch:
+      description: Admin-only visibility patch for marketplace moderation.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/Body"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Admin set soul visibility
+      tags:
+        - marketplace
+  /api/playground/skills:
+    get:
+      description: Returns skill drafts owned by the current user in the playground catalog.
+      responses:
+        "200":
+          description: drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSkillListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List skill drafts
+      tags:
+        - playground
+    post:
+      description: Creates a skill draft in the author's workspace playground catalog.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/server.playgroundSkillFull"
+        description: Skill draft payload
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSkillSummary"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Create skill draft
+      tags:
+        - playground
+  "/api/playground/skills/{id}":
+    delete:
+      description: Soft-deletes a skill draft owned by the author.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Archive skill draft
+      tags:
+        - playground
+    get:
+      description: Returns full skill draft content for the author.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSkillFull"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Get skill draft
+      tags:
+        - playground
+    patch:
+      description: Partially updates skill draft fields for the author.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/server.playgroundSkillFull"
+        description: Fields to update
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSkillFull"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Update skill draft
+      tags:
+        - playground
+  "/api/playground/skills/{id}/audit":
+    get:
+      description: Returns recent audit events for the skill draft, newest first.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Max events (default 50)
+          in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundAuditListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List skill draft audit events
+      tags:
+        - playground
+  "/api/playground/skills/{id}/dry-run":
+    post:
+      description: Composes system prompt and optional LLM completion preview without
+        persisting changes.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/server.playgroundDryRunRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundDryRunResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Dry-run skill draft prompt
+      tags:
+        - playground
+  "/api/playground/skills/{id}/promote":
+    post:
+      description: Creates a branch and pull request from the draft (requires
+        maintainer/owner and GITHUB_PROMOTE_TOKEN).
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.promoteDraftResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Promote skill draft to GitHub
+      tags:
+        - playground
+  "/api/playground/skills/{id}/test-sandbox":
+    post:
+      description: Runs the draft skill in a sandbox and returns sandbox metadata
+        (strategy test).
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/server.playgroundTestSandboxRequest"
+        description: Sandbox test options
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundTestSandboxResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Test skill draft in sandbox
+      tags:
+        - playground
+  "/api/playground/skills/{id}/visibility":
+    patch:
+      description: Patches visibility to public or private for the draft author.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/Body"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Set skill draft visibility
+      tags:
+        - playground
+  /api/playground/souls:
+    get:
+      description: Returns soul drafts owned by the current user in the playground catalog.
+      responses:
+        "200":
+          description: drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSoulListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List soul drafts
+      tags:
+        - playground
+    post:
+      description: Creates a soul draft in the author's workspace playground catalog.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+        description: Soul draft fields (name, description, workspace_id)
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSoulSummary"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Create soul draft
+      tags:
+        - playground
+  "/api/playground/souls/{id}":
+    delete:
+      description: Soft-deletes a soul draft owned by the author.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            "*/*":
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Archive soul draft
+      tags:
+        - playground
+    get:
+      description: Returns full soul draft content for the author.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSoulFull"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Get soul draft
+      tags:
+        - playground
+    patch:
+      description: Partially updates soul draft fields for the author.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/server.playgroundSoulFull"
+        description: Fields to update
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundSoulFull"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Update soul draft
+      tags:
+        - playground
+  "/api/playground/souls/{id}/audit":
+    get:
+      description: Returns recent audit events for the soul draft, newest first.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Max events (default 50)
+          in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundAuditListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: List soul draft audit events
+      tags:
+        - playground
+  "/api/playground/souls/{id}/dry-run":
+    post:
+      description: Composes system prompt and optional LLM completion preview without
+        persisting changes.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/server.playgroundDryRunRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.playgroundDryRunResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Dry-run soul draft prompt
+      tags:
+        - playground
+  "/api/playground/souls/{id}/promote":
+    post:
+      description: Creates a branch and pull request from the draft (requires
+        maintainer/owner and GITHUB_PROMOTE_TOKEN).
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/server.promoteDraftResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Promote soul draft to GitHub
+      tags:
+        - playground
+  "/api/playground/souls/{id}/visibility":
+    patch:
+      description: Patches visibility to public or private for the draft author.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/Body"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+      security:
+        - ApiKeyAuth: []
+      summary: Set soul draft visibility
+      tags:
+        - playground
   "/api/sandboxes/{id}":
     delete:
       parameters:
@@ -4259,6 +5388,13 @@ components:
             $ref: "#/components/schemas/AuthCredentials"
       description: Email and password
       required: true
+    server.marketplaceForkRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/server.marketplaceForkRequest"
+      description: Target workspace
+      required: true
     AgentTaskCreateRequest:
       content:
         application/json:
@@ -4266,6 +5402,21 @@ components:
             $ref: "#/components/schemas/AgentTaskCreateRequest"
       description: Task details
       required: true
+    Body:
+      content:
+        application/json:
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      description: "visibility: public|private"
+      required: true
+    server.playgroundDryRunRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/server.playgroundDryRunRequest"
+      description: Dry-run inputs
   securitySchemes:
     CookieAuth:
       description: Session cookie set by POST /api/auth/login. All non-auth endpoints
@@ -6126,4 +7277,378 @@ components:
           type: string
       required:
         - name
+      type: object
+    server.auditEventOut:
+      properties:
+        action:
+          type: string
+        actor_user_id:
+          type: string
+        created_at:
+          type: string
+        draft_id:
+          type: string
+        draft_kind:
+          type: string
+        id:
+          type: integer
+        payload_diff:
+          additionalProperties: true
+          type: object
+      type: object
+    server.marketplaceForkRequest:
+      properties:
+        workspace_id:
+          type: string
+      type: object
+    server.marketplaceSkillListResponse:
+      properties:
+        skills:
+          items:
+            $ref: "#/components/schemas/server.marketplaceSkillListing"
+          type: array
+      type: object
+    server.marketplaceSkillListing:
+      properties:
+        author_workspace_id:
+          type: string
+        can_set_visibility:
+          type: boolean
+        description:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        promoted_pr_state:
+          type: string
+        promoted_pr_url:
+          type: string
+        status:
+          type: string
+        tags:
+          items:
+            type: string
+          type: array
+        updated_at:
+          type: string
+        visibility:
+          description: private | shared (migration 036)
+          type: string
+        workspace_id:
+          description: empty = system template
+          type: string
+      type: object
+    server.marketplaceSoulListResponse:
+      properties:
+        souls:
+          items:
+            $ref: "#/components/schemas/server.marketplaceSoulListing"
+          type: array
+      type: object
+    server.marketplaceSoulListing:
+      properties:
+        author_workspace_id:
+          type: string
+        can_set_visibility:
+          type: boolean
+        compatible_skills:
+          items:
+            type: string
+          type: array
+        description:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        promoted_pr_state:
+          type: string
+        promoted_pr_url:
+          type: string
+        schema_version:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+        visibility:
+          description: private | shared (migration 036)
+          type: string
+        workspace_id:
+          description: empty = system template
+          type: string
+      type: object
+    server.playgroundAuditListResponse:
+      properties:
+        events:
+          items:
+            $ref: "#/components/schemas/server.auditEventOut"
+          type: array
+      type: object
+    server.playgroundDryRunMessage:
+      properties:
+        content:
+          type: string
+        role:
+          type: string
+      type: object
+    server.playgroundDryRunRequest:
+      properties:
+        config:
+          additionalProperties: true
+          type: object
+        history:
+          items:
+            $ref: "#/components/schemas/server.playgroundDryRunMessage"
+          type: array
+        model:
+          description: Model overrides PLAYGROUND_DRYRUN_MODEL / default for this request.
+          type: string
+        soul_ref:
+          type: string
+        user_message:
+          type: string
+        workspace_id:
+          description: |-
+            WorkspaceID selects which workspace's LLM proxy token to mint for
+            the round-trip. Empty falls back to the caller's first workspace
+            (legacy behaviour). When set, the caller MUST be a member of that
+            workspace — otherwise the call is rejected with 403.
+          type: string
+      type: object
+    server.playgroundDryRunResponse:
+      properties:
+        completion:
+          description: |-
+            Completion is the LLM's reply, populated when llmproxy returned
+            a response. Empty when llmproxy is not configured or the call
+            failed — CompletionError carries the diagnostic in that case.
+          type: string
+        completion_error:
+          type: string
+        completion_model:
+          type: string
+        messages:
+          items:
+            $ref: "#/components/schemas/server.playgroundDryRunMessage"
+          type: array
+        skill:
+          $ref: "#/components/schemas/server.playgroundDryRunSkillInfo"
+        soul:
+          $ref: "#/components/schemas/server.playgroundDryRunSoulInfo"
+        system_prompt:
+          type: string
+        tools:
+          items:
+            $ref: "#/components/schemas/server.playgroundDryRunTool"
+          type: array
+      type: object
+    server.playgroundDryRunSkillInfo:
+      properties:
+        files:
+          items:
+            type: string
+          type: array
+        has_index:
+          type: boolean
+        has_prompt:
+          type: boolean
+        name:
+          type: string
+      type: object
+    server.playgroundDryRunSoulInfo:
+      properties:
+        max_turns:
+          type: integer
+        name:
+          type: string
+        source:
+          description: '"draft" or "git"'
+          type: string
+        voice:
+          type: string
+      type: object
+    server.playgroundDryRunTool:
+      properties:
+        description:
+          type: string
+        name:
+          type: string
+      type: object
+    server.playgroundSkillFull:
+      properties:
+        can_set_visibility:
+          type: boolean
+        description:
+          type: string
+        files:
+          additionalProperties:
+            type: string
+          type: object
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        promoted_pr_state:
+          type: string
+        promoted_pr_url:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+        visibility:
+          description: private | shared (migration 036)
+          type: string
+        workspace_id:
+          description: empty = system template
+          type: string
+      type: object
+    server.playgroundSkillListResponse:
+      properties:
+        drafts:
+          items:
+            $ref: "#/components/schemas/server.playgroundSkillSummary"
+          type: array
+      type: object
+    server.playgroundSkillSummary:
+      properties:
+        can_set_visibility:
+          type: boolean
+        description:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        promoted_pr_state:
+          type: string
+        promoted_pr_url:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+        visibility:
+          description: private | shared (migration 036)
+          type: string
+        workspace_id:
+          description: empty = system template
+          type: string
+      type: object
+    server.playgroundSoulFull:
+      properties:
+        body:
+          type: string
+        can_set_visibility:
+          type: boolean
+        description:
+          type: string
+        frontmatter:
+          additionalProperties: true
+          type: object
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        promoted_pr_state:
+          type: string
+        promoted_pr_url:
+          type: string
+        schema_version:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+        visibility:
+          description: private | shared (migration 036)
+          type: string
+        workspace_id:
+          description: empty = system template
+          type: string
+      type: object
+    server.playgroundSoulListResponse:
+      properties:
+        drafts:
+          items:
+            $ref: "#/components/schemas/server.playgroundSoulSummary"
+          type: array
+      type: object
+    server.playgroundSoulSummary:
+      properties:
+        can_set_visibility:
+          type: boolean
+        description:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        promoted_commit:
+          type: string
+        promoted_pr_state:
+          type: string
+        promoted_pr_url:
+          type: string
+        schema_version:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+        visibility:
+          description: private | shared (migration 036)
+          type: string
+        workspace_id:
+          description: empty = system template
+          type: string
+      type: object
+    server.playgroundTestSandboxRequest:
+      properties:
+        name:
+          description: optional
+          type: string
+        sandbox_type:
+          description: openclaw | hermes
+          type: string
+        soul_ref:
+          description: optional
+          type: string
+        workspace_id:
+          type: string
+      type: object
+    server.playgroundTestSandboxResponse:
+      properties:
+        expires_at:
+          type: string
+        sandbox_id:
+          type: string
+        strategy:
+          description: always "test" — distinguishes from prod compositions
+          type: string
+      type: object
+    server.promoteDraftResponse:
+      properties:
+        branch:
+          type: string
+        draft_id:
+          type: string
+        draft_kind:
+          type: string
+        head_sha:
+          type: string
+        pr_url:
+          type: string
       type: object

@@ -85,9 +85,21 @@ type playgroundDryRunSkillInfo struct {
 }
 
 // handleSkillDraftDryRun composes the system prompt that this draft +
-// optional soul ref would produce inside a sandbox. Returns prompt +
-// tool surface without invoking the LLM. The frontend renders this as
-// a preview so authors can validate prompt assembly before promoting.
+// optional soul ref would produce inside a sandbox.
+//
+//	@Summary		Dry-run skill draft prompt
+//	@Description	Composes system prompt and optional LLM completion preview without persisting changes.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Param			body	body		playgroundDryRunRequest	false	"Dry-run inputs"
+//	@Success		200	{object}	playgroundDryRunResponse
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/skills/{id}/dry-run [post]
 func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	result := "ok"
@@ -168,9 +180,21 @@ func (s *Server) handleSkillDraftDryRun(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleSoulDraftDryRun mirrors handleSkillDraftDryRun for souls. Soul
-// dry-run composes a system prompt from the soul body alone (no skill
-// prompt) and runs an optional llmproxy round-trip. improvements.md #9.
+// handleSoulDraftDryRun mirrors handleSkillDraftDryRun for souls.
+//
+//	@Summary		Dry-run soul draft prompt
+//	@Description	Composes system prompt and optional LLM completion preview without persisting changes.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Param			body	body		playgroundDryRunRequest	false	"Dry-run inputs"
+//	@Success		200	{object}	playgroundDryRunResponse
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/souls/{id}/dry-run [post]
 func (s *Server) handleSoulDraftDryRun(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	result := "ok"
