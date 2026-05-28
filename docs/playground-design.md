@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS skill_drafts (
     files           JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- {"index.mjs": "...", "prompt.md": "...", "references/leads.json": "..."}
     status          TEXT NOT NULL DEFAULT 'draft',
-    -- draft | promoting | promoted | archived
+    -- draft | promoting | promoted | published | archived
     promoted_pr_url TEXT,
     promoted_commit TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -214,6 +214,12 @@ Body:  {target_name?, commit_message?}
        → {pr_url, branch}
        409 on lock (another promote in-flight for same name)
 
+POST   /api/playground/skills/{id}/publish       role: author or maintainer+
+Body:  (empty)
+       → {id, status: "published"}
+       Atomic: demotes previous published draft for same (name, workspace_id)
+       No git ops — served directly by sandbox manager from DB.
+
 # Identical surface for /api/playground/souls
 GET    /api/playground/souls
 POST   /api/playground/souls
@@ -221,6 +227,7 @@ GET    /api/playground/souls/{id}
 PATCH  /api/playground/souls/{id}
 DELETE /api/playground/souls/{id}
 POST   /api/playground/souls/{id}/promote
+POST   /api/playground/souls/{id}/publish
 ```
 
 ### 5.1a Marketplace (shipped Sprint 5)
@@ -359,6 +366,35 @@ After PR merge → next `helm upgrade` materializes the new git skill +
 sandboxes can `git:<name>@<sha>` from then on. Sandboxes still using
 `draft:<id>` keep working until recreated.
 
+## 7a. Publish flow (draft → DB, no git)
+
+Alternative to promote for workspace-scoped self-service publishing. No PR, no git, instant effect.
+
+```
+POST /api/playground/skills/{id}/publish
+
+[server] auth:
+  - author of the draft OR maintainer/owner role
+
+[server] DB transaction (migration 043):
+  - UPDATE skill_drafts SET status='draft'
+    WHERE name=$name AND workspace_id=$wid AND status='published' AND id != $id
+    (demote previous published for same name+workspace)
+  - UPDATE skill_drafts SET status='published' WHERE id=$id
+
+[server] response: {id, status: "published"}
+```
+
+**Resolution order in sandbox manager** (`ResolveComposition`):
+
+1. Composition ref is `git:<name>@<sha>`
+2. Check `GetPublishedSkillDraftByName(name, workspaceID)` — if found, mount it instead
+3. Fallback: chart-rendered ConfigMap (git system template)
+
+**Invariant:** at most one `published` draft per `(name, workspace_id)` — enforced by partial unique index `idx_skill_drafts_published_unique WHERE status = 'published'`.
+
+**Editing a published draft** does not change its status — `PATCH /api/playground/skills/{id}` accepts `status != 'archived'`. The update takes effect immediately in all new sandboxes booted after the save.
+
 ## 8. Frontend (`web/`)
 
 ### 8.1 Routes
@@ -372,7 +408,7 @@ sandboxes can `git:<name>@<sha>` from then on. Sandboxes still using
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  cobranca-v2 (draft) — author: carlos.salvador     [● saved] │
-│  [Save] [Test ▾] [Promote → PR]                              │
+│  [Save] [Test ▾] [Publish] [Promote → PR (maintainer)]       │
 ├──────────────────┬───────────────────────────────────────────┤
 │ Files            │ EDITOR (current: prompt.md)               │
 │ ├ SKILL.md       │ ┌──────────────────────────────────────┐  │

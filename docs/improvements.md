@@ -205,6 +205,8 @@ Switch sites to use constants. Provider names (`"weixin"`, `"telegram"`, `"matri
 
 ### 7. Diff view: draft vs last promoted
 
+> **Note (2026-05-28).** This applies to the git-based promote flow (`status='promoted'`). Published drafts (`status='published'`, PR #107) do not have a `promoted_commit` — diff is not available for them (they are served directly from DB).
+
 **Problem.** When a skill has been promoted (`status='promoted'`), the draft can be edited again. The current UI shows only the live draft files — no way to see "what changed since last promote". Diff is essential for review-before-second-promote workflows.
 
 **Solution.**
@@ -223,6 +225,8 @@ Switch sites to use constants. Provider names (`"weixin"`, `"telegram"`, `"matri
 ---
 
 ### 8. Promote PR status polling
+
+> **Note (2026-05-28).** This applies only to git-promoted drafts (`status='promoted'`). Published drafts (`status='published'`, PR #107) bypass git entirely — no PR polling needed; they are served immediately from DB.
 
 **Problem.** Today `Promote → PR` opens the PR in a new tab. The draft's `status` stays `promoted` even after the PR is merged or closed — no in-app feedback. User has to manually check the PR.
 
