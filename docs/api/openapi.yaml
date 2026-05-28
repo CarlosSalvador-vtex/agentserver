@@ -432,6 +432,62 @@ paths:
       summary: List all users (admin)
       tags:
         - Admin
+  "/api/admin/users/{id}":
+    delete:
+      description: Soft-deletes a user by anonymizing PII and revoking credentials,
+        memberships, and sessions. Fails if the user is the sole owner of any
+        workspace.
+      parameters:
+        - description: User ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: user anonymized
+        "401":
+          description: unauthorized
+          content:
+            "*/*":
+              schema:
+                type: string
+        "403":
+          description: admin role required
+          content:
+            "*/*":
+              schema:
+                type: string
+        "404":
+          description: user not found
+          content:
+            "*/*":
+              schema:
+                type: string
+        "409":
+          description: sole workspace owner
+          content:
+            "*/*":
+              schema:
+                $ref: "#/components/schemas/server.AdminDeleteUserConflictResponse"
+        "410":
+          description: user already anonymized
+          content:
+            "*/*":
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            "*/*":
+              schema:
+                type: string
+      security:
+        - CookieAuth: []
+      summary: Anonymize (delete) a user (admin, LGPD)
+      tags:
+        - Admin
   "/api/admin/users/{id}/quota":
     delete:
       parameters:
@@ -7665,6 +7721,22 @@ components:
           type: string
       required:
         - name
+      type: object
+    db.LastOwnerWorkspace:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      type: object
+    server.AdminDeleteUserConflictResponse:
+      properties:
+        error:
+          type: string
+        workspaces:
+          items:
+            $ref: "#/components/schemas/db.LastOwnerWorkspace"
+          type: array
       type: object
     server.auditEventOut:
       properties:

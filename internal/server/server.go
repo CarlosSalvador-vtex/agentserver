@@ -641,6 +641,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/workspaces", s.handleAdminListWorkspaces)
 			r.Get("/sandboxes", s.handleAdminListSandboxes)
 			r.Put("/users/{id}/role", s.handleAdminUpdateUserRole)
+			r.Delete("/users/{id}", s.handleAdminDeleteUser)
 
 			// Quota management
 			r.Get("/quotas/defaults", s.handleAdminGetQuotaDefaults)
