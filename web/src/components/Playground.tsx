@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, Trash2, ExternalLink } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Plus, Trash2, ExternalLink, Loader2 } from 'lucide-react'
 import {
   listPlaygroundSkills,
   createPlaygroundSkill,
@@ -8,20 +8,30 @@ import {
   listPlaygroundSouls,
   createPlaygroundSoul,
   archivePlaygroundSoul,
+  listMarketplaceSouls,
+  listMarketplaceSkills,
+  forkMarketplaceSoul,
+  forkMarketplaceSkill,
+  listWorkspaces,
   type PlaygroundSkillSummary,
   type PlaygroundSoulSummary,
 } from '../lib/api'
+import type { UserInfo } from '../App'
 import { CreateDraftModal } from './CreateDraftModal'
 
 type ScopeFilter = 'all' | 'system' | 'mine'
 
-export function Playground() {
+export function Playground({ user }: { user: UserInfo | null }) {
+  const navigate = useNavigate()
+  const isDevMode = user?.role === 'admin'
   const [skills, setSkills] = useState<PlaygroundSkillSummary[]>([])
   const [souls, setSouls] = useState<PlaygroundSoulSummary[]>([])
-  const [scope, setScope] = useState<ScopeFilter>('all')
+  const [scope, setScope] = useState<ScopeFilter>(isDevMode ? 'all' : 'mine')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createKind, setCreateKind] = useState<'skill' | 'soul' | null>(null)
+  const [forking, setForking] = useState(false)
+  const [forkError, setForkError] = useState<string | null>(null)
 
   const reload = async () => {
     try {
@@ -64,6 +74,34 @@ export function Playground() {
     await reload()
   }
 
+  const handleForkCobrana = async () => {
+    setForking(true)
+    setForkError(null)
+    try {
+      const [marketSouls, marketSkills, workspaceList] = await Promise.all([
+        listMarketplaceSouls(),
+        listMarketplaceSkills(),
+        listWorkspaces(),
+      ])
+      const wsId = workspaceList[0]?.id
+      if (!wsId) throw new Error('Nenhum workspace encontrado')
+      const cobrancaSoul = marketSouls.find((s) => s.name.toLowerCase().includes('cobran'))
+      const cobrancaSkill = marketSkills.find((s) => s.name.toLowerCase().includes('cobran') || s.name.toLowerCase().includes('negoci'))
+      if (!cobrancaSoul) throw new Error('Modelo de cobrança não encontrado no marketplace. Peça ao administrador para publicar o template.')
+      const [soulFork, skillFork] = await Promise.all([
+        forkMarketplaceSoul(cobrancaSoul.id, wsId),
+        cobrancaSkill ? forkMarketplaceSkill(cobrancaSkill.id, wsId) : Promise.resolve(null),
+      ])
+      await reload()
+      navigate(`/playground/souls/${soulFork.id}?firstTime=1`)
+      void skillFork // keep for future use
+    } catch (e) {
+      setForkError(e instanceof Error ? e.message : 'Erro ao usar modelo')
+    } finally {
+      setForking(false)
+    }
+  }
+
   const applyScope = <T extends { workspace_id?: string }>(items: T[]): T[] => {
     if (scope === 'system') return items.filter((i) => !i.workspace_id)
     if (scope === 'mine') return items.filter((i) => !!i.workspace_id)
@@ -76,30 +114,48 @@ export function Playground() {
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-[var(--foreground)]">Playground</h1>
-        <div className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] p-0.5">
-          {(['all', 'system', 'mine'] as ScopeFilter[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setScope(s)}
-              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                scope === s
-                  ? 'bg-orange-500/20 text-orange-400'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              {s === 'all' ? 'All' : s === 'system' ? 'System' : 'My workspace'}
-            </button>
-          ))}
+        <div>
+          <h1 className="text-xl font-semibold text-[var(--foreground)]">Configurar Agente</h1>
+          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">Personalize o agente de cobrança da sua empresa</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleForkCobrana}
+            disabled={forking}
+            className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-50 transition-colors"
+          >
+            {forking ? <Loader2 size={12} className="animate-spin" /> : null}
+            {forking ? 'Configurando...' : '+ Usar modelo de cobrança'}
+          </button>
+          {isDevMode && (
+            <div className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] p-0.5">
+              {(['all', 'system', 'mine'] as ScopeFilter[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setScope(s)}
+                  className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                    scope === s
+                      ? 'bg-orange-500/20 text-orange-400'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  {s === 'all' ? 'All' : s === 'system' ? 'System' : 'My workspace'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {error && (
         <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>
       )}
+      {forkError && (
+        <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{forkError}</div>
+      )}
 
       <Section
-        title="Skills"
+        title="Funcionalidades"
         onCreate={() => handleCreate('skill')}
         items={visibleSkills.map((s) => ({
           id: s.id,
@@ -118,7 +174,7 @@ export function Playground() {
 
       <div className="mt-8">
         <Section
-          title="Souls"
+          title="Personalidade"
           onCreate={() => handleCreate('soul')}
           items={visibleSouls.map((s) => ({
             id: s.id,
