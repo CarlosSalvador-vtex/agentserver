@@ -22,6 +22,12 @@ Use this table before picking work; several `improvements.md` items are **done**
 | Admin visibility API | Shipped (API only) | `PATCH /api/admin/playground/{skills,souls}/{id}/visibility` |
 | Playground Prometheus metrics | Shipped | `playground_metrics.go`, `deploy/grafana/playground-dashboard.json` |
 | Composition picker in sandbox create | Shipped | Tier 1 #1 |
+| Marketplace fork opens draft editor | Shipped | A1, PR #64 |
+| Author share to marketplace (visibility) | Shipped | A2, PRs #65–#66 |
+| Soul editor diff and audit tabs | Shipped | A3, PR #67 |
+| Marketplace listing metadata | Shipped | A4, PR #68 |
+| Marketplace search and sort | Shipped | A5, PR #69 |
+| Dry-run model picker | Shipped | A6, PR #70 |
 
 **Thin surfaces today:** marketplace is a flat list + Fork; playground editors use `<textarea>`; soul editor lacks diff/audit parity with skill editor; no in-app admin moderation UI.
 
@@ -35,18 +41,18 @@ Use this table before picking work; several `improvements.md` items are **done**
 
 ---
 
-## Tier A — high impact, low–medium cost
+## Tier A — fully shipped
 
-| ID | Title | Problem | Proposal | Est. | PR shape |
-|----|-------|---------|------------|------|----------|
-| **A1** | Marketplace → editor handoff | After fork, user only sees a toast; no link to the new draft | Return forked draft `id` from API (if not already); redirect or CTA "Open in Playground" | ~40 LOC | `feat(ui): marketplace fork opens draft editor` |
-| **A2** | Share to marketplace (author UI) | Visibility toggle is admin-only API; authors can't opt-in to `shared` | Workspace `owner`/`maintainer` can set `private` ↔ `shared` on own drafts; admin retains override + revoke | ~80 BE + ~60 FE | `feat(playground): author-controlled marketplace visibility` |
-| **A3** | Soul editor parity | Skill has Diff + Audit tabs; soul doesn't | Reuse `PromotedDiff` (body/frontmatter) + `DraftAuditTimeline` on `PlaygroundSoulEditor.tsx` | ~60 FE | `feat(ui): soul editor diff and audit tabs` |
-| **A4** | Marketplace metadata | List shows name/description/date only | Expose `author_workspace_id`, `updated_at`, optional `compatible_skills` / tags in API + cards ("from workspace X", "forked N times" later) | ~40 BE + ~50 FE | `feat(marketplace): richer listing metadata` |
-| **A5** | Search / filter marketplace | Unusable at >20 entries | Client-side search by name/description; tabs Skills/Souls already exist — add sort (updated, name) | ~50 FE | `feat(ui): marketplace search and sort` |
-| **A6** | Dry-run model picker | Single model from workspace default | Optional `model` in dry-run body (improvements.md Tier 5); dropdown in skill + soul test panels | ~40 BE + ~40 FE | `feat(playground): multi-model dry-run picker` |
+All six Tier A items are **done** and listed in the baseline table above. Remaining playground/marketplace v2 work starts at **Tier B** (and below).
 
-**Suggested order:** A1 → A2 → A3 → A4 → A5 → A6
+| ID | Title | Shipped in |
+|----|-------|------------|
+| A1 | Marketplace → editor handoff | PR #64 |
+| A2 | Share to marketplace (author UI) | PRs #65–#66 |
+| A3 | Soul editor parity | PR #67 |
+| A4 | Marketplace listing metadata | PR #68 |
+| A5 | Search / filter marketplace | PR #69 |
+| A6 | Dry-run model picker | PR #70 |
 
 ---
 
@@ -101,15 +107,15 @@ From `playground-design.md` §14 and `improvements.md` "deliberately leave out":
 
 **Week 1 — discovery & sharing**
 
-1. A1 Marketplace fork handoff  
-2. A2 Author share toggle (+ C2 admin page if same PR)  
-3. A4 + A5 Marketplace metadata + search  
+1. ~~A1 Marketplace fork handoff~~ (shipped)  
+2. ~~A2 Author share toggle~~ (shipped; C2 admin page optional follow-up)  
+3. ~~A4 + A5 Marketplace metadata + search~~ (shipped)  
 
 **Week 2 — author loop**
 
-4. A3 Soul editor parity (diff + audit)  
+4. ~~A3 Soul editor parity (diff + audit)~~ (shipped)  
 5. B5 Unified promote banners  
-6. A6 or B3 Dry-run model picker **or** test-sandbox CTA (pick one based on user interviews)
+6. ~~A6~~ dry-run model picker (shipped) **or** B3 test-sandbox CTA (pick one based on user interviews)
 
 **Exit criteria**
 
