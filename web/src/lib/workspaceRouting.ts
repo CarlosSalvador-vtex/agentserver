@@ -29,15 +29,17 @@ export function resolveAuthedLandingPath(opts: {
     return currentPath
   }
 
+  // Last-used workspace (active) wins, on apex or tenant host.
   if (urlWorkspaceId && workspaces.some((w) => w.id === urlWorkspaceId)) {
     return `/w/${urlWorkspaceId}`
   }
   if (activeWorkspaceId && workspaces.some((w) => w.id === activeWorkspaceId)) {
     return `/w/${activeWorkspaceId}`
   }
-  if (apex && !activeWorkspaceId) {
-    return '/choose-workspace'
-  }
+  // No active workspace: land on the first one and let the user switch via the
+  // topbar dropdown — do NOT force the full-page picker. The picker stays a
+  // fallback only when the user belongs to no workspace, and remains reachable
+  // at /choose-workspace as an explicit menu action.
   if (workspaces.length > 0) {
     return `/w/${workspaces[0].id}`
   }
