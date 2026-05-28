@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -88,5 +89,25 @@ func TestExtractSoulConstraints(t *testing.T) {
 
 	if got := extractSoulConstraints(nil); got != nil {
 		t.Errorf("nil frontmatter should return nil, got %+v", got)
+	}
+}
+
+func TestSanitizeLabelValue(t *testing.T) {
+	cases := map[string]string{
+		"Negociação de Dívida-fork": "negocia--o-de-d-vida-fork",
+		"cobranca":                  "cobranca",
+		"My Skill v1.2":             "my-skill-v1.2",
+		"  ção  ":                   "o", // accents → '-', trimmed to alphanumeric
+		"":                          "",
+	}
+	for in, want := range cases {
+		if got := sanitizeLabelValue(in); got != want {
+			t.Errorf("sanitizeLabelValue(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// Must never exceed 63 chars and must be a valid label (start/end alnum).
+	long := sanitizeLabelValue(strings.Repeat("a ", 100))
+	if len(long) > 63 {
+		t.Errorf("sanitizeLabelValue too long: %d", len(long))
 	}
 }
