@@ -13,7 +13,7 @@ Endpoints under the `Workspaces` tag. Auto-generated from [`docs/api/openapi.yam
 | `GET` | [`/api/workspaces/quota`](#op-get-api-workspaces-quota) | Get per-user workspace quota |
 | `GET` | [`/api/workspaces/{id}`](#op-get-api-workspaces-id) | Get a workspace by id |
 | `PATCH` | [`/api/workspaces/{id}`](#op-patch-api-workspaces-id) | Rename a workspace |
-| `DELETE` | [`/api/workspaces/{id}`](#op-delete-api-workspaces-id) | Delete a workspace (owner only; cascades to sandboxes + namespace) |
+| `DELETE` | [`/api/workspaces/{id}`](#op-delete-api-workspaces-id) | Delete a workspace (owner only; soft delete) |
 | `GET` | [`/api/workspaces/{id}/audit`](#op-get-api-workspaces-id-audit) | List workspace audit events |
 | `GET` | [`/api/workspaces/{id}/invites`](#op-get-api-workspaces-id-invites) | List workspace invites |
 | `POST` | [`/api/workspaces/{id}/invites`](#op-post-api-workspaces-id-invites) | Create a workspace invite |
@@ -146,7 +146,7 @@ Schema: [`WorkspaceRenameRequest`](#schema-workspacerenamerequest)
 
 
 ### `DELETE /api/workspaces/{id}` {#op-delete-api-workspaces-id}
-Delete a workspace (owner only; cascades to sandboxes + namespace)
+Delete a workspace (owner only; soft delete)
 
 **Auth:** `CookieAuth`
 
@@ -164,6 +164,7 @@ Delete a workspace (owner only; cascades to sandboxes + namespace)
 |--------|-------------|--------|
 | `204` | No Content | — |
 | `403` | owner only | `string` |
+| `404` | workspace not found | `string` |
 | `500` | internal error | `string` |
 
 

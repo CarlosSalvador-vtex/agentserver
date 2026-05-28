@@ -47,11 +47,11 @@ func (db *DB) CreateWorkspaceWithSlug(id, name, k8sNamespace string) (string, er
 	}
 	slug := base
 	for i := 2; ; i++ {
-		existing, err := db.GetWorkspaceBySlug(slug)
+		taken, err := db.SlugExists(slug)
 		if err != nil {
 			return "", err
 		}
-		if existing == nil {
+		if !taken {
 			break
 		}
 		slug = fmt.Sprintf("%s-%d", base, i)
@@ -96,11 +96,11 @@ func (db *DB) CreateWorkspaceExplicit(id, name, slug, k8sNamespace string) error
 	if err := ValidateSlug(slug); err != nil {
 		return err
 	}
-	existing, err := db.GetWorkspaceBySlug(slug)
+	taken, err := db.SlugExists(slug)
 	if err != nil {
 		return err
 	}
-	if existing != nil {
+	if taken {
 		return ErrSlugTaken
 	}
 	var ns sql.NullString
@@ -125,7 +125,7 @@ func (db *DB) GetWorkspaceBySlug(slug string) (*Workspace, error) {
 	w := &Workspace{}
 	err := db.QueryRow(
 		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
-		 FROM workspaces WHERE slug = $1`,
+		 FROM workspaces WHERE slug = $1 AND deleted_at IS NULL`,
 		slug,
 	).Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -140,7 +140,8 @@ func (db *DB) GetWorkspaceBySlug(slug string) (*Workspace, error) {
 func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	w := &Workspace{}
 	err := db.QueryRow(
-		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at FROM workspaces WHERE id = $1`,
+		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
+		 FROM workspaces WHERE id = $1 AND deleted_at IS NULL`,
 		id,
 	).Scan(&w.ID, &w.Name, &w.Slug, &w.K8sNamespace, &w.ChannelRoutingStrategy, &w.CreatedAt, &w.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -160,8 +161,52 @@ func (db *DB) DeleteWorkspace(id string) error {
 	return nil
 }
 
+// SoftDeleteWorkspace marks a workspace as deleted without removing the row.
+// Returns sql.ErrNoRows if the workspace is missing or already soft-deleted.
+func (db *DB) SoftDeleteWorkspace(id string) error {
+	res, err := db.Exec(
+		`UPDATE workspaces SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("soft delete workspace: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("soft delete workspace rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// SlugExists reports whether a slug is taken, including soft-deleted workspaces.
+func (db *DB) SlugExists(slug string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM workspaces WHERE slug = $1)`,
+		slug,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("slug exists: %w", err)
+	}
+	return exists, nil
+}
+
+// DeleteWorkspaceDrafts removes all skill and soul drafts for a workspace.
+func (db *DB) DeleteWorkspaceDrafts(workspaceID string) error {
+	if _, err := db.Exec(`DELETE FROM skill_drafts WHERE workspace_id = $1`, workspaceID); err != nil {
+		return fmt.Errorf("delete skill drafts: %w", err)
+	}
+	if _, err := db.Exec(`DELETE FROM soul_drafts WHERE workspace_id = $1`, workspaceID); err != nil {
+		return fmt.Errorf("delete soul drafts: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) UpdateWorkspaceName(id, name string) error {
-	_, err := db.Exec("UPDATE workspaces SET name = $2, updated_at = NOW() WHERE id = $1", id, name)
+	_, err := db.Exec("UPDATE workspaces SET name = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL", id, name)
 	if err != nil {
 		return fmt.Errorf("update workspace name: %w", err)
 	}
@@ -173,7 +218,7 @@ func (db *DB) ListWorkspacesByUser(userID string) ([]*Workspace, error) {
 		`SELECT w.id, w.name, w.slug, w.k8s_namespace, COALESCE(w.channel_routing_strategy, 'shared'), w.created_at, w.updated_at
 		 FROM workspaces w
 		 JOIN workspace_members wm ON w.id = wm.workspace_id
-		 WHERE wm.user_id = $1
+		 WHERE wm.user_id = $1 AND w.deleted_at IS NULL
 		 ORDER BY w.created_at ASC`,
 		userID,
 	)
@@ -291,7 +336,7 @@ func (db *DB) GetWorkspaceMemberRole(workspaceID, userID string) (string, error)
 
 func (db *DB) SetWorkspaceNamespace(id, namespace string) error {
 	_, err := db.Exec(
-		"UPDATE workspaces SET k8s_namespace = $2, updated_at = NOW() WHERE id = $1",
+		"UPDATE workspaces SET k8s_namespace = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
 		id, namespace,
 	)
 	if err != nil {
@@ -302,7 +347,7 @@ func (db *DB) SetWorkspaceNamespace(id, namespace string) error {
 
 func (db *DB) GetAllWorkspaceNamespaces() ([]string, error) {
 	rows, err := db.Query(
-		`SELECT DISTINCT k8s_namespace FROM workspaces WHERE k8s_namespace IS NOT NULL AND k8s_namespace != ''`,
+		`SELECT DISTINCT k8s_namespace FROM workspaces WHERE k8s_namespace IS NOT NULL AND k8s_namespace != '' AND deleted_at IS NULL`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get all workspace namespaces: %w", err)
@@ -324,7 +369,7 @@ func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 	rows, err := db.Query(
 		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
 		 FROM workspaces
-		 WHERE k8s_namespace IS NULL OR k8s_namespace = ''`,
+		 WHERE (k8s_namespace IS NULL OR k8s_namespace = '') AND deleted_at IS NULL`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list workspaces without namespace: %w", err)
@@ -345,7 +390,7 @@ func (db *DB) ListWorkspacesWithoutNamespace() ([]*Workspace, error) {
 func (db *DB) ListAllWorkspaces() ([]*Workspace, error) {
 	rows, err := db.Query(
 		`SELECT id, name, slug, k8s_namespace, COALESCE(channel_routing_strategy, 'shared'), created_at, updated_at
-		 FROM workspaces ORDER BY created_at ASC`,
+		 FROM workspaces WHERE deleted_at IS NULL ORDER BY created_at ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list all workspaces: %w", err)
@@ -381,6 +426,7 @@ func (db *DB) ListAllWorkspacesAdmin() ([]*AdminWorkspaceInfo, error) {
 		 FROM workspaces w
 		 LEFT JOIN workspace_members wm ON w.id = wm.workspace_id AND wm.role = 'owner'
 		 LEFT JOIN users u ON wm.user_id = u.id
+		 WHERE w.deleted_at IS NULL
 		 ORDER BY w.created_at ASC`,
 	)
 	if err != nil {
@@ -430,7 +476,7 @@ func (db *DB) UpdateWorkspaceRoutingStrategy(id, strategy string) error {
 		return fmt.Errorf("invalid routing strategy: %q", strategy)
 	}
 	_, err := db.Exec(
-		`UPDATE workspaces SET channel_routing_strategy = $2, updated_at = NOW() WHERE id = $1`,
+		`UPDATE workspaces SET channel_routing_strategy = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
 		id, strategy,
 	)
 	if err != nil {

@@ -84,3 +84,15 @@ func (db *DB) DeleteExpiredTokens() error {
 	return nil
 }
 
+// ClearActiveWorkspace sets active_workspace_id to NULL for all sessions pointing at the workspace.
+func (db *DB) ClearActiveWorkspace(workspaceID string) error {
+	_, err := db.Exec(
+		`UPDATE auth_tokens SET active_workspace_id = NULL WHERE active_workspace_id = $1`,
+		workspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("clear active workspace: %w", err)
+	}
+	return nil
+}
+
