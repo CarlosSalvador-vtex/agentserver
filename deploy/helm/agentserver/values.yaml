@@ -1,7 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/agentserver/agentserver
+  # Fork namespace (was ghcr.io/agentserver/* upstream — no push access).
+  # Must match .github/workflows/build.yml IMAGE_NS. See docs/ops/ci-ghcr-namespace-blocker.md
+  repository: ghcr.io/carlossalvador-vtex/agentserver
   tag: latest
   pullPolicy: Always
 
@@ -195,7 +197,7 @@ llmproxy:
   # LLM proxy for token usage tracking and request tracing.
   # The proxy baseURL is auto-injected into sandbox OPENCODE_CONFIG_CONTENT.
   image:
-    repository: ghcr.io/agentserver/llmproxy
+    repository: ghcr.io/carlossalvador-vtex/llmproxy
     tag: latest
     pullPolicy: Always
   # Number of llmproxy replicas (defaults to global replicaCount if not set).
@@ -213,14 +215,14 @@ llmproxy:
 
 imbridge:
   image:
-    repository: ghcr.io/agentserver/imbridge
+    repository: ghcr.io/carlossalvador-vtex/imbridge
     tag: latest
     pullPolicy: Always
   port: 8083
 
 sandboxProxy:
   image:
-    repository: ghcr.io/agentserver/sandboxproxy
+    repository: ghcr.io/carlossalvador-vtex/sandboxproxy
     tag: latest
     pullPolicy: Always
   replicaCount: 1
@@ -232,7 +234,7 @@ credentialproxy:
   # external k8s clusters without seeing the real credentials.
   enabled: false
   image:
-    repository: ghcr.io/agentserver/credentialproxy
+    repository: ghcr.io/carlossalvador-vtex/credentialproxy
     tag: latest
     pullPolicy: Always
   replicaCount: 1

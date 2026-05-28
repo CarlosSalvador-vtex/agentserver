@@ -1,8 +1,10 @@
 # CI Blocker — GHCR image namespace points at the upstream org
 
-> **Status:** OPEN — blocks all image builds + dev/staging deploy on `main`.
-> **Owner action required** (cannot be fixed by an agent — needs a PAT + package/secret changes).
+> **Status:** CODE REPOINTED (Option A) — namespace now `ghcr.io/carlossalvador-vtex/*`
+> in `build.yml` + `values.yaml`. **Deploy still blocked on OWNER ACTIONS** (PAT
+> `write:packages` + package visibility/pull-secret) — see "Owner action still required".
 > **First observed:** 2026-05-28, after merging PRs #107/#108/#109 to `main`.
+> **Repointed:** 2026-05-28 (this fork's namespace).
 
 ## Symptom
 
