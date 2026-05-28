@@ -17,8 +17,6 @@ import {
   Key,
   Bot,
   Hash,
-  Globe,
-  Server,
   Brain,
   Activity,
 } from 'lucide-react'
@@ -69,15 +67,11 @@ import { WeixinLoginModal } from './WeixinLoginModal'
 import { TelegramConfigModal } from './TelegramConfigModal'
 import { MatrixConfigModal } from './MatrixConfigModal'
 import { WhatsAppConfigModal } from './WhatsAppConfigModal'
-import CodexTokensPanel from './CodexTokensPanel'
-import RemoteExecutorsPanel from './RemoteExecutorsPanel'
 import OperationsPanel from './OperationsPanel'
 import { SandboxList } from './SandboxList'
 
 export type Tab =
   | 'overview'
-  | 'browsers'
-  | 'connectors'
   | 'sandbox'
   | 'llm'
   | 'im'
@@ -107,8 +101,6 @@ interface WorkspaceDetailProps {
 // sandboxes to coexist with /sandboxes/:sandboxId).
 const TAB_TO_SLUG: Record<Tab, string> = {
   overview: 'overview',
-  browsers: 'browsers',
-  connectors: 'connectors',
   sandbox: 'sandboxes',
   llm: 'llm',
   im: 'im',
@@ -197,8 +189,6 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
 
   const sidebarItems: { key: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { key: 'overview', label: 'Overview', icon: <LayoutDashboard size={16} /> },
-    { key: 'browsers', label: 'Browsers', icon: <Globe size={16} /> },
-    { key: 'connectors', label: 'Connectors', icon: <Server size={16} /> },
     { key: 'sandbox', label: 'Sandboxes', icon: <Box size={16} /> },
     { key: 'llm', label: 'LLM', icon: <Brain size={16} /> },
     { key: 'im', label: 'IM', icon: <Bot size={16} /> },
@@ -253,12 +243,6 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
               llmQuota={llmQuota}
               onRename={onRename}
             />
-          )}
-          {tab === 'browsers' && (
-            <BrowsersPanel workspaceId={workspace.id} />
-          )}
-          {tab === 'connectors' && (
-            <RemoteExecutorsPanel workspaceId={workspace.id} />
           )}
           {tab === 'sandbox' && (
             sandboxOverride ?? (
@@ -388,14 +372,6 @@ function OverviewTab({ workspace, sbxQuota, defaults, llmQuota, onRename }: {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function BrowsersPanel({ workspaceId }: { workspaceId: string }) {
-  return (
-    <div className="flex flex-col gap-6">
-      <CodexTokensPanel workspaceId={workspaceId} />
     </div>
   )
 }
