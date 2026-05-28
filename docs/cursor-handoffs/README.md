@@ -38,6 +38,6 @@ constraints e decision points.
 - **kubectl context:** prod é default; pra DEV use `--context arn:aws:eks:us-east-1:344729309528:cluster/dev-ti-eks-analytics-platform`
 - **OpenAPI regen:** se mudou handler ou request/response, rode `make openapi && make api-docs` e commit
 - **Sem breaking changes** em endpoints existentes — usar novos endpoints ou campos opcionais
-- **Migrations:** novo número sequencial em `internal/db/migrations/` (próximo após 040)
+- **Migrations:** novo número sequencial em `internal/db/migrations/` (próximo após 043 — última é `043_publish_draft.sql`)
 - **Não commitar:** `web/dist/` (build artifact)
 - **Sealed Secrets** pra qualquer secret novo (vide `docs/sealed-secrets.md`)
