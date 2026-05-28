@@ -19,6 +19,10 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      tolerations:
+        - key: internal-workers
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: seed
           image: python:3.12-slim
