@@ -5,7 +5,6 @@ package notif
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 )
@@ -61,12 +60,6 @@ func (*DevMailer) SendInvite(_ context.Context, msg InviteMessage) error {
 //
 //	BuildInviteURL("empresa-a", "agentserver.dev", "abc123")
 //	  → "https://empresa-a.agentserver.dev/accept-invite?token=abc123"
-//
-// When slug is empty (should never happen for a workspace invite — slug
-// is NOT NULL since migration 040) falls back to the bare domain.
 func BuildInviteURL(slug, baseDomain, token string) string {
-	if slug == "" {
-		return fmt.Sprintf("https://%s/accept-invite?token=%s", baseDomain, token)
-	}
-	return fmt.Sprintf("https://%s.%s/accept-invite?token=%s", slug, baseDomain, token)
+	return BuildTenantURL(slug, baseDomain, "/accept-invite?token="+token)
 }
