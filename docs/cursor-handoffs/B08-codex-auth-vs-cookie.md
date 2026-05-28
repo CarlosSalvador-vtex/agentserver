@@ -11,6 +11,13 @@
 - **Dependencies:** none (blocks scaling B04 SSO if wrong choice)
 - **Estimated PR size:** 0–200 LOC depending on chosen path
 
+> **Update (2026-05-28):** The OpenAI **Codex** integration is out of scope for this
+> product (see `docs/ops/codex-not-used.md`). The codex-auth "1 SSO token for all
+> tenants" pressure that motivated half this conflict is gone. B08 now collapses
+> toward **Path A (host-only, status quo)** as the safe default. **Path C
+> (single-use redirect token)** is still worth doing for human multi-workspace UX,
+> but no longer blocks any Codex requirement.
+
 ## Goal
 
 Resolver o conflito entre:
