@@ -663,6 +663,12 @@ func (s *Server) Router() http.Handler {
 			// Marketplace import (admin creates shared drafts from external JSON)
 			r.Post("/marketplace/skills/import", s.handleImportMarketplaceSkill)
 			r.Post("/marketplace/souls/import", s.handleImportMarketplaceSoul)
+
+			// Marketplace system template management (admin)
+			r.Get("/marketplace/skills", s.handleAdminListSystemSkills)
+			r.Get("/marketplace/souls", s.handleAdminListSystemSouls)
+			r.Delete("/marketplace/skills/{id}", s.handleAdminArchiveSkill)
+			r.Delete("/marketplace/souls/{id}", s.handleAdminArchiveSoul)
 		})
 	})
 

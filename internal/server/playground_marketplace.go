@@ -505,6 +505,70 @@ func (s *Server) handleImportMarketplaceSoul(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, summarizeSoul(d))
 }
 
+// --- Admin system skills/souls management -----------------------------------
+
+func (s *Server) handleAdminListSystemSkills(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.DB.ListSystemSkillDrafts()
+	if err != nil {
+		http.Error(w, "list failed", http.StatusInternalServerError)
+		return
+	}
+	out := make([]marketplaceSkillListing, 0, len(drafts))
+	for _, d := range drafts {
+		out = append(out, marketplaceSkillListing{
+			playgroundSkillSummary: summarizeSkill(d),
+			AuthorWorkspaceID:      d.WorkspaceID.String,
+			Tags:                   skillTagsFromFiles(d.Files),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"skills": out})
+}
+
+func (s *Server) handleAdminListSystemSouls(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.DB.ListSystemSoulDrafts()
+	if err != nil {
+		http.Error(w, "list failed", http.StatusInternalServerError)
+		return
+	}
+	out := make([]marketplaceSoulListing, 0, len(drafts))
+	for _, d := range drafts {
+		out = append(out, marketplaceSoulListing{
+			playgroundSoulSummary: summarizeSoul(d),
+			AuthorWorkspaceID:     d.WorkspaceID.String,
+			CompatibleSkills:      soulCompatibleSkills(d.Frontmatter),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"souls": out})
+}
+
+func (s *Server) handleAdminArchiveSkill(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSkillDraft(id)
+	if err != nil || d == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := s.DB.ArchiveSkillDraft(id); err != nil {
+		http.Error(w, "archive failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAdminArchiveSoul(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSoulDraft(id)
+	if err != nil || d == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := s.DB.ArchiveSoulDraft(id); err != nil {
+		http.Error(w, "archive failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Ensure sql package stays in use even if all callsites are removed during
 // refactors. (References scoped local; helps linter ergonomics.)
 var _ = sql.ErrNoRows

@@ -1393,6 +1393,24 @@ export async function adminSetSoulVisibility(id: string, visibility: 'private' |
   await apiFetch({ method: 'PATCH', path: `/api/admin/playground/souls/${encodeURIComponent(id)}/visibility`, body: { visibility } })
 }
 
+export async function adminListSystemSkills(): Promise<MarketplaceSkillSummary[]> {
+  const r = await apiFetch<{ skills: MarketplaceSkillSummary[] }>({ method: 'GET', path: '/api/admin/marketplace/skills' })
+  return r.skills ?? []
+}
+
+export async function adminListSystemSouls(): Promise<MarketplaceSoulSummary[]> {
+  const r = await apiFetch<{ souls: MarketplaceSoulSummary[] }>({ method: 'GET', path: '/api/admin/marketplace/souls' })
+  return r.souls ?? []
+}
+
+export async function adminArchiveSkill(id: string): Promise<void> {
+  await apiFetch({ method: 'DELETE', path: `/api/admin/marketplace/skills/${encodeURIComponent(id)}` })
+}
+
+export async function adminArchiveSoul(id: string): Promise<void> {
+  await apiFetch({ method: 'DELETE', path: `/api/admin/marketplace/souls/${encodeURIComponent(id)}` })
+}
+
 // ── Marketplace export / import ──────────────────────────────────────────────
 
 export interface SkillExportPayload {

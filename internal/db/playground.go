@@ -562,6 +562,51 @@ func (db *DB) ListSharedSoulDrafts() ([]*SoulDraft, error) {
 	return drafts, rows.Err()
 }
 
+// ListSystemSkillDrafts returns all skill drafts with workspace_id IS NULL
+// (system-wide templates), excluding archived. Used by admin management UI.
+func (db *DB) ListSystemSkillDrafts() ([]*SkillDraft, error) {
+	rows, err := db.Query(
+		`SELECT id, name, description, author_user_id, workspace_id, files, status, visibility, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		 FROM skill_drafts WHERE workspace_id IS NULL AND status != 'archived'
+		 ORDER BY updated_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list system skill drafts: %w", err)
+	}
+	defer rows.Close()
+	var drafts []*SkillDraft
+	for rows.Next() {
+		d := &SkillDraft{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Files), &d.Status, &d.Visibility, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan system skill draft: %w", err)
+		}
+		drafts = append(drafts, d)
+	}
+	return drafts, rows.Err()
+}
+
+// ListSystemSoulDrafts mirrors ListSystemSkillDrafts for souls.
+func (db *DB) ListSystemSoulDrafts() ([]*SoulDraft, error) {
+	rows, err := db.Query(
+		`SELECT id, name, description, author_user_id, workspace_id, frontmatter, body, schema_version, status, visibility, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		 FROM soul_drafts WHERE workspace_id IS NULL AND status != 'archived'
+		 ORDER BY updated_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list system soul drafts: %w", err)
+	}
+	defer rows.Close()
+	var drafts []*SoulDraft
+	for rows.Next() {
+		d := &SoulDraft{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.Visibility, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan system soul draft: %w", err)
+		}
+		drafts = append(drafts, d)
+	}
+	return drafts, rows.Err()
+}
+
 // SetSkillDraftVisibility sets visibility='shared'|'private'. Admin-only at API layer.
 func (db *DB) SetSkillDraftVisibility(id, visibility string) error {
 	if visibility != "private" && visibility != "shared" {

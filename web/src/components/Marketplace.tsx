@@ -1,16 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { GitFork, Search, Eye, Upload } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { GitFork, Search, Eye } from 'lucide-react'
 import {
   listMarketplaceSkills,
   listMarketplaceSouls,
   forkMarketplaceSkill,
   forkMarketplaceSoul,
-  importMarketplaceSkill,
-  importMarketplaceSoul,
   type MarketplaceSkillSummary,
   type MarketplaceSoulSummary,
-  type SkillExportPayload,
-  type SoulExportPayload,
 } from '../lib/api'
 import { MarketplacePreviewModal } from './MarketplacePreviewModal'
 
@@ -36,7 +32,7 @@ function matchesQuery(name: string, description: string, q: string): boolean {
   return name.toLowerCase().includes(needle) || description.toLowerCase().includes(needle)
 }
 
-export function Marketplace({ isAdmin = false }: { isAdmin?: boolean }) {
+export function Marketplace() {
   const [skills, setSkills] = useState<MarketplaceSkillSummary[]>([])
   const [souls, setSouls] = useState<MarketplaceSoulSummary[]>([])
   const [busy, setBusy] = useState(false)
@@ -45,8 +41,6 @@ export function Marketplace({ isAdmin = false }: { isAdmin?: boolean }) {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('updated_desc')
   const [preview, setPreview] = useState<{ kind: 'skill' | 'soul'; id: string; name: string } | null>(null)
-  const [importing, setImporting] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
 
   const reload = async () => {
     try {
@@ -86,32 +80,6 @@ export function Marketplace({ isAdmin = false }: { isAdmin?: boolean }) {
     }
   }
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    setImporting(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      const text = await file.text()
-      const data = JSON.parse(text) as SkillExportPayload | SoulExportPayload
-      if (!data.name) throw new Error('JSON missing "name" field')
-      if ('files' in data) {
-        await importMarketplaceSkill(data as SkillExportPayload)
-        setSuccess(`Skill "${data.name}" imported to marketplace.`)
-      } else {
-        await importMarketplaceSoul(data as SoulExportPayload)
-        setSuccess(`Soul "${data.name}" imported to marketplace.`)
-      }
-      await reload()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'import failed')
-    } finally {
-      setImporting(false)
-    }
-  }
-
   const handleForkSoul = async (id: string, name: string) => {
     setBusy(true)
     setSuccess(null)
@@ -128,31 +96,11 @@ export function Marketplace({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <div className="p-6 max-w-5xl">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-[var(--foreground)]">Marketplace</h1>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Shared skill and soul templates. Fork any entry to your workspace to customize it.
-          </p>
-        </div>
-        {isAdmin && (
-          <>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".json"
-              className="hidden"
-              onChange={handleImport}
-            />
-            <button
-              onClick={() => importInputRef.current?.click()}
-              disabled={importing}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-50"
-            >
-              <Upload size={13} /> {importing ? 'Importing…' : 'Import JSON'}
-            </button>
-          </>
-        )}
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-[var(--foreground)]">Marketplace</h1>
+        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+          Shared skill and soul templates. Fork any entry to your workspace to customize it.
+        </p>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
