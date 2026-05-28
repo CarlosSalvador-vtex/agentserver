@@ -32,3 +32,28 @@ export function slugifyName(name: string): string {
     .replace(/^-+|-+$/g, '')
   return s || 'workspace'
 }
+
+/** True on apex / marketing host (no workspace slug in the hostname). */
+export function isApexHost(host: string = window.location.hostname): boolean {
+  return extractWorkspaceSlug(host) === ''
+}
+
+function inferProtocolForHost(hostWithPort: string): string {
+  const bare = hostWithPort.split(':')[0]
+  if (bare === 'localhost' || bare === '127.0.0.1') return 'http:'
+  return 'https:'
+}
+
+/**
+ * Tenant login URL on the current browser host (protocol + host from window.location unless overridden).
+ * Example: slug `acme` on `agentserver.analytics.vtex.com` → `https://acme.agentserver.analytics.vtex.com/login`
+ */
+export function buildTenantLoginUrl(workspaceSlug: string, host?: string): string {
+  const slug = workspaceSlug.trim().toLowerCase()
+  if (!slug) {
+    throw new Error('workspace slug is required')
+  }
+  const resolvedHost = host ?? window.location.host
+  const protocol = host ? inferProtocolForHost(resolvedHost) : window.location.protocol
+  return `${protocol}//${slug}.${resolvedHost}/login`
+}

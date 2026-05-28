@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { extractWorkspaceSlug, slugifyName } from './hostname'
+import { describe, it, expect, vi } from 'vitest'
+import { buildTenantLoginUrl, extractWorkspaceSlug, isApexHost, slugifyName } from './hostname'
 
 describe('extractWorkspaceSlug', () => {
   it('returns slug for tenant subdomain', () => {
@@ -21,5 +21,27 @@ describe('extractWorkspaceSlug', () => {
 describe('slugifyName', () => {
   it('kebab-cases names', () => {
     expect(slugifyName('Empresa de Teste')).toBe('empresa-de-teste')
+  })
+})
+
+describe('isApexHost', () => {
+  it('returns true on apex host', () => {
+    expect(isApexHost('agentserver.analytics.vtex.com')).toBe(true)
+  })
+
+  it('returns false on tenant subdomain', () => {
+    expect(isApexHost('acme.agentserver.analytics.vtex.com')).toBe(false)
+  })
+})
+
+describe('buildTenantLoginUrl', () => {
+  it('uses explicit host when provided', () => {
+    expect(buildTenantLoginUrl('acme', 'agentserver.analytics.vtex.com')).toBe(
+      'https://acme.agentserver.analytics.vtex.com/login',
+    )
+  })
+
+  it('preserves port on localhost host override', () => {
+    expect(buildTenantLoginUrl('foo', 'localhost:5173')).toBe('http://foo.localhost:5173/login')
   })
 })
