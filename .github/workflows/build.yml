@@ -53,14 +53,16 @@ jobs:
         run: go vet -tags goolm ./...
 
       - name: Test
-        # SKIP list: pre-existing tests with dormant fixture/env dependencies or
-        # network-timing flakes; not introduced by this PR and out of Sprint 2
-        # scope. Tracked as Sprint-2 follow-up; do not extend this list without an
-        # accompanying issue. Composition + playground integration tests (PR #32)
-        # DO run and gate this job.
+        # Skip list cleared: all 12 previously-skipped tests now have their
+        # required migrations (021_tui_session_fields, 025_codex_auth) and DB
+        # methods in place. TEST_DATABASE_URL is set above; these tests
+        # self-skip when it is absent so CI is the only place they run.
+        # TestBridge_TwoConcurrentBridgesShareInbound and
+        # TestBridge_StreamIdCollisionEvictsFirst use WebSocket timing (3s/200ms)
+        # — monitor for flakiness; increase timeouts in multiplex_e2e_test.go
+        # if they become unreliable.
         run: |
-          go test -tags goolm ./... -count=1 -timeout 8m \
-            -skip 'TestCodexThreadIDRoundTrip|TestAgentSessionTUIFields|TestActiveTurnCAS|TestAttachResponder|TestListSessionsByChannel|TestAgentRegister_TypeValidation_Integration|TestHandleVerifyCodexToken_HappyPath|TestCredentialBindings_ResponseNeverContainsAuthBlob|TestDeviceUserCode_ReturnsPendingRow|TestWorkspaceBinding_PostListDelete|TestBridge_TwoConcurrentBridgesShareInbound|TestBridge_StreamIdCollisionEvictsFirst'
+          go test -tags goolm ./... -count=1 -timeout 8m
 
       - uses: actions/setup-node@v5
         with:
