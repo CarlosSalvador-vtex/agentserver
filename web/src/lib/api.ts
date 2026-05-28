@@ -1298,7 +1298,6 @@ export async function promotePlaygroundSoul(id: string): Promise<PlaygroundPromo
 export async function publishPlaygroundSoul(id: string): Promise<{ id: string; status: string }> {
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/publish`, body: {} })
 }
-}
 
 /**
  * List operations for a workspace, server-side filtered.

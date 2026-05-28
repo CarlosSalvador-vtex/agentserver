@@ -2241,6 +2241,47 @@ paths:
       summary: Promote skill draft to GitHub
       tags:
         - playground
+  "/api/playground/skills/{id}/publish":
+    post:
+      description: Sets the draft status to 'published'. The sandbox manager resolves
+        published workspace drafts before git system templates.
+      parameters:
+        - description: Skill draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Publish skill draft
+      tags:
+        - playground
   "/api/playground/skills/{id}/test-sandbox":
     post:
       description: Runs the draft skill in a sandbox and returns sandbox metadata
@@ -2712,6 +2753,47 @@ paths:
       security:
         - ApiKeyAuth: []
       summary: Promote soul draft to GitHub
+      tags:
+        - playground
+  "/api/playground/souls/{id}/publish":
+    post:
+      description: Sets the draft status to 'published'. The sandbox manager resolves
+        published workspace drafts before git system templates.
+      parameters:
+        - description: Soul draft ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Publish soul draft
       tags:
         - playground
   "/api/playground/souls/{id}/visibility":
