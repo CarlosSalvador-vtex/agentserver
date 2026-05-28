@@ -337,7 +337,7 @@ func buildSkillConfigMapAndMounts(sandboxID, namespace string, skill *db.SkillDr
 				"agentserver.io/sandbox-id": sandboxID,
 				"agentserver.io/draft-kind": "skill",
 				"agentserver.io/draft-id":   skill.ID,
-				"agentserver.io/skill-name": skill.Name,
+				"agentserver.io/skill-name": sanitizeLabelValue(skill.Name),
 			},
 		},
 		Data: data,
@@ -386,6 +386,29 @@ func safePrefix(s string) string {
 		return s[:8]
 	}
 	return s
+}
+
+// sanitizeLabelValue coerces an arbitrary string into a valid Kubernetes label
+// value: lowercase alphanumerics plus -, _, ., at most 63 chars, starting and
+// ending with an alphanumeric. Skill/soul names can carry spaces, accents, and
+// other runes (e.g. "Negociação de Dívida-fork") that K8s rejects — an invalid
+// label fails the ephemeral ConfigMap create, leaving the pod mounting a
+// ConfigMap that does not exist (FailedMount → pod never starts).
+func sanitizeLabelValue(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	out := b.String()
+	if len(out) > 63 {
+		out = out[:63]
+	}
+	// Label values must start and end with an alphanumeric (or be empty).
+	return strings.Trim(out, "-_.")
 }
 
 // Hermes config.yaml override was the original strategy for soul
