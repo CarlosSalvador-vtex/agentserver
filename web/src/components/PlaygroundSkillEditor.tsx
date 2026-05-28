@@ -20,7 +20,7 @@ import { DraftAuditTimeline } from './DraftAuditTimeline'
 import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 
 export function PlaygroundSkillEditor({ isDevMode }: { isDevMode?: boolean }) {
-  const { id } = useParams<{ id: string }>()
+  const { id, workspaceId } = useParams<{ id: string; workspaceId: string }>()
   const navigate = useNavigate()
   const [draft, setDraft] = useState<PlaygroundSkillFull | null>(null)
   const [activeFile, setActiveFile] = useState<string>('')
@@ -399,7 +399,7 @@ export function PlaygroundSkillEditor({ isDevMode }: { isDevMode?: boolean }) {
                   <div className="flex items-center justify-between">
                     <code className="text-[var(--muted-foreground)]">{testSandbox.sandbox_id.slice(0, 8)}</code>
                     <a
-                      href={`/sandboxes/${encodeURIComponent(testSandbox.sandbox_id)}`}
+                      href={`/w/${workspaceId}/sandboxes/${encodeURIComponent(testSandbox.sandbox_id)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-blue-400 hover:underline"
