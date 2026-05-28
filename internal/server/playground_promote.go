@@ -56,6 +56,19 @@ func loadPromoteConfig() (*promoteConfig, error) {
 
 // --- promote skill -----------------------------------------------------
 
+// handlePromoteSkillDraft opens a GitHub PR from the skill draft content.
+//
+//	@Summary		Promote skill draft to GitHub
+//	@Description	Creates a branch and pull request from the draft (requires maintainer/owner and GITHUB_PROMOTE_TOKEN).
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Success		200	{object}	promoteDraftResponse
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		503	{object}	map[string]string
+//	@Router			/api/playground/skills/{id}/promote [post]
 func (s *Server) handlePromoteSkillDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -144,6 +157,19 @@ func (s *Server) handlePromoteSkillDraft(w http.ResponseWriter, r *http.Request)
 
 // --- promote soul ------------------------------------------------------
 
+// handlePromoteSoulDraft opens a GitHub PR from the soul draft content.
+//
+//	@Summary		Promote soul draft to GitHub
+//	@Description	Creates a branch and pull request from the draft (requires maintainer/owner and GITHUB_PROMOTE_TOKEN).
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Success		200	{object}	promoteDraftResponse
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		503	{object}	map[string]string
+//	@Router			/api/playground/souls/{id}/promote [post]
 func (s *Server) handlePromoteSoulDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")

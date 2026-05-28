@@ -35,8 +35,30 @@ type marketplaceSoulListing struct {
 	CompatibleSkills  []string `json:"compatible_skills,omitempty"`
 }
 
+type marketplaceSkillListResponse struct {
+	Skills []marketplaceSkillListing `json:"skills"`
+}
+
+type marketplaceSoulListResponse struct {
+	Souls []marketplaceSoulListing `json:"souls"`
+}
+
+type marketplaceForkRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+}
+
 var skillTagsRE = regexp.MustCompile(`(?m)^tags:\s*\[([^\]]*)\]`)
 
+// handleListMarketplaceSkills lists shared skill drafts visible in the marketplace.
+//
+//	@Summary		List marketplace skills
+//	@Description	Returns skill drafts shared to the marketplace catalog.
+//	@Tags			marketplace
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{object}	marketplaceSkillListResponse
+//	@Failure		401	{object}	map[string]string
+//	@Router			/api/marketplace/skills [get]
 func (s *Server) handleListMarketplaceSkills(w http.ResponseWriter, r *http.Request) {
 	drafts, err := s.DB.ListSharedSkillDrafts()
 	if err != nil {
@@ -51,9 +73,19 @@ func (s *Server) handleListMarketplaceSkills(w http.ResponseWriter, r *http.Requ
 			Tags:                   skillTagsFromFiles(d.Files),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"skills": out})
+	writeJSON(w, http.StatusOK, marketplaceSkillListResponse{Skills: out})
 }
 
+// handleListMarketplaceSouls lists shared soul drafts visible in the marketplace.
+//
+//	@Summary		List marketplace souls
+//	@Description	Returns soul drafts shared to the marketplace catalog.
+//	@Tags			marketplace
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{object}	marketplaceSoulListResponse
+//	@Failure		401	{object}	map[string]string
+//	@Router			/api/marketplace/souls [get]
 func (s *Server) handleListMarketplaceSouls(w http.ResponseWriter, r *http.Request) {
 	drafts, err := s.DB.ListSharedSoulDrafts()
 	if err != nil {
@@ -68,9 +100,24 @@ func (s *Server) handleListMarketplaceSouls(w http.ResponseWriter, r *http.Reque
 			CompatibleSkills:      soulCompatibleSkills(d.Frontmatter),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"souls": out})
+	writeJSON(w, http.StatusOK, marketplaceSoulListResponse{Souls: out})
 }
 
+// handleForkMarketplaceSkill copies a marketplace skill draft into the caller workspace.
+//
+//	@Summary		Fork marketplace skill
+//	@Description	Creates a private copy of a shared marketplace skill draft in the target workspace.
+//	@Tags			marketplace
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Marketplace skill draft ID"
+//	@Param			body	body		marketplaceForkRequest	true	"Target workspace"
+//	@Success		201	{object}	playgroundSkillSummary
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Router			/api/marketplace/skills/{id}/fork [post]
 func (s *Server) handleForkMarketplaceSkill(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -95,6 +142,21 @@ func (s *Server) handleForkMarketplaceSkill(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, s.summarizeSkillForUser(userID, fork))
 }
 
+// handleForkMarketplaceSoul copies a marketplace soul draft into the caller workspace.
+//
+//	@Summary		Fork marketplace soul
+//	@Description	Creates a private copy of a shared marketplace soul draft in the target workspace.
+//	@Tags			marketplace
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Marketplace soul draft ID"
+//	@Param			body	body		marketplaceForkRequest	true	"Target workspace"
+//	@Success		201	{object}	playgroundSoulSummary
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Router			/api/marketplace/souls/{id}/fork [post]
 func (s *Server) handleForkMarketplaceSoul(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -132,6 +194,22 @@ func (s *Server) userCanSetDraftVisibility(userID string, workspaceID sql.NullSt
 	return role == "owner" || role == "maintainer"
 }
 
+// handleAuthorSetSkillVisibility sets public/private visibility on a skill draft.
+//
+//	@Summary		Set skill draft visibility
+//	@Description	Patches visibility to public or private for the draft author.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Param			body	body		map[string]string	true	"visibility: public|private"
+//	@Success		200	{object}	map[string]string
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/skills/{id}/visibility [patch]
 func (s *Server) handleAuthorSetSkillVisibility(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -147,6 +225,22 @@ func (s *Server) handleAuthorSetSkillVisibility(w http.ResponseWriter, r *http.R
 	s.patchSkillDraftVisibility(w, r, userID, id)
 }
 
+// handleAuthorSetSoulVisibility sets public/private visibility on a soul draft.
+//
+//	@Summary		Set soul draft visibility
+//	@Description	Patches visibility to public or private for the draft author.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Param			body	body		map[string]string	true	"visibility: public|private"
+//	@Success		200	{object}	map[string]string
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/souls/{id}/visibility [patch]
 func (s *Server) handleAuthorSetSoulVisibility(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -162,14 +256,42 @@ func (s *Server) handleAuthorSetSoulVisibility(w http.ResponseWriter, r *http.Re
 	s.patchSoulDraftVisibility(w, r, userID, id)
 }
 
-// Admin-only visibility toggle. Route is wrapped in requireAdmin middleware.
-
+// handleSetSkillVisibility sets skill draft visibility (admin marketplace moderation).
+//
+//	@Summary		Admin set skill visibility
+//	@Description	Admin-only visibility patch for marketplace moderation.
+//	@Tags			marketplace
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Param			body	body		map[string]string	true	"visibility: public|private"
+//	@Success		200	{object}	map[string]string
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/marketplace/skills/{id}/visibility [patch]
 func (s *Server) handleSetSkillVisibility(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 	s.patchSkillDraftVisibility(w, r, userID, id)
 }
 
+// handleSetSoulVisibility sets soul draft visibility (admin marketplace moderation).
+//
+//	@Summary		Admin set soul visibility
+//	@Description	Admin-only visibility patch for marketplace moderation.
+//	@Tags			marketplace
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Param			body	body		map[string]string	true	"visibility: public|private"
+//	@Success		200	{object}	map[string]string
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/marketplace/souls/{id}/visibility [patch]
 func (s *Server) handleSetSoulVisibility(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")

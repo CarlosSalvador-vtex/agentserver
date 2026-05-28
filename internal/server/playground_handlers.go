@@ -62,8 +62,34 @@ type playgroundSoulFull struct {
 	Body        string                 `json:"body"`
 }
 
+type playgroundSkillListResponse struct {
+	Drafts []playgroundSkillSummary `json:"drafts"`
+}
+
+type playgroundSoulListResponse struct {
+	Drafts []playgroundSoulSummary `json:"drafts"`
+}
+
+type promoteDraftResponse struct {
+	PRURL     string `json:"pr_url"`
+	Branch    string `json:"branch"`
+	HeadSha   string `json:"head_sha"`
+	DraftID   string `json:"draft_id"`
+	DraftKind string `json:"draft_kind"`
+}
+
 // --- Skill drafts ----------------------------------------------------------
 
+// handleListSkillDrafts lists skill drafts for the authenticated author.
+//
+//	@Summary		List skill drafts
+//	@Description	Returns skill drafts owned by the current user in the playground catalog.
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{object}	playgroundSkillListResponse	"drafts"
+//	@Failure		401	{object}	map[string]string
+//	@Router			/api/playground/skills [get]
 func (s *Server) handleListSkillDrafts(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	wsIDs := s.callerWorkspaceIDs(userID)
@@ -76,9 +102,23 @@ func (s *Server) handleListSkillDrafts(w http.ResponseWriter, r *http.Request) {
 	for _, d := range drafts {
 		out = append(out, s.summarizeSkillForUser(userID, d))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"drafts": out})
+	writeJSON(w, http.StatusOK, playgroundSkillListResponse{Drafts: out})
 }
 
+// handleCreateSkillDraft creates a new skill draft.
+//
+//	@Summary		Create skill draft
+//	@Description	Creates a skill draft in the author's workspace playground catalog.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			body	body	playgroundSkillFull	true	"Skill draft payload"
+//	@Success		201	{object}	playgroundSkillSummary
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Router			/api/playground/skills [post]
 func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 
@@ -127,6 +167,19 @@ func (s *Server) handleCreateSkillDraft(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, s.summarizeSkillForUser(userID, draft))
 }
 
+// handleGetSkillDraft returns a skill draft by ID.
+//
+//	@Summary		Get skill draft
+//	@Description	Returns full skill draft content for the author.
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Skill draft ID"
+//	@Success		200	{object}	playgroundSkillFull
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/skills/{id} [get]
 func (s *Server) handleGetSkillDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -145,6 +198,22 @@ func (s *Server) handleGetSkillDraft(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePatchSkillDraft updates a skill draft.
+//
+//	@Summary		Update skill draft
+//	@Description	Partially updates skill draft fields for the author.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id		path		string				true	"Skill draft ID"
+//	@Param			body	body		playgroundSkillFull	true	"Fields to update"
+//	@Success		200		{object}	playgroundSkillFull
+//	@Failure		400		{object}	map[string]string
+//	@Failure		401		{object}	map[string]string
+//	@Failure		403		{object}	map[string]string
+//	@Failure		404		{object}	map[string]string
+//	@Router			/api/playground/skills/{id} [patch]
 func (s *Server) handlePatchSkillDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -183,6 +252,18 @@ func (s *Server) handlePatchSkillDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+// handleArchiveSkillDraft archives a skill draft.
+//
+//	@Summary		Archive skill draft
+//	@Description	Soft-deletes a skill draft owned by the author.
+//	@Tags			playground
+//	@Security		ApiKeyAuth
+//	@Param			id	path	string	true	"Skill draft ID"
+//	@Success		204
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/skills/{id} [delete]
 func (s *Server) handleArchiveSkillDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -206,6 +287,16 @@ func (s *Server) handleArchiveSkillDraft(w http.ResponseWriter, r *http.Request)
 
 // --- Soul drafts -----------------------------------------------------------
 
+// handleListSoulDrafts lists soul drafts for the authenticated author.
+//
+//	@Summary		List soul drafts
+//	@Description	Returns soul drafts owned by the current user in the playground catalog.
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{object}	playgroundSoulListResponse	"drafts"
+//	@Failure		401	{object}	map[string]string
+//	@Router			/api/playground/souls [get]
 func (s *Server) handleListSoulDrafts(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	wsIDs := s.callerWorkspaceIDs(userID)
@@ -218,9 +309,23 @@ func (s *Server) handleListSoulDrafts(w http.ResponseWriter, r *http.Request) {
 	for _, d := range drafts {
 		out = append(out, s.summarizeSoulForUser(userID, d))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"drafts": out})
+	writeJSON(w, http.StatusOK, playgroundSoulListResponse{Drafts: out})
 }
 
+// handleCreateSoulDraft creates a new soul draft.
+//
+//	@Summary		Create soul draft
+//	@Description	Creates a soul draft in the author's workspace playground catalog.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			body	body	object	true	"Soul draft fields (name, description, workspace_id)"
+//	@Success		201	{object}	playgroundSoulSummary
+//	@Failure		400	{object}	map[string]string
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Router			/api/playground/souls [post]
 func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 
@@ -268,6 +373,19 @@ func (s *Server) handleCreateSoulDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s.summarizeSoulForUser(userID, draft))
 }
 
+// handleGetSoulDraft returns a soul draft by ID.
+//
+//	@Summary		Get soul draft
+//	@Description	Returns full soul draft content for the author.
+//	@Tags			playground
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path		string	true	"Soul draft ID"
+//	@Success		200	{object}	playgroundSoulFull
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/souls/{id} [get]
 func (s *Server) handleGetSoulDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -287,6 +405,22 @@ func (s *Server) handleGetSoulDraft(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePatchSoulDraft updates a soul draft.
+//
+//	@Summary		Update soul draft
+//	@Description	Partially updates soul draft fields for the author.
+//	@Tags			playground
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id		path		string				true	"Soul draft ID"
+//	@Param			body	body		playgroundSoulFull	true	"Fields to update"
+//	@Success		200		{object}	playgroundSoulFull
+//	@Failure		400		{object}	map[string]string
+//	@Failure		401		{object}	map[string]string
+//	@Failure		403		{object}	map[string]string
+//	@Failure		404		{object}	map[string]string
+//	@Router			/api/playground/souls/{id} [patch]
 func (s *Server) handlePatchSoulDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -330,6 +464,18 @@ func (s *Server) handlePatchSoulDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+// handleArchiveSoulDraft archives a soul draft.
+//
+//	@Summary		Archive soul draft
+//	@Description	Soft-deletes a soul draft owned by the author.
+//	@Tags			playground
+//	@Security		ApiKeyAuth
+//	@Param			id	path	string	true	"Soul draft ID"
+//	@Success		204
+//	@Failure		401	{object}	map[string]string
+//	@Failure		403	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Router			/api/playground/souls/{id} [delete]
 func (s *Server) handleArchiveSoulDraft(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
