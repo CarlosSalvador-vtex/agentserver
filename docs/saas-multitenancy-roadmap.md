@@ -4,6 +4,22 @@
 
 ---
 
+## Shipped / Closed Gaps
+
+Backlog items from the docs sprint (B01–B10 in `CURSOR_CONTEXT.md`) and related playground work **already merged to `main`**. Do not re-implement; use this when planning v2/v3.
+
+| Backlog / theme | What shipped | PR / evidence |
+|---|---|---|
+| **B01** — Email subdomain URLs (invite links on tenant host) | Workspace invites API/UI, accept flow, email templates path | [#71](https://github.com/CarlosSalvador-vtex/agentserver/pull/71) (`feat/workspace-invites`); subdomain login context in [#57](https://github.com/CarlosSalvador-vtex/agentserver/pull/57) |
+| **B07** — Workspace slug validation | Reserved slugs, login sets `active_workspace_id`, session audit on login | [#57](https://github.com/CarlosSalvador-vtex/agentserver/pull/57) (`internal/db/slug.go`); session audit in [#71](https://github.com/CarlosSalvador-vtex/agentserver/pull/71) |
+| Tenant-scoped catalog | Playground souls/skills filtered by workspace membership | [#17](https://github.com/CarlosSalvador-vtex/agentserver/pull/17); baseline in `docs/playground-marketplace-v2-backlog.md` |
+| OpenClaw plugin-sdk symlink (Tier 4 #16) | initContainer symlink + native `plugin-sdk` imports for cobrança skill | [#47](https://github.com/CarlosSalvador-vtex/agentserver/pull/47), [#33](https://github.com/CarlosSalvador-vtex/agentserver/pull/33); sandbox fix `56b7187` on `main` |
+| Playground + Marketplace | Metrics, diff view, promote polling, soul dry-run, marketplace MVP, tenant catalog | [#6](https://github.com/CarlosSalvador-vtex/agentserver/pull/6)–[#9](https://github.com/CarlosSalvador-vtex/agentserver/pull/9), [#17](https://github.com/CarlosSalvador-vtex/agentserver/pull/17), [#18](https://github.com/CarlosSalvador-vtex/agentserver/pull/18); playground epic [#64](https://github.com/CarlosSalvador-vtex/agentserver/pull/64)–[#70](https://github.com/CarlosSalvador-vtex/agentserver/pull/70) |
+
+**Related SaaS gaps in this doc (not the B01–B10 list):** BYOK and workspace quotas are largely in place (see “Estado atual”); Gap 1 webhook URL per workspace and Gap 6 onboarding wizard remain **open** in v1 below.
+
+---
+
 ## Estado atual (o que já é multi-tenant)
 
 O agentserver tem uma base sólida. Muita coisa já funciona por workspace:
@@ -261,11 +277,11 @@ Passo 4: Testar conexão (enviar mensagem de teste)
 
 ### v1 — Mudanças para SaaS funcional (impacto alto, custo baixo)
 
-| # | Item | Gap | Mudança | Arquivos |
+| # | Item | Gap | Mudança | Arquivos | Status |
 |---|---|---|---|---|
-| 1 | URL webhook por workspace | Gap 1 | Novo endpoint `GET/POST /webhook/whatsapp/{workspace_id}` + coluna `verify_token` | `imbridgesvc/server.go:56`, `handlers.go:1212`, `migrations/` |
-| 2 | Remover `whatsappAllowedUsers` global | Gap 3 | Deletar config do helm + sandbox manager | `sandbox/config.go:74`, `deployment.yaml:189` |
-| 3 | Garantir quotas LLM configuradas | Gap 4 | Sem código — só operação | `values-dev-eks.yaml` |
+| 1 | URL webhook por workspace | Gap 1 | Novo endpoint `GET/POST /webhook/whatsapp/{workspace_id}` + coluna `verify_token` | `imbridgesvc/server.go:56`, `handlers.go:1212`, `migrations/` | Open |
+| 2 | Remover `whatsappAllowedUsers` global | Gap 3 | Deletar config do helm + sandbox manager | `sandbox/config.go:74`, `deployment.yaml:189` | Open |
+| 3 | Garantir quotas LLM configuradas | Gap 4 | Sem código — só operação | `values-dev-eks.yaml` | Ops (BYOK/quotas exist — see Estado atual) |
 
 ### v2 — Hardening e monetização
 
