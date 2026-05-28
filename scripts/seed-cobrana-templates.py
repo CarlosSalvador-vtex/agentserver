@@ -29,6 +29,14 @@ SKILL_DIR = os.path.join(
     "../deploy/helm/agentserver/skills/cobranca",
 )
 
+# LGPD-safe synthetic leads — embedded to avoid ConfigMap key-name restrictions
+# (ConfigMap keys cannot contain '/'; 'references/leads.json' is the JSONB key).
+LEADS_JSON_INLINE = """[
+  {"lead_id":"L-001","name_masked":"Maria Aparecida (TEST)","cpf_last_3":"111","amount":1247.30,"due_date":"2026-04-15","creditor":"Acme Telecom","status":"open"},
+  {"lead_id":"L-002","name_masked":"Joao da Silva (TEST)","cpf_last_3":"222","amount":389.90,"due_date":"2026-03-02","creditor":"Acme Cartao","status":"open"},
+  {"lead_id":"L-003","name_masked":"Ana Souza (TEST)","cpf_last_3":"333","amount":5670.00,"due_date":"2026-01-20","creditor":"Acme Credito","status":"overdue","note":"negotiation_authorized_up_to_30pct"}
+]"""
+
 
 def read(rel: str) -> str:
     with open(os.path.join(SKILL_DIR, rel)) as f:
@@ -43,14 +51,13 @@ def main() -> None:
 
     prompt_md = read("prompt.md")
     index_mjs = read("index.mjs")
-    leads_json = read("references/leads.json")
     package_json = read("package.json")
     plugin_json = read("openclaw.plugin.json")
 
     skill_files = json.dumps({
         "index.mjs": index_mjs,
         "prompt.md": prompt_md,
-        "references/leads.json": leads_json,
+        "references/leads.json": LEADS_JSON_INLINE,
         "package.json": package_json,
         "openclaw.plugin.json": plugin_json,
     })

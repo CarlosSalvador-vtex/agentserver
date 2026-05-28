@@ -30,12 +30,13 @@ $KUBECTL create configmap seed-cobrana-script \
   --dry-run=client -o yaml | $KUBECTL apply -f -
 
 echo "==> Creating ConfigMap: seed-cobrana-skill-files"
+# Note: references/leads.json is embedded inline in the Python script
+# (ConfigMap keys cannot contain '/' so it cannot be mounted as a file).
 $KUBECTL create configmap seed-cobrana-skill-files \
   --from-file="index.mjs=$SKILL_DIR/index.mjs" \
   --from-file="prompt.md=$SKILL_DIR/prompt.md" \
   --from-file="package.json=$SKILL_DIR/package.json" \
   --from-file="openclaw.plugin.json=$SKILL_DIR/openclaw.plugin.json" \
-  --from-literal="references/leads.json=$(cat $SKILL_DIR/references/leads.json)" \
   --dry-run=client -o yaml | $KUBECTL apply -f -
 
 echo "==> Deleting old job (if any)"
