@@ -35,6 +35,20 @@ Two layers shipped on `main`:
 
 ---
 
+## Decisions Locked
+
+| ID | Question | Decision |
+|----|----------|----------|
+| D1 | Canonical doc shape (DD1) | **A** — single `workspace-auth.md`; archived specs under `docs/archive/workspace-auth/` |
+| D2 | Tenant login approach | **A** — Opção A subdomain per workspace (PR [#57](https://github.com/CarlosSalvador-vtex/agentserver/pull/57), [#58](https://github.com/CarlosSalvador-vtex/agentserver/pull/58)) |
+| D3 | Session workspace binding | PR [#53](https://github.com/CarlosSalvador-vtex/agentserver/pull/53) — `active_workspace_id` on auth tokens |
+| D4 | SSO / Opção B or C on tenant host | **Deferred** — ship subdomain password login first |
+| D5 | Cookie scope on tenant hosts | Host-only session cookies; no `Domain=.<base_domain>` on tenant login |
+| D6 | Register on tenant subdomain | **Not supported** — register only on apex |
+| D7 | Open product backlog (B01–B10) | [cursor-handoffs](cursor-handoffs/README.md); B06 unblocked after B01 |
+
+---
+
 ## Design
 
 **Chosen approach: Opção A — subdomain per workspace** (implemented in PR #57/#58).

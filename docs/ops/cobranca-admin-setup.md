@@ -14,6 +14,22 @@ Step-by-step guide for platform operators provisioning the **cobrança** pilot w
 
 ---
 
+## Decisions Locked
+
+Operator and product decisions for the cobrança wedge pilot. Engineering detail: [cobranca wedge eng spec](../specs/cobrana-wedge-eng-spec.md).
+
+| ID | Question | Decision |
+|----|----------|----------|
+| D1 | Deploy idempotency (sister re-deploy) | **B** — delete existing sandboxes before production deploy (avoids stale OpenClaw config) |
+| D2 | Fork authentication | **A** — sister forks herself when logged in; no shared fork identity |
+| D3 | Playground editor for sisters | **A** — `isDevMode=false` hides dev-only controls (PR [#81](https://github.com/CarlosSalvador-vtex/agentserver/pull/81), [#82](https://github.com/CarlosSalvador-vtex/agentserver/pull/82)) |
+| D4 | Fork display name | **A** — strip `-fork` suffix in UI after fork |
+| D5 | Automated test coverage | **A** — vitest deploy orchestration + component tests where added |
+| D6 | Quota errors in UI | **B** — operator checklist for `maxSandboxes`; API returns `quota_exceeded` with PT-BR message |
+| D7 | Admin provisioning steps | Documented in this guide (workspace, quota, invite, WhatsApp configure, sandbox bind) — not in application code |
+
+---
+
 ## Prerequisites
 
 | Requirement | Notes |
