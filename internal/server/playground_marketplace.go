@@ -370,6 +370,205 @@ func truncate(s string, max int) string {
 	return s[:cut] + "\n\n…truncated for preview…"
 }
 
+// --- Export / Import (marketplace) -----------------------------------------
+//
+// GET  /api/marketplace/skills/{id}/export  — full skill JSON (public)
+// GET  /api/marketplace/souls/{id}/export   — full soul  JSON (public)
+// POST /api/admin/marketplace/skills/import — create shared skill (admin)
+// POST /api/admin/marketplace/souls/import  — create shared soul  (admin)
+
+type skillExportPayload struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Files       map[string]string `json:"files"`
+}
+
+type soulExportPayload struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Frontmatter map[string]interface{} `json:"frontmatter"`
+	Body        string                 `json:"body"`
+}
+
+func (s *Server) handleExportMarketplaceSkill(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSkillDraft(id)
+	if err != nil || d == nil || d.Visibility != "shared" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	payload := skillExportPayload{
+		Name:        d.Name,
+		Description: d.Description,
+		Files:       d.Files,
+	}
+	safeName := sanitizeFilename(d.Name)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safeName+`.json"`)
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *Server) handleExportMarketplaceSoul(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSoulDraft(id)
+	if err != nil || d == nil || d.Visibility != "shared" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	payload := soulExportPayload{
+		Name:        d.Name,
+		Description: d.Description,
+		Frontmatter: d.Frontmatter,
+		Body:        d.Body,
+	}
+	safeName := sanitizeFilename(d.Name)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safeName+`.json"`)
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func sanitizeFilename(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else if r == ' ' {
+			b.WriteRune('-')
+		}
+	}
+	s := b.String()
+	if s == "" {
+		return "export"
+	}
+	return s
+}
+
+func (s *Server) handleImportMarketplaceSkill(w http.ResponseWriter, r *http.Request) {
+	var req skillExportPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	userID := auth.UserIDFromContext(r.Context())
+	d, err := s.DB.CreateSkillDraft(req.Name, req.Description, userID, "")
+	if err != nil {
+		http.Error(w, "create failed", http.StatusInternalServerError)
+		return
+	}
+	if len(req.Files) > 0 {
+		if err := s.DB.UpdateSkillDraftFiles(d.ID, req.Files); err != nil {
+			http.Error(w, "files failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := s.DB.SetSkillDraftVisibility(d.ID, "shared"); err != nil {
+		http.Error(w, "visibility failed", http.StatusInternalServerError)
+		return
+	}
+	d, _ = s.DB.GetSkillDraft(d.ID)
+	writeJSON(w, http.StatusCreated, summarizeSkill(d))
+}
+
+func (s *Server) handleImportMarketplaceSoul(w http.ResponseWriter, r *http.Request) {
+	var req soulExportPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	userID := auth.UserIDFromContext(r.Context())
+	d, err := s.DB.CreateSoulDraft(req.Name, req.Description, userID, "")
+	if err != nil {
+		http.Error(w, "create failed", http.StatusInternalServerError)
+		return
+	}
+	if req.Frontmatter != nil || req.Body != "" {
+		fm := req.Frontmatter
+		if fm == nil {
+			fm = map[string]interface{}{}
+		}
+		if err := s.DB.UpdateSoulDraft(d.ID, fm, req.Body); err != nil {
+			http.Error(w, "content failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := s.DB.SetSoulDraftVisibility(d.ID, "shared"); err != nil {
+		http.Error(w, "visibility failed", http.StatusInternalServerError)
+		return
+	}
+	d, _ = s.DB.GetSoulDraft(d.ID)
+	writeJSON(w, http.StatusCreated, summarizeSoul(d))
+}
+
+// --- Admin system skills/souls management -----------------------------------
+
+func (s *Server) handleAdminListSystemSkills(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.DB.ListSystemSkillDrafts()
+	if err != nil {
+		http.Error(w, "list failed", http.StatusInternalServerError)
+		return
+	}
+	out := make([]marketplaceSkillListing, 0, len(drafts))
+	for _, d := range drafts {
+		out = append(out, marketplaceSkillListing{
+			playgroundSkillSummary: summarizeSkill(d),
+			AuthorWorkspaceID:      d.WorkspaceID.String,
+			Tags:                   skillTagsFromFiles(d.Files),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"skills": out})
+}
+
+func (s *Server) handleAdminListSystemSouls(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.DB.ListSystemSoulDrafts()
+	if err != nil {
+		http.Error(w, "list failed", http.StatusInternalServerError)
+		return
+	}
+	out := make([]marketplaceSoulListing, 0, len(drafts))
+	for _, d := range drafts {
+		out = append(out, marketplaceSoulListing{
+			playgroundSoulSummary: summarizeSoul(d),
+			AuthorWorkspaceID:     d.WorkspaceID.String,
+			CompatibleSkills:      soulCompatibleSkills(d.Frontmatter),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"souls": out})
+}
+
+func (s *Server) handleAdminArchiveSkill(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSkillDraft(id)
+	if err != nil || d == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := s.DB.ArchiveSkillDraft(id); err != nil {
+		http.Error(w, "archive failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAdminArchiveSoul(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.DB.GetSoulDraft(id)
+	if err != nil || d == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := s.DB.ArchiveSoulDraft(id); err != nil {
+		http.Error(w, "archive failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Ensure sql package stays in use even if all callsites are removed during
 // refactors. (References scoped local; helps linter ergonomics.)
 var _ = sql.ErrNoRows

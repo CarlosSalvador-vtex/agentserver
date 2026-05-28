@@ -1392,3 +1392,52 @@ export async function adminSetSkillVisibility(id: string, visibility: 'private' 
 export async function adminSetSoulVisibility(id: string, visibility: 'private' | 'shared'): Promise<void> {
   await apiFetch({ method: 'PATCH', path: `/api/admin/playground/souls/${encodeURIComponent(id)}/visibility`, body: { visibility } })
 }
+
+export async function adminListSystemSkills(): Promise<MarketplaceSkillSummary[]> {
+  const r = await apiFetch<{ skills: MarketplaceSkillSummary[] }>({ method: 'GET', path: '/api/admin/marketplace/skills' })
+  return r.skills ?? []
+}
+
+export async function adminListSystemSouls(): Promise<MarketplaceSoulSummary[]> {
+  const r = await apiFetch<{ souls: MarketplaceSoulSummary[] }>({ method: 'GET', path: '/api/admin/marketplace/souls' })
+  return r.souls ?? []
+}
+
+export async function adminArchiveSkill(id: string): Promise<void> {
+  await apiFetch({ method: 'DELETE', path: `/api/admin/marketplace/skills/${encodeURIComponent(id)}` })
+}
+
+export async function adminArchiveSoul(id: string): Promise<void> {
+  await apiFetch({ method: 'DELETE', path: `/api/admin/marketplace/souls/${encodeURIComponent(id)}` })
+}
+
+// ── Marketplace export / import ──────────────────────────────────────────────
+
+export interface SkillExportPayload {
+  name: string
+  description?: string
+  files: Record<string, string>
+}
+
+export interface SoulExportPayload {
+  name: string
+  description?: string
+  frontmatter: Record<string, unknown>
+  body: string
+}
+
+export async function exportMarketplaceSkill(id: string): Promise<SkillExportPayload> {
+  return apiFetch({ method: 'GET', path: `/api/marketplace/skills/${encodeURIComponent(id)}/export` })
+}
+
+export async function exportMarketplaceSoul(id: string): Promise<SoulExportPayload> {
+  return apiFetch({ method: 'GET', path: `/api/marketplace/souls/${encodeURIComponent(id)}/export` })
+}
+
+export async function importMarketplaceSkill(payload: SkillExportPayload): Promise<MarketplaceSkillSummary> {
+  return apiFetch({ method: 'POST', path: '/api/admin/marketplace/skills/import', body: payload })
+}
+
+export async function importMarketplaceSoul(payload: SoulExportPayload): Promise<MarketplaceSoulSummary> {
+  return apiFetch({ method: 'POST', path: '/api/admin/marketplace/souls/import', body: payload })
+}

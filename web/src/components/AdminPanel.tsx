@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Users, Box, Container, Settings, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Loader2, Users, Box, Container, Settings, ChevronRight, Library, Upload, Download, Globe, Lock, Trash2 } from 'lucide-react'
 import {
   type AdminUser,
   type AdminWorkspace,
@@ -9,6 +9,10 @@ import {
   type UserQuotaResponse,
   type WorkspaceQuotaResponse,
   type LLMQuotaResponse,
+  type MarketplaceSkillSummary,
+  type MarketplaceSoulSummary,
+  type SkillExportPayload,
+  type SoulExportPayload,
   adminListUsers,
   adminListWorkspaces,
   adminListSandboxes,
@@ -24,12 +28,23 @@ import {
   adminGetWorkspaceLLMQuota,
   adminSetWorkspaceLLMQuota,
   adminDeleteWorkspaceLLMQuota,
+  adminListSystemSkills,
+  adminListSystemSouls,
+  adminArchiveSkill,
+  adminArchiveSoul,
+  adminSetSkillVisibility,
+  adminSetSoulVisibility,
+  importMarketplaceSkill,
+  importMarketplaceSoul,
+  exportMarketplaceSkill,
+  exportMarketplaceSoul,
 } from '../lib/api'
 
 const tabs = [
   { path: 'users', label: 'Users', icon: Users },
   { path: 'workspaces', label: 'Workspaces', icon: Box },
   { path: 'sandboxes', label: 'Sandboxes', icon: Container },
+  { path: 'skills', label: 'Skills', icon: Library },
   { path: 'settings', label: 'Settings', icon: Settings },
 ] as const
 
@@ -77,6 +92,7 @@ export function AdminPanel() {
           <Route path="workspaces/:workspaceId/sandboxes" element={<WorkspaceSandboxesTab />} />
           <Route path="sandboxes" element={<SandboxesTab />} />
           <Route path="settings" element={<SettingsTab />} />
+          <Route path="skills" element={<SkillsTab />} />
           <Route path="*" element={<Navigate to="users" replace />} />
         </Routes>
       </div>
@@ -162,6 +178,209 @@ function SandboxesTab() {
 
   if (loading) return <LoadingSpinner />
   return <SandboxesTable sandboxes={sandboxes} />
+}
+
+type SkillKind = 'skill' | 'soul'
+
+function SkillsTab() {
+  const [kind, setKind] = useState<SkillKind>('skill')
+  const [skills, setSkills] = useState<MarketplaceSkillSummary[]>([])
+  const [souls, setSouls] = useState<MarketplaceSoulSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
+
+  const reload = async () => {
+    setLoading(true)
+    try {
+      const [sk, so] = await Promise.all([adminListSystemSkills(), adminListSystemSouls()])
+      setSkills(sk)
+      setSouls(so)
+      setError(null)
+    } catch {
+      setError('Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { reload() }, [])
+
+  const handleVisibilityToggle = async (id: string, current: string) => {
+    const next = current === 'shared' ? 'private' : 'shared'
+    try {
+      if (kind === 'skill') await adminSetSkillVisibility(id, next)
+      else await adminSetSoulVisibility(id, next)
+      await reload()
+    } catch {
+      setError('Visibility update failed')
+    }
+  }
+
+  const handleArchive = async (id: string, name: string) => {
+    try {
+      if (kind === 'skill') await adminArchiveSkill(id)
+      else await adminArchiveSoul(id)
+      setSuccess(`"${name}" archived.`)
+      await reload()
+    } catch {
+      setError('Archive failed')
+    }
+  }
+
+  const handleExport = async (id: string, name: string) => {
+    try {
+      const data = kind === 'skill' ? await exportMarketplaceSkill(id) : await exportMarketplaceSoul(id)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${name.replace(/\s+/g, '-')}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('Export failed')
+    }
+  }
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setImporting(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text) as SkillExportPayload | SoulExportPayload
+      if (!data.name) throw new Error('JSON missing "name" field')
+      if ('files' in data) {
+        await importMarketplaceSkill(data as SkillExportPayload)
+        setSuccess(`Skill "${data.name}" imported.`)
+        setKind('skill')
+      } else {
+        await importMarketplaceSoul(data as SoulExportPayload)
+        setSuccess(`Soul "${data.name}" imported.`)
+        setKind('soul')
+      }
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const items = kind === 'skill' ? skills : souls
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-[var(--foreground)]">System Templates</h2>
+          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+            System-wide skills and souls visible in the marketplace. Import JSON files exported from any deployment.
+          </p>
+        </div>
+        <>
+          <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+          <button
+            onClick={() => importRef.current?.click()}
+            disabled={importing}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-50"
+          >
+            <Upload size={13} /> {importing ? 'Importing…' : 'Import JSON'}
+          </button>
+        </>
+      </div>
+
+      {error && <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
+      {success && <div className="mb-3 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-400">{success}</div>}
+
+      <div className="mb-4 flex gap-2">
+        {(['skill', 'soul'] as SkillKind[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => setKind(k)}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              kind === k
+                ? 'bg-[var(--secondary)] text-[var(--foreground)]'
+                : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+            }`}
+          >
+            {k === 'skill' ? `Skills (${skills.length})` : `Souls (${souls.length})`}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <LoadingSpinner />
+      ) : items.length === 0 ? (
+        <p className="text-sm italic text-[var(--muted-foreground)]">No system {kind}s yet. Import a JSON file to get started.</p>
+      ) : (
+        <div className="rounded-lg border border-[var(--border)]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--muted)]">
+                <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Name</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Visibility</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Updated</th>
+                <th className="px-4 py-3 text-right font-medium text-[var(--muted-foreground)]">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-b border-[var(--border)] last:border-b-0">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-[var(--foreground)]">{item.name}</div>
+                    {item.description && (
+                      <div className="text-xs text-[var(--muted-foreground)] truncate max-w-xs">{item.description}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleVisibilityToggle(item.id, item.status === 'shared' ? 'shared' : (item as any).visibility ?? 'private')}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                        (item as any).visibility === 'shared'
+                          ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                          : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--secondary)]'
+                      }`}
+                      title="Toggle visibility"
+                    >
+                      {(item as any).visibility === 'shared' ? <><Globe size={10} /> shared</> : <><Lock size={10} /> private</>}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
+                    {new Date(item.updated_at).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleExport(item.id, item.name)}
+                        className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)]"
+                        title="Export JSON"
+                      >
+                        <Download size={11} /> Export
+                      </button>
+                      <button
+                        onClick={() => handleArchive(item.id, item.name)}
+                        className="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20"
+                        title="Archive (remove from marketplace)"
+                      >
+                        <Trash2 size={11} /> Archive
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function LoadingSpinner() {

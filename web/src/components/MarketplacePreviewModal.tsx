@@ -5,10 +5,12 @@
 // committing to fork. Reduces "fork blind" risk.
 
 import { useEffect, useState } from 'react'
-import { X, GitFork, FileText } from 'lucide-react'
+import { X, GitFork, FileText, Download } from 'lucide-react'
 import {
   getMarketplaceSkillPreview,
   getMarketplaceSoulPreview,
+  exportMarketplaceSkill,
+  exportMarketplaceSoul,
   type MarketplaceSkillPreview,
   type MarketplaceSoulPreview,
 } from '../lib/api'
@@ -27,6 +29,25 @@ export function MarketplacePreviewModal({ kind, id, name, busy, onFork, onClose 
   const [soul, setSoul] = useState<MarketplaceSoulPreview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const data = kind === 'skill' ? await exportMarketplaceSkill(id) : await exportMarketplaceSoul(id)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${name.replace(/\s+/g, '-')}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // silent — download errors are visible in the browser's download bar
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -143,6 +164,14 @@ export function MarketplacePreviewModal({ kind, id, name, busy, onFork, onClose 
             className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--secondary)]"
           >
             Close
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting || loading || !!error}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-50"
+          >
+            <Download size={12} /> {exporting ? 'Exporting…' : 'Export JSON'}
           </button>
           <button
             type="button"
