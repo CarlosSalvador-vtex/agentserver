@@ -265,6 +265,7 @@ mkdir -p /mnt/session-data/projects
 						ImagePullPolicy: corev1.PullAlways,
 						WorkingDir:      "/home/agent/projects",
 						Resources: corev1.ResourceRequirements{
+							Requests: sandboxRequests(opts.CPU, opts.Memory),
 							Limits: corev1.ResourceList{
 								corev1.ResourceMemory: memoryQuantity(opts.Memory),
 								corev1.ResourceCPU:    cpuQuantity(opts.CPU),
@@ -632,6 +633,7 @@ chown -R 1000:1000 /mnt/session-data
 			FailureThreshold:    30,
 		},
 		Resources: corev1.ResourceRequirements{
+			Requests: sandboxRequests(opts.CPU, opts.Memory),
 			Limits: corev1.ResourceList{
 				corev1.ResourceMemory: memoryQuantity(opts.Memory),
 				corev1.ResourceCPU:    cpuQuantity(opts.CPU),
@@ -888,6 +890,27 @@ func memoryQuantity(bytes int64) resource.Quantity {
 		bytes = 2 * 1024 * 1024 * 1024
 	}
 	return *resource.NewQuantity(bytes, resource.BinarySI)
+}
+
+// sandboxRequests returns the guaranteed resource floor for a sandbox pod.
+// Requests sit well below Limits so a pod schedules on small dev nodes
+// (e.g. t3.medium ≈ 2 vCPU / 4Gi) and bursts up to its CPU/memory limit.
+// Without explicit Requests, K8s defaults Requests = Limits (2 cores / 2Gi),
+// which cannot fit a 2-vCPU node even when empty. Floors are clamped so they
+// never exceed the (possibly smaller) per-workspace limit.
+func sandboxRequests(cpuMillis int, memBytes int64) corev1.ResourceList {
+	reqCPU := 250
+	if cpuMillis > 0 && cpuMillis < reqCPU {
+		reqCPU = cpuMillis
+	}
+	var reqMem int64 = 512 * 1024 * 1024
+	if memBytes > 0 && memBytes < reqMem {
+		reqMem = memBytes
+	}
+	return corev1.ResourceList{
+		corev1.ResourceCPU:    cpuQuantity(reqCPU),
+		corev1.ResourceMemory: memoryQuantity(reqMem),
+	}
 }
 
 func (m *Manager) runtimeClassName() *string {
