@@ -31,6 +31,8 @@ Two layers shipped on `main`:
 | Tenant | `https://{slug}.agentserver.analytics.vtex.com/login` | Workspace locked by subdomain; `active_workspace_id` set at login |
 | Sandbox | `https://claw-{id}.agentserver.analytics.vtex.com` | Routed to sandboxproxy (not workspace UI) |
 
+**Email links:** Transactional emails (e.g. workspace invites) use `notif.BuildTenantURL(slug, baseDomain, path)` so hrefs match tenant UI: `https://{slug}.<BASE_DOMAIN>/…` when `slug` is set, otherwise apex `https://<BASE_DOMAIN>/…`. Password-reset and other mailers should use the same helper when added.
+
 **Decision (DD1-A):** One canonical doc — not split across six overlapping files. Historical sources are in [`docs/archive/`](archive/).
 
 ---
@@ -230,7 +232,7 @@ Optional follow-ups (multi-tenancy level 2). Handoff prompts may exist under `do
 | **B3** | `DELETE /api/users/{id}` | Admin-only; GDPR anonymization; ownership transfer rules | ~120 |
 | **B4** | Opção B — SSO per workspace | `workspace_sso_configs`, OAuth/SAML handlers, admin UI | ~600 |
 | **B5** | Opção C — hybrid SSO + password fallback | Builds on B4; break-glass password when IdP down | ~150 (+B4) |
-| **B6** | Tenant subdomain URLs in all emails | Invites, password reset, notifications use `{slug}.<base>` | ~30 |
+| **B6** | Tenant subdomain URLs in all emails | Done — `notif.BuildTenantURL`; invite links use `{slug}.<base>` | — |
 | **B7** | Session/workspace audit log | Middleware + `session_audit_events` (or extend draft audit) | ~150 |
 | **B8** | codex-auth vs host-only cookies | Reconcile cross-subdomain SSO with tenant isolation | TBD |
 | **B9** | Apex “choose workspace” UI | After apex login, picker then redirect to chosen tenant subdomain | ~130 |
