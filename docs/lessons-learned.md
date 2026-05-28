@@ -153,6 +153,50 @@ kubectl exec -n "$NS" "$SBX" -c agent -- bash -c '
 
 ---
 
+## Sprint 4 — Playground, marketplace, workspace auth, OpenClaw Tier 4
+
+Sprint theme: tenant-scoped catalog, playground/marketplace waves, subdomain workspace auth (B01/B07), cobrança wedge docs, deploy hygiene.
+
+| Area | What we tried | What broke | What worked | PR / ref |
+|---|---|---|---|---|
+| Tenant-scoped catalog | Filter souls/skills by workspace membership in API + UI | N/A (greenfield) | `ListSouls` / catalog handlers respect membership; sandbox tokens aligned with catalog scope | [#17](https://github.com/CarlosSalvador-vtex/agentserver/pull/17) |
+| OpenClaw plugin-sdk (Tier 4 #16) | Root `agent.systemPrompt` in openclaw.json | Loader rejected unknown root key | initContainer symlink to bundled `plugin-sdk` + native imports in cobrança skill; verify mount in pod | [#47](https://github.com/CarlosSalvador-vtex/agentserver/pull/47), [#33](https://github.com/CarlosSalvador-vtex/agentserver/pull/33) |
+| Playground + marketplace | Large UI surface (metrics, diff, promote polling, dry-run) | Stale image tag after merge → “deployed ≠ merged” | Ship in waves [#6](https://github.com/CarlosSalvador-vtex/agentserver/pull/6)–[#9](https://github.com/CarlosSalvador-vtex/agentserver/pull/9); epic [#64](https://github.com/CarlosSalvador-vtex/agentserver/pull/64)–[#70](https://github.com/CarlosSalvador-vtex/agentserver/pull/70) |
+| Workspace auth B01/B07 | Invite links on wrong host; weak slug rules | Users landed on apex without tenant context | Subdomain login + reserved slugs + session audit on login | [#57](https://github.com/CarlosSalvador-vtex/agentserver/pull/57), [#71](https://github.com/CarlosSalvador-vtex/agentserver/pull/71) |
+| Cobrança wedge | Skill lived only in chart; no runbook for admins | Operators couldn’t reproduce setup | `docs/ops/cobranca-admin-setup.md` + chart skill discoverability | [#81](https://github.com/CarlosSalvador-vtex/agentserver/pull/81), [#82](https://github.com/CarlosSalvador-vtex/agentserver/pull/82) |
+| API token scope | Broad GET on workspace tokens | Over-exposed list endpoint | Narrow handler scope + tests | [#100](https://github.com/CarlosSalvador-vtex/agentserver/pull/100) |
+| CI GHCR | Push failed on release workflow | Missing/registry token wiring | Documented token + workflow fix | [#101](https://github.com/CarlosSalvador-vtex/agentserver/pull/101) |
+
+**Sprint 4 takeaway:** Multi-tenant UX and OpenClaw need **image + tag + fresh sandbox** verification every time. Catalog and auth PRs are useless on cluster until values tag bumps and sandboxes are recreated.
+
+---
+
+## Sprint 5 — Docs organization backlog (A0–C5)
+
+Sprint theme: canonical docs, archive hygiene, decisions visibility, lessons capture (this file).
+
+| Activity | What we did | Outcome | PR |
+|---|---|---|---|
+| **A0** | OpenAPI regen + CI drift check | `make openapi-check` gate documented and passing on main | [#89](https://github.com/CarlosSalvador-vtex/agentserver/pull/89) |
+| **A1** | cursor-handoffs B01+B07 shipped | Handoff table matches merged reality | [#90](https://github.com/CarlosSalvador-vtex/agentserver/pull/90) |
+| **A2** | playground-marketplace-v2-backlog baseline | Tier A items marked shipped with PR refs | [#91](https://github.com/CarlosSalvador-vtex/agentserver/pull/91) |
+| **A3** | workspace-auth-pendencies archive | F1–F3 marked resolved | [#92](https://github.com/CarlosSalvador-vtex/agentserver/pull/92) |
+| **A4** | superpowers README | Upstream provenance documented; no rewrite of vendored content | [#93](https://github.com/CarlosSalvador-vtex/agentserver/pull/93) |
+| **A5** | improvements.md index | Status column on index table | [#94](https://github.com/CarlosSalvador-vtex/agentserver/pull/94) |
+| **B2** | ops runbook | Deploy + seed steps for dev EKS | [#95](https://github.com/CarlosSalvador-vtex/agentserver/pull/95) |
+| **B4** | cobrança admin setup | Single wedge setup guide under `docs/ops/` | [#96](https://github.com/CarlosSalvador-vtex/agentserver/pull/96) |
+| **B3** | workspace-auth collapse | Six overlapping docs → one `workspace-auth.md` | [#97](https://github.com/CarlosSalvador-vtex/agentserver/pull/97) |
+| **B1** | playground API reference | `docs/api/reference/playground.md` from OpenAPI | [#98](https://github.com/CarlosSalvador-vtex/agentserver/pull/98) |
+| **B5** | cursor-handoffs B02–B10 | Status refresh for backlog honesty | [#99](https://github.com/CarlosSalvador-vtex/agentserver/pull/99) |
+| **B6** | saas-multitenancy roadmap | `## Shipped / Closed Gaps` with PR table | [#102](https://github.com/CarlosSalvador-vtex/agentserver/pull/102) |
+| **C3** | Decisions Locked sections | D1–D7 appended to canonical feature docs (DD3-B) | [#103](https://github.com/CarlosSalvador-vtex/agentserver/pull/103) |
+| **C4** | Archive plan docs | Eight files → `docs/archive/plans/` | [#104](https://github.com/CarlosSalvador-vtex/agentserver/pull/104) |
+| **C5** | lessons-learned Sprint 4/5 | This section + Sprint 5 table (docs-only sprint) | *(this PR)* |
+
+**Sprint 5 takeaway:** One activity = one branch + PR. After each merge, pull `origin/main` before the next branch. Keep decisions in **canonical feature docs**, not a third ADR directory.
+
+---
+
 ## Cross-cutting patterns
 
 ### Pattern: "deployed image doesn't match merged code"
