@@ -20,7 +20,7 @@ interface TopBarProps {
   onLogout: () => void
   onShowAdmin?: () => void
   onShowManageWorkspaces: () => void
-  // onShowPlayground: () => void // PLAYGROUND DISABLED
+  onShowPlayground: () => void
   onShowMarketplace: () => void
 }
 
@@ -51,7 +51,7 @@ export function TopBar({
   onLogout,
   onShowAdmin,
   onShowManageWorkspaces,
-  // onShowPlayground, // PLAYGROUND DISABLED
+  onShowPlayground,
   onShowMarketplace,
 }: TopBarProps) {
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false)
@@ -257,15 +257,13 @@ export function TopBar({
                   </button>
                 </div>
               </div>
-              {/* PLAYGROUND DISABLED — re-enable when skill authoring is re-introduced
               <button
                 onClick={() => { onShowPlayground(); setMenuOpen(false) }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--secondary)]"
               >
                 <FlaskConical size={14} />
-                Playground
+                Configurar Agente
               </button>
-              */}
               <button
                 onClick={() => { onShowMarketplace(); setMenuOpen(false) }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--secondary)]"

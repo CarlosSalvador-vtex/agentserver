@@ -19,7 +19,7 @@ import { PromotedPRBanner } from './PromotedPRBanner'
 import { DraftAuditTimeline } from './DraftAuditTimeline'
 import { MarketplaceVisibilityToggle } from './MarketplaceVisibilityToggle'
 
-export function PlaygroundSkillEditor() {
+export function PlaygroundSkillEditor({ isDevMode }: { isDevMode?: boolean }) {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [draft, setDraft] = useState<PlaygroundSkillFull | null>(null)
@@ -174,71 +174,91 @@ export function PlaygroundSkillEditor() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-5 py-3">
-        <button onClick={() => navigate('/playground')} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-          <ArrowLeft size={16} />
-        </button>
-        <span className="text-sm font-semibold text-[var(--foreground)]">{draft.name}</span>
-        <span className="text-xs text-[var(--muted-foreground)]">({draft.status})</span>
-        {dirty && <span className="text-xs text-yellow-400">● unsaved</span>}
-        <div className="flex-1" />
-        <MarketplaceVisibilityToggle
-          kind="skill"
-          draftID={draft.id}
-          visibility={draft.visibility ?? 'private'}
-          canSet={draft.can_set_visibility ?? false}
-          onChanged={(v) => setDraft({ ...draft, visibility: v })}
-        />
-        <button
-          onClick={handleSave}
-          disabled={!dirty || saving}
-          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-40"
-        >
-          {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-          Save
-        </button>
-        <button
-          onClick={handleTestSandbox}
-          disabled={spawningTest || dirty}
-          title={dirty ? 'Save first' : 'Spin up an ephemeral OpenClaw sandbox with this draft'}
-          className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400 hover:bg-blue-500/20 disabled:opacity-40"
-        >
-          {spawningTest ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : testSandbox ? (
-            <RotateCw size={12} />
-          ) : (
-            <FlaskConical size={12} />
-          )}
-          {testSandbox ? 'Recreate test sandbox' : 'Open test sandbox'}
-        </button>
-        {promoteConfirm ? (
-          <span className="inline-flex items-center gap-1">
-            <span className="text-xs text-[var(--muted-foreground)]">Open PR?</span>
-            <button
-              onClick={handlePromote}
-              className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20"
-            >
-              <Send size={12} /> Yes
-            </button>
-            <button
-              onClick={() => setPromoteConfirm(false)}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
-            >
-              Cancel
-            </button>
-          </span>
-        ) : (
-          <button
-            onClick={() => setPromoteConfirm(true)}
-            disabled={dirty || draft.status !== 'draft'}
-            className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
-            title={dirty ? 'Save first' : ''}
-          >
-            <Send size={12} /> Promote → PR
+      {!isDevMode ? (
+        <header className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-5 py-3">
+          <button onClick={() => navigate('/playground')} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+            <ArrowLeft size={16} />
           </button>
-        )}
-      </header>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-[var(--foreground)]">Funcionalidade: {draft.name}</div>
+          </div>
+          {dirty && <span className="text-xs text-yellow-400">● unsaved</span>}
+          <button
+            onClick={handleSave}
+            disabled={!dirty || saving}
+            className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-40"
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            Save
+          </button>
+        </header>
+      ) : (
+        <header className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-5 py-3">
+          <button onClick={() => navigate('/playground')} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+            <ArrowLeft size={16} />
+          </button>
+          <span className="text-sm font-semibold text-[var(--foreground)]">{draft.name}</span>
+          <span className="text-xs text-[var(--muted-foreground)]">({draft.status})</span>
+          {dirty && <span className="text-xs text-yellow-400">● unsaved</span>}
+          <div className="flex-1" />
+          <MarketplaceVisibilityToggle
+            kind="skill"
+            draftID={draft.id}
+            visibility={draft.visibility ?? 'private'}
+            canSet={draft.can_set_visibility ?? false}
+            onChanged={(v) => setDraft({ ...draft, visibility: v })}
+          />
+          <button
+            onClick={handleSave}
+            disabled={!dirty || saving}
+            className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-40"
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            Save
+          </button>
+          <button
+            onClick={handleTestSandbox}
+            disabled={spawningTest || dirty}
+            title={dirty ? 'Save first' : 'Spin up an ephemeral OpenClaw sandbox with this draft'}
+            className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400 hover:bg-blue-500/20 disabled:opacity-40"
+          >
+            {spawningTest ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : testSandbox ? (
+              <RotateCw size={12} />
+            ) : (
+              <FlaskConical size={12} />
+            )}
+            {testSandbox ? 'Recreate test sandbox' : 'Open test sandbox'}
+          </button>
+          {promoteConfirm ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="text-xs text-[var(--muted-foreground)]">Open PR?</span>
+              <button
+                onClick={handlePromote}
+                className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20"
+              >
+                <Send size={12} /> Yes
+              </button>
+              <button
+                onClick={() => setPromoteConfirm(false)}
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setPromoteConfirm(true)}
+              disabled={dirty || draft.status !== 'draft'}
+              className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
+              title={dirty ? 'Save first' : ''}
+            >
+              <Send size={12} /> Promote → PR
+            </button>
+          )}
+        </header>
+      )}
 
       {error && (
         <div className="bg-red-500/10 px-5 py-2 text-xs text-red-400 border-b border-red-500/30">{error}</div>
@@ -301,43 +321,45 @@ export function PlaygroundSkillEditor() {
 
         {/* Editor */}
         <main className="flex flex-1 flex-col">
-          <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/50 px-3 py-1.5">
-            <button
-              onClick={() => setView('files')}
-              className={`rounded px-2 py-0.5 text-[11px] font-medium ${
-                view === 'files' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
-              }`}
-            >
-              Files
-            </button>
-            {draft.status === 'promoted' && draft.promoted_commit && (
+          {isDevMode && (
+            <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/50 px-3 py-1.5">
               <button
-                onClick={() => setView('diff')}
-                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
-                  view === 'diff' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+                onClick={() => setView('files')}
+                className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                  view === 'files' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
                 }`}
-                title={`Diff vs promoted commit ${draft.promoted_commit.slice(0, 7)}`}
               >
-                <FileDiff size={11} /> Diff vs promoted
+                Files
               </button>
-            )}
-            <button
-              onClick={() => setView('audit')}
-              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
-                view === 'audit' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
-              }`}
-              title="Audit timeline"
-            >
-              <History size={11} /> Audit
-            </button>
-            <div className="ml-auto">
-              <PromotedPRBanner
-                url={draft.promoted_pr_url}
-                state={draft.promoted_pr_state}
-              />
+              {draft.status === 'promoted' && draft.promoted_commit && (
+                <button
+                  onClick={() => setView('diff')}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
+                    view === 'diff' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+                  }`}
+                  title={`Diff vs promoted commit ${draft.promoted_commit.slice(0, 7)}`}
+                >
+                  <FileDiff size={11} /> Diff vs promoted
+                </button>
+              )}
+              <button
+                onClick={() => setView('audit')}
+                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
+                  view === 'audit' ? 'bg-[var(--secondary)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
+                }`}
+                title="Audit timeline"
+              >
+                <History size={11} /> Audit
+              </button>
+              <div className="ml-auto">
+                <PromotedPRBanner
+                  url={draft.promoted_pr_url}
+                  state={draft.promoted_pr_state}
+                />
+              </div>
             </div>
-          </div>
-          {view === 'diff' && draft.promoted_commit ? (
+          )}
+          {isDevMode && view === 'diff' && draft.promoted_commit ? (
             <div className="flex-1 overflow-auto">
               <PromotedDiff
                 commit={draft.promoted_commit}
@@ -345,14 +367,15 @@ export function PlaygroundSkillEditor() {
                 draftFiles={files}
               />
             </div>
-          ) : view === 'audit' ? (
+          ) : isDevMode && view === 'audit' ? (
             <div className="flex-1 overflow-auto">
               <DraftAuditTimeline kind="skills" draftID={draft.id} />
             </div>
           ) : activeFile ? (
             <textarea
               value={files[activeFile] ?? ''}
-              onChange={(e) => updateActiveContent(e.target.value)}
+              onChange={(e) => { if (isDevMode) updateActiveContent(e.target.value) }}
+              readOnly={!isDevMode}
               spellCheck={false}
               className="flex-1 resize-none bg-[var(--background)] p-4 font-mono text-sm text-[var(--foreground)] outline-none"
             />
@@ -363,8 +386,8 @@ export function PlaygroundSkillEditor() {
           )}
         </main>
 
-        {/* Dry-run panel */}
-        <aside className="w-96 shrink-0 border-l border-[var(--border)] bg-[var(--card)]/30 flex flex-col">
+        {/* Dry-run panel — dev mode only */}
+        {isDevMode && <aside className="w-96 shrink-0 border-l border-[var(--border)] bg-[var(--card)]/30 flex flex-col">
           {(testSandbox || testError) && (
             <div className="border-b border-[var(--border)] bg-[var(--background)] px-4 py-3">
               <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] mb-1">
@@ -484,7 +507,7 @@ export function PlaygroundSkillEditor() {
               </>
             )}
           </div>
-        </aside>
+        </aside>}
       </div>
 
       <div className="border-t border-[var(--border)] bg-[var(--card)] px-5 py-2 text-[11px] text-[var(--muted-foreground)]">
