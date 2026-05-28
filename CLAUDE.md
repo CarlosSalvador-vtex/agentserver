@@ -17,6 +17,15 @@ go build -o bin/credentialproxy ./cmd/credentialproxy
 go test ./...                          # all tests
 go test ./internal/server/... -run TestName  # single test
 go vet ./...
+make test                              # go vet + go test -count=1 (CI parity)
+make agent                             # cmd/agentserver-agent (CGO_ENABLED=0)
+make astool                            # cmd/astool admin CLI
+```
+
+**`goolm` build tag**: `internal/crypto/` (Matrix libolm) and `internal/weixin/` only compile under `-tags goolm`. To build/vet the whole tree including those packages:
+```bash
+go build -tags goolm ./...
+go vet   -tags goolm ./...
 ```
 
 ### Frontend
@@ -24,6 +33,7 @@ go vet ./...
 cd web && pnpm install && pnpm dev     # dev server (Vite, hot reload)
 cd web && pnpm build                   # production build → web/dist/
 cd web && pnpm lint                    # ESLint
+cd web && pnpm test                    # vitest
 cd web && pnpm openapi:gen             # regenerate src/lib/api-generated/schema.d.ts from OpenAPI spec
 ```
 
@@ -55,14 +65,17 @@ cd sdk/python && .venv/bin/ruff check .
 ## Architecture
 
 ```
-cmd/
+cmd/                          # one subdir per binary; root.go + serve.go are the main agentserver CLI
   serve.go                    # cobra CLI — wires all env vars into server.Server{}
+  agentserver-agent/          # connector agent binary (cross-compiled, see `make agent-all`)
+  astool/                     # admin/ops CLI against the DB + API
   llmproxy/                   # standalone LLM proxy binary
   credentialproxy/            # credential injection binary
   codex-app-gateway/          # per-workspace codex app-server subprocess + ws bridge
   codex-exec-gateway/         # rendezvous for codex exec-server --remote connectors
-  imbridge/                   # IM channel bridge (WeChat/Telegram/Matrix)
+  imbridge/                   # IM channel bridge binary (WeChat/Telegram/Matrix/WhatsApp)
   sandboxproxy/               # subdomain → sandbox service routing
+  ilink-debug/                # connector link debug tool
 
 internal/
   server/        # HTTP router (chi), all REST handlers, swagger annotations
@@ -71,12 +84,17 @@ internal/
   db/            # raw SQL via lib/pq, schema migrations in db/migrations/ (SQL files, numbered)
   sandbox/       # Kubernetes sandbox pod lifecycle (create/pause/resume/delete)
   sbxstore/      # in-memory sandbox state cache
-  tunnel/        # yamux-based multiplexed tunnel registry for connector ↔ server WebSocket
-  imbridge/      # IM message routing logic (WeChat weixin, Telegram, Matrix mautrix)
+  tunnel/, wsbridge/ # yamux multiplexed tunnel + ws bridging for connector ↔ server
+  imbridge/      # IM message routing logic (WeChat weixin, Telegram, Matrix mautrix, WhatsApp)
+  imbridgesvc/   # HTTP service wrapping imbridge (runs as the imbridge container)
   llmproxy/      # RPD quota enforcement + key injection
   credentialproxy/ # AES-256 encrypted credential bindings for sandboxes
   namespace/     # K8s namespace-per-workspace management
-  codexexecgateway/ # executor rendezvous for codex exec-server --remote
+  codexexecgateway/, codexappgateway/ # codex remote rendezvous + app-server plumbing
+  crypto/, weixin/ # Matrix libolm + WeChat helpers — require `-tags goolm`
+  audit/         # session/audit event logging      notif/   # email + notification dispatch
+  mcpbridge/     # MCP server bridging                secrets/ # secret storage
+  storage/, container/, process/, namespace/ # sandbox + workspace infra plumbing
 
 web/src/
   components/    # React page components (one file per panel/modal)
@@ -123,3 +141,18 @@ Frontend types are generated from `docs/api/openapi.yaml` — after changing han
 | `BASE_DOMAIN` | No | Subdomain routing base (e.g. `agent.cs.ac.cn`) |
 | `INTERNAL_API_SECRET` | Recommended | Shared secret for internal endpoints |
 | `AGENTSERVER_COOKIE_DOMAIN` | No | Set for cross-subdomain SSO (e.g. `.agent.cs.ac.cn`) |
+
+## Contribution workflow (this fork)
+
+This is a fork tracked via numbered backlog activities. A Cursor agent rule (`.cursor/rules/context-guard.mdc`) drives a strict per-activity workflow — Claude Code orchestrates merges. When making changes, follow the same conventions:
+
+- **One branch + one PR per activity** — no batching.
+- **Branch naming**: `docs/<activity-id>-<slug>` (e.g. `docs/b09-choose-workspace-apex`).
+- **PR title**: `docs(<id>): <short description>`.
+- **Never push to `main`, never force-push.** Open the PR as soon as the branch has a commit.
+- `CURSOR_CONTEXT.md` (repo root) is the live task briefing/handoff state; activity specs live in `docs/cursor-handoffs/`.
+
+## Project skill & deploy
+
+- **`skills/agentserver-helper/SKILL.md`** — invoke for fork-specific workflows: building/pushing container images (`scripts/build/`), deploying to the `dev-ti-eks-analytics-platform` EKS cluster, playground soul/skill drafts, IM channel routing, sandbox boot debugging. Indexes critical design docs under `docs/`.
+- **Deploy**: Helm chart in `deploy/helm/agentserver/`; env overlays are repo-root `values-dev-eks.yaml` / `values-staging-eks.yaml` (bump image tags there). One `Dockerfile.<service>` per binary at repo root.
