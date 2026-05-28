@@ -4,7 +4,7 @@ import { Save, Send, ArrowLeft, Loader2, Play, FileDiff, History } from 'lucide-
 import {
   getPlaygroundSoul,
   patchPlaygroundSoul,
-  promotePlaygroundSoul,
+  publishPlaygroundSoul,
   dryRunPlaygroundSoul,
   listWorkspaces,
   PLAYGROUND_DRYRUN_MODELS,
@@ -142,15 +142,14 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
     }
   }
 
-  const handlePromote = async () => {
+  const handlePublish = async () => {
     if (!id) return
     setPromoteConfirm(false)
     try {
-      const r = await promotePlaygroundSoul(id)
-      window.open(r.pr_url, '_blank')
+      await publishPlaygroundSoul(id)
       load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'promote failed')
+      setError(e instanceof Error ? e.message : 'publish failed')
     }
   }
 
@@ -230,9 +229,9 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
           </button>
           {promoteConfirm ? (
             <span className="inline-flex items-center gap-1">
-              <span className="text-xs text-[var(--muted-foreground)]">Open PR?</span>
+              <span className="text-xs text-[var(--muted-foreground)]">Publish?</span>
               <button
-                onClick={handlePromote}
+                onClick={handlePublish}
                 className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20"
               >
                 <Send size={12} /> Yes
@@ -247,10 +246,11 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
           ) : (
             <button
               onClick={() => setPromoteConfirm(true)}
-              disabled={dirty || draft.status !== 'draft'}
+              disabled={dirty || draft.status === 'archived'}
               className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-40"
+              title={dirty ? 'Save first' : draft.status === 'published' ? 'Already published — republish to update' : ''}
             >
-              <Send size={12} /> Promote → PR
+              <Send size={12} /> {draft.status === 'published' ? 'Republish' : 'Publish'}
             </button>
           )}
         </header>

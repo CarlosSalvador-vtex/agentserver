@@ -196,7 +196,7 @@ func (db *DB) UpdateSkillDraftFiles(id string, files map[string]string) error {
 		return fmt.Errorf("marshal files: %w", err)
 	}
 	res, err := db.Exec(
-		`UPDATE skill_drafts SET files = $2, updated_at = NOW() WHERE id = $1 AND status = 'draft'`,
+		`UPDATE skill_drafts SET files = $2, updated_at = NOW() WHERE id = $1 AND status != 'archived'`,
 		id, payload,
 	)
 	if err != nil {
@@ -204,7 +204,7 @@ func (db *DB) UpdateSkillDraftFiles(id string, files map[string]string) error {
 	}
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		return fmt.Errorf("skill draft %s: not found or not editable (status != 'draft')", id)
+		return fmt.Errorf("skill draft %s: not found or archived", id)
 	}
 	return nil
 }
@@ -212,6 +212,60 @@ func (db *DB) UpdateSkillDraftFiles(id string, files map[string]string) error {
 func (db *DB) ArchiveSkillDraft(id string) error {
 	_, err := db.Exec(`UPDATE skill_drafts SET status = 'archived', updated_at = NOW() WHERE id = $1`, id)
 	return err
+}
+
+// PublishSkillDraft atomically demotes any existing published draft with the
+// same name+workspace to 'draft', then sets this draft to 'published'.
+// Replaces the git-based promote flow: the sandbox manager resolves published
+// drafts directly from DB (no PR, no git).
+func (db *DB) PublishSkillDraft(id, workspaceID string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("publish skill draft: begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var name string
+	if err := tx.QueryRow(`SELECT name FROM skill_drafts WHERE id = $1 AND status != 'archived'`, id).Scan(&name); err == sql.ErrNoRows {
+		return fmt.Errorf("skill draft %s: not found or archived", id)
+	} else if err != nil {
+		return fmt.Errorf("publish skill draft: get: %w", err)
+	}
+
+	// Demote previous published draft for same name+workspace.
+	if _, err := tx.Exec(
+		`UPDATE skill_drafts SET status = 'draft', updated_at = NOW()
+		WHERE name = $1 AND workspace_id = $2 AND status = 'published' AND id != $3`,
+		name, workspaceID, id,
+	); err != nil {
+		return fmt.Errorf("publish skill draft: demote previous: %w", err)
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE skill_drafts SET status = 'published', updated_at = NOW() WHERE id = $1`,
+		id,
+	); err != nil {
+		return fmt.Errorf("publish skill draft: %w", err)
+	}
+	return tx.Commit()
+}
+
+// GetPublishedSkillDraftByName returns the workspace's published draft for
+// the given skill name, or nil when none exists.
+func (db *DB) GetPublishedSkillDraftByName(name, workspaceID string) (*SkillDraft, error) {
+	d := &SkillDraft{}
+	err := db.QueryRow(
+		`SELECT id, name, description, author_user_id, workspace_id, files, status, visibility, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		FROM skill_drafts WHERE name = $1 AND workspace_id = $2 AND status = 'published'`,
+		name, workspaceID,
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Files), &d.Status, &d.Visibility, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get published skill draft: %w", err)
+	}
+	return d, nil
 }
 
 // TryPromoteSkillDraft atomically flips status from 'draft' to
@@ -321,7 +375,7 @@ func (db *DB) UpdateSoulDraft(id string, frontmatter map[string]interface{}, bod
 		return fmt.Errorf("marshal frontmatter: %w", err)
 	}
 	res, err := db.Exec(
-		`UPDATE soul_drafts SET frontmatter = $2, body = $3, updated_at = NOW() WHERE id = $1 AND status = 'draft'`,
+		`UPDATE soul_drafts SET frontmatter = $2, body = $3, updated_at = NOW() WHERE id = $1 AND status != 'archived'`,
 		id, payload, body,
 	)
 	if err != nil {
@@ -329,7 +383,7 @@ func (db *DB) UpdateSoulDraft(id string, frontmatter map[string]interface{}, bod
 	}
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		return fmt.Errorf("soul draft %s: not found or not editable (status != 'draft')", id)
+		return fmt.Errorf("soul draft %s: not found or archived", id)
 	}
 	return nil
 }
@@ -337,6 +391,57 @@ func (db *DB) UpdateSoulDraft(id string, frontmatter map[string]interface{}, bod
 func (db *DB) ArchiveSoulDraft(id string) error {
 	_, err := db.Exec(`UPDATE soul_drafts SET status = 'archived', updated_at = NOW() WHERE id = $1`, id)
 	return err
+}
+
+// PublishSoulDraft atomically demotes any existing published soul with the
+// same name+workspace to 'draft', then sets this draft to 'published'.
+func (db *DB) PublishSoulDraft(id, workspaceID string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("publish soul draft: begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var name string
+	if err := tx.QueryRow(`SELECT name FROM soul_drafts WHERE id = $1 AND status != 'archived'`, id).Scan(&name); err == sql.ErrNoRows {
+		return fmt.Errorf("soul draft %s: not found or archived", id)
+	} else if err != nil {
+		return fmt.Errorf("publish soul draft: get: %w", err)
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE soul_drafts SET status = 'draft', updated_at = NOW()
+		WHERE name = $1 AND workspace_id = $2 AND status = 'published' AND id != $3`,
+		name, workspaceID, id,
+	); err != nil {
+		return fmt.Errorf("publish soul draft: demote previous: %w", err)
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE soul_drafts SET status = 'published', updated_at = NOW() WHERE id = $1`,
+		id,
+	); err != nil {
+		return fmt.Errorf("publish soul draft: %w", err)
+	}
+	return tx.Commit()
+}
+
+// GetPublishedSoulDraftByName returns the workspace's published soul for the
+// given name, or nil when none exists.
+func (db *DB) GetPublishedSoulDraftByName(name, workspaceID string) (*SoulDraft, error) {
+	d := &SoulDraft{}
+	err := db.QueryRow(
+		`SELECT id, name, description, author_user_id, workspace_id, frontmatter, body, schema_version, status, visibility, promoted_pr_url, promoted_commit, promoted_pr_state, created_at, updated_at
+		FROM soul_drafts WHERE name = $1 AND workspace_id = $2 AND status = 'published'`,
+		name, workspaceID,
+	).Scan(&d.ID, &d.Name, &d.Description, &d.AuthorUserID, &d.WorkspaceID, jsonScanner(&d.Frontmatter), &d.Body, &d.SchemaVersion, &d.Status, &d.Visibility, &d.PromotedPRURL, &d.PromotedCommit, &d.PromotedPRState, &d.CreatedAt, &d.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get published soul draft: %w", err)
+	}
+	return d, nil
 }
 
 func (db *DB) TryPromoteSoulDraft(id string) (bool, error) {

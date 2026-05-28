@@ -1072,7 +1072,7 @@ export interface ListOperationsFilters {
 
 // --- Playground (soul + skill drafts) -------------------------------------
 
-export type PlaygroundDraftStatus = 'draft' | 'promoting' | 'promoted' | 'archived'
+export type PlaygroundDraftStatus = 'draft' | 'promoting' | 'promoted' | 'published' | 'archived'
 
 export type PlaygroundPRState = 'open' | 'merged' | 'closed'
 
@@ -1174,6 +1174,10 @@ export async function archivePlaygroundSkill(id: string): Promise<void> {
 
 export async function promotePlaygroundSkill(id: string): Promise<PlaygroundPromoteResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/promote`, body: {} })
+}
+
+export async function publishPlaygroundSkill(id: string): Promise<{ id: string; status: string }> {
+  return apiFetch({ method: 'POST', path: `/api/playground/skills/${encodeURIComponent(id)}/publish`, body: {} })
 }
 
 export async function dryRunPlaygroundSkill(
@@ -1289,6 +1293,11 @@ export async function archivePlaygroundSoul(id: string): Promise<void> {
 
 export async function promotePlaygroundSoul(id: string): Promise<PlaygroundPromoteResponse> {
   return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/promote`, body: {} })
+}
+
+export async function publishPlaygroundSoul(id: string): Promise<{ id: string; status: string }> {
+  return apiFetch({ method: 'POST', path: `/api/playground/souls/${encodeURIComponent(id)}/publish`, body: {} })
+}
 }
 
 /**
