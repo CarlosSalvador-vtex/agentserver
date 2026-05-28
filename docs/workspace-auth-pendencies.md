@@ -1,6 +1,6 @@
 # Workspace Auth — Pendências pós PR #60
 
-**Última atualização:** 2026-05-27
+**Última atualização:** 2026-05-28
 **Contexto:** após merge dos PRs #57 (subdomain auth), #58 (sandboxproxy fallback), #59 + #60 (smoke docs).
 **Estado DEV:** Opção A do design totalmente operacional.
 
@@ -37,12 +37,19 @@ Documento de tracking. Para detalhes de cada item ver os docs linkados.
 
 | # | Item | Detalhe | Esforço |
 |---|---|---|---|
-| F1 | PR #56 (docs/workspace-auth-design.md) | OPEN — só docs do design. Merge | 5 min |
-| F2 | Atualizar status do design doc | mudar Opção A de "design only" para "implementado em PR #57+#58" + link pra smoke report | 10 min |
-| F3 | Cleanup branch `chore/bump-image-auth-session` | branch + remote (não foi mergeada) | 2 min |
-| F4 | Cleanup workspaces de teste | `empresa-custom-teste`, `auto-derive-me` no DEV — sem DELETE endpoint, fica via SQL ou Helm reset | 5 min via SQL |
-| F5 | Cleanup user `tester-empresa-custom@example.com` | mesma situação | SQL |
-| F6 | OIDC subdomain stamp validation | PR #57 tem código no callback (`internal/auth/*`). DEV não tem provider OIDC configurado pra testar end-to-end | requer setup IdP |
+| F4 | Cleanup workspaces de teste | `empresa-custom-teste`, `auto-derive-me` no DEV — sem DELETE endpoint. **SQL cleanup — pending** (não resolvido) | 5 min via SQL |
+| F5 | Cleanup user `tester-empresa-custom@example.com` | mesma situação. **SQL cleanup — pending** (não resolvido) | SQL |
+| F6 | OIDC subdomain stamp validation | PR #57 tem código no callback (`internal/auth/*`). DEV não tem provider OIDC configurado pra testar end-to-end — **depende de setup IdP** | requer setup IdP |
+
+### Resolved (arquivado)
+
+Itens concluídos; removidos da fila ativa acima.
+
+| # | Item | Resolução |
+|---|---|---|
+| F1 ✅ | PR #56 (`docs/workspace-auth-design.md`) | **Resolvido** — mergeado (PR #56) |
+| F2 ✅ | Atualizar status do design doc | **Resolvido** — Opção A marcada como implementada em PR #57+#58; smoke em [pr-57-pr-58-e2e-smoke-2026-05-27.md](pr-57-pr-58-e2e-smoke-2026-05-27.md) (pós PR #57+#58) |
+| F3 ✅ | Cleanup branch `chore/bump-image-auth-session` | **Resolvido** — branch e remote removidos (cleanup concluído) |
 
 ---
 
@@ -347,9 +354,6 @@ static, assets, agentserver, openclaw, hermes
 ## Ordem sugerida
 
 ```
-Hoje:
-  F1 → F2 → F3 (limpeza rápida, 20 min total)
-
 Próxima sprint (S6):
   P1 staging CI/CD
   P4 smoke staging
@@ -370,8 +374,8 @@ Backlog:
 
 ## Checklist consolidado pré-PROD
 
-- [ ] PR #56 mergeado
-- [ ] Design doc com status "implementado"
+- [x] PR #56 mergeado
+- [x] Design doc com status "implementado"
 - [ ] CI/CD publica image `auth-slug` (ou tag canônica) automaticamente
 - [ ] Staging cluster com smoke verde
 - [ ] Wildcard DNS + cert ACM em PROD
