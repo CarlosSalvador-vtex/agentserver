@@ -25,14 +25,14 @@ describe('resolveAuthedLandingPath', () => {
     ).toBe('/w/b')
   })
 
-  it('sends apex without active workspace to choose-workspace', () => {
+  it('apex without active workspace lands on first workspace (dropdown to switch), not the picker', () => {
     expect(
       resolveAuthedLandingPath({
         apex: true,
         workspaces: ws,
         activeWorkspaceId: null,
       }),
-    ).toBe('/choose-workspace')
+    ).toBe('/w/a')
   })
 
   it('falls back to first workspace on tenant host', () => {
