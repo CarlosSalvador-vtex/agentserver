@@ -5,6 +5,12 @@
 **Tempo:** 1 sprint (incluindo design review)
 **Tipo:** Decisão arquitetural — **NÃO** começar a implementar antes de aprovação humana
 
+## Status
+
+- **State:** OPEN — decision only (do not implement until human approves path A/B/C)
+- **Dependencies:** none (blocks scaling B04 SSO if wrong choice)
+- **Estimated PR size:** 0–200 LOC depending on chosen path
+
 ## Goal
 
 Resolver o conflito entre:

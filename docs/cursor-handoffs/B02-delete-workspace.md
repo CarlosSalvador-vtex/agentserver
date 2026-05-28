@@ -5,6 +5,12 @@
 **Tempo:** 1-2h
 **Dependências:** nenhuma
 
+## Status
+
+- **State:** OPEN — not started
+- **Dependencies:** none
+- **Estimated PR size:** M (~80 LOC)
+
 ## Goal
 
 Endpoint `DELETE /api/workspaces/{id}` que limpa workspace + cascade dos recursos (membros, sandboxes, drafts). Soft delete por default.

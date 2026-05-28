@@ -5,6 +5,12 @@
 **Tempo:** 30 min
 **Dependências:** nenhuma
 
+## Status
+
+- **State:** OPEN — not started
+- **Dependencies:** none
+- **Estimated PR size:** XS (~5 LOC)
+
 ## Goal
 
 Ampliar lista de reserved slugs no validador para cobrir hostnames operacionais que SaaS comumente expõe (`mail`, `support`, `status`, `docs`, `billing` etc.). Hoje a lista cobre só o mínimo.

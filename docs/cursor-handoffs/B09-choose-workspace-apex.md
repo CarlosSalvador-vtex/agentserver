@@ -5,6 +5,12 @@
 **Tempo:** 1 dia
 **Dependências:** B08 (cross-tenant redirect token) recomendado mas opcional
 
+## Status
+
+- **State:** OPEN — not started
+- **Dependencies:** B08 recommended but optional
+- **Estimated PR size:** M (~130 LOC)
+
 ## Goal
 
 Quando usuário loga no apex (`agentserver.<base>`) sem subdomínio, mostrar picker dos workspaces a que pertence e redirecionar pro subdomínio do escolhido (já logado).
