@@ -92,6 +92,92 @@ All five can batch into one PR. Suggested order within: A1 → A2 → A3 → A5 
 
 ---
 
+## Pending Test Activities — features shipped without full coverage
+
+Features desenvolvidas recentemente que não foram testadas ou só foram testadas parcialmente. Cada item inclui o que existe hoje, o que falta, e o bloqueador (se houver).
+
+### T1 — Cobrança wedge UI (PRs #81 + #82)
+
+| Layer | O que foi testado | O que falta | Bloqueador |
+|-------|-------------------|-------------|------------|
+| `deployAgent()` unit | ✅ 6 vitest tests (`deploy.test.ts`): list failure, delete 404, quota_exceeded, re-throw | — | — |
+| `isDevMode` / simplified editor | ❌ Sem teste automatizado. Prop `isDevMode=false` esconde 5 controles dev — nunca validado via browser ou componente test | Vitest component test ou Playwright smoke | Nenhum |
+| Fork-from-marketplace flow | ❌ `handleForkCobrana` em `Playground.tsx` — nunca executado contra cluster real | Smoke manual: logar como sister, clicar "Usar modelo de cobrança", verificar redirect `/playground/souls/:id?firstTime=1` | Requer workspace da sister + quota ≥ 1 |
+| Deploy button E2E | ❌ Apenas unit test de `deployAgent`. Botão "Publicar agente" em `PlaygroundSoulEditor.tsx` nunca clicado contra cluster real | Smoke manual: clicar Publicar → verificar sandbox criado via `GET /api/workspaces/{id}/sandboxes` | Requer workspace + quota |
+| Manual smoke (9 steps) | ❌ Nenhum passo executado. Definido em `docs/specs/cobrana-wedge-eng-spec.md:226` | Executar os 9 passos antes do demo da sister | Requer: workspace, invite aceito pela sister, WhatsApp BSP |
+
+**Bloqueador raiz de T1:** admin não executou os pré-requisitos operacionais (workspace, maxSandboxes, invite). Ver B4.
+
+---
+
+### T2 — Workspace invites (PR #71)
+
+| Layer | O que foi testado | O que falta |
+|-------|-------------------|-------------|
+| DB layer | ✅ 8 testes em `internal/db/invites_test.go` (create, get, expired, accepted, duplicate, revoke, list) | — |
+| HTTP handler layer | ❌ Zero testes em `internal/server/` para rotas `/api/workspaces/{id}/invites`. Handlers foram escritos, não cobertos. | Testes de handler: POST create, GET list, DELETE revoke, POST accept — contra DB real |
+| Email delivery | ❌ `DevMailer` só loga para stdout. Sem teste de que o template renderiza corretamente | Teste de template + asserção de link de convite no corpo |
+| Frontend invite modal | ❌ Sem teste de componente para `InviteModal.tsx` e `AcceptInvite.tsx` | — |
+
+---
+
+### T3 — Workspace audit log (PR #72)
+
+| Layer | O que foi testado | O que falta |
+|-------|-------------------|-------------|
+| DB layer | Implícito nos handlers (migration 041 roda nos testes de integração) | — |
+| HTTP handler layer | ❌ Zero testes em `internal/server/` para `GET /api/workspaces/{id}/audit-log` | Teste de handler: asserções de paginação, filtro por workspace_id, autenticação |
+| Evento de login via slug | Presença de código em `internal/auth/*` validado via PR review | Smoke manual: logar via `slug.base-domain`, verificar evento em audit log |
+
+---
+
+### T4 — CI skip list (`.github/workflows/build.yml`)
+
+12 testes na skip list marcados como "pre-existing, out of Sprint 2 scope". Nunca reavaliados.
+
+```
+TestCodexThreadIDRoundTrip | TestAgentSessionTUIFields | TestActiveTurnCAS |
+TestAttachResponder | TestListSessionsByChannel | TestAgentRegister_TypeValidation_Integration |
+TestHandleVerifyCodexToken_HappyPath | TestCredentialBindings_ResponseNeverContainsAuthBlob |
+TestDeviceUserCode_ReturnsPendingRow | TestWorkspaceBinding_PostListDelete |
+TestBridge_TwoConcurrentBridgesShareInbound | TestBridge_StreamIdCollisionEvictsFirst
+```
+
+Ação: auditar cada um — fix ou documentar por que skip é permanente. **Não adicionar novos skips sem issue.**
+
+---
+
+### T5 — AdminPanel.tsx cast `(item as any).visibility`
+
+`AdminPanel.tsx:344` usa `(item as any).visibility === 'shared'` para contornar `PlaygroundDraftStatus` que não tem variant `'shared'`. Cast apaga type safety; sem teste cobrindo o branch.
+
+Ação: corrigir o tipo (`PlaygroundDraftStatus` ou tipo union separado) + adicionar vitest para o branch `visibility === 'shared'`.
+
+---
+
+### T6 — Seed idempotency após fix de toleration (PR #83)
+
+Seed foi executado uma vez com sucesso. Idempotência (`WHERE NOT EXISTS`) foi validada pela ausência de duplicate key error. Mas:
+- Re-rodar `apply-seed-cobrana.sh` após atualização de conteúdo (novo `prompt.md`) não foi testado
+- Comportamento quando `soul_drafts` já existe mas `skill_drafts` não (parcialmente seeded) não foi testado
+
+Ação: documentar no runbook (B2) que re-seed requer `DELETE FROM soul_drafts WHERE name = 'Agente de Cobrança' AND workspace_id IS NULL` antes de rodar novamente.
+
+---
+
+### Resumo — prioridade de teste
+
+| ID | Feature | Risco se não testado | Prioridade |
+|----|---------|---------------------|------------|
+| T1 | Cobrança wedge E2E | Demo da sister falha ao vivo | 🔴 Alta |
+| T2 | Invite handler | Convite funciona no DB, pode quebrar no HTTP layer | 🟡 Média |
+| T3 | Audit log handler | Dados existem mas API pode retornar 500 inesperado | 🟡 Média |
+| T4 | CI skip list | Regressões silenciosas em 12 testes | 🟡 Média |
+| T5 | AdminPanel cast | Type safety furada, bug silencioso se `visibility` mudar | 🟡 Média |
+| T6 | Seed idempotency | Re-seed após mudança de conteúdo pode falhar silenciosamente | 🟢 Baixa |
+
+---
+
 ## Explicitly out of scope
 
 - Rewriting `docs/superpowers/` plans/specs — upstream material, reference only.
