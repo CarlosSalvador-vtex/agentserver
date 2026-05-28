@@ -188,7 +188,11 @@ func (s *Server) handleGetSkillDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if !draft.AuthorUserID.Valid || draft.AuthorUserID.String != userID {
+	isAuthor := draft.AuthorUserID.Valid && draft.AuthorUserID.String == userID
+	isSystemTemplate := !draft.WorkspaceID.Valid
+	wsIDs := s.callerWorkspaceIDs(userID)
+	isWorkspaceMember := draft.WorkspaceID.Valid && containsString(wsIDs, draft.WorkspaceID.String)
+	if !isAuthor && !isSystemTemplate && !isWorkspaceMember {
 		http.Error(w, "not your draft", http.StatusForbidden)
 		return
 	}
@@ -394,7 +398,11 @@ func (s *Server) handleGetSoulDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if !draft.AuthorUserID.Valid || draft.AuthorUserID.String != userID {
+	isAuthor := draft.AuthorUserID.Valid && draft.AuthorUserID.String == userID
+	isSystemTemplate := !draft.WorkspaceID.Valid
+	wsIDs := s.callerWorkspaceIDs(userID)
+	isWorkspaceMember := draft.WorkspaceID.Valid && containsString(wsIDs, draft.WorkspaceID.String)
+	if !isAuthor && !isSystemTemplate && !isWorkspaceMember {
 		http.Error(w, "not your draft", http.StatusForbidden)
 		return
 	}
@@ -663,4 +671,13 @@ func validateSoulFrontmatter(fm map[string]interface{}) error {
 		}
 	}
 	return nil
+}
+
+func containsString(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
