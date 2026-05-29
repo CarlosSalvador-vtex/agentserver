@@ -9,10 +9,13 @@ import (
 	"github.com/agentserver/agentserver/internal/db"
 )
 
-const automationSchedulerInterval = time.Minute
+const (
+	automationSchedulerInterval = time.Minute
+	automationClaimLease        = 5 * time.Minute
+	automationClaimBatch        = 50
+)
 
-// StartAutomationScheduler runs an in-process ticker (same pattern as playground
-// reapers). No SKIP LOCKED or leader election in PR1.
+// StartAutomationScheduler runs an in-process ticker; claims due rows with SKIP LOCKED.
 func (s *Server) StartAutomationScheduler(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(automationSchedulerInterval)
@@ -32,7 +35,7 @@ func (s *Server) runDueAutomations(ctx context.Context) {
 	if s.DB == nil {
 		return
 	}
-	due, err := s.DB.ScanDueAutomations(ctx)
+	due, err := s.DB.ClaimDueAutomations(ctx, automationClaimLease, automationClaimBatch)
 	if err != nil {
 		log.Printf("automation scheduler: scan due: %v", err)
 		return

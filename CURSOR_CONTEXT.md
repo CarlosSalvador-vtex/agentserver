@@ -1,107 +1,112 @@
 # Cursor Agent Context
 
 > Updated: 2026-05-29T00:00:00Z
-> Branch: feat/automations-pr2
+> Branch: feat/automations-pr3
 > Status: IN_PROGRESS
 > Model: composer-2.5
 
 ## Active Task
 
-Implement **PR2 of productized automations** — the management surface on top of the
-PR1 scheduler (already merged in `main`: `automations` table, in-process scheduler,
-run via `processTurn`). PR2 = **CRUD API + management UI** so a tenant can create,
-list, enable/disable, edit, and delete scheduled automations, and see last-run /
-next-run / last-error.
-
-**DO NOT** build (deferred to PR3): the ready-made catalog of pre-built automations,
-and multi-replica safety (`SELECT ... FOR UPDATE SKIP LOCKED` / leader election —
-`replicaCount` is still 1).
+Implement **PR3 of productized automations** — the two pieces deferred from PR1/PR2:
+**(A) multi-replica safety** for the scheduler, and **(B) a ready-made automation
+catalog**. PR1 (#134: table + scheduler + run via processTurn) and PR2 (#138: CRUD API +
+Automations UI tab) + fix #139 are merged & deployed. Build PR3 on top — reuse, don't
+rebuild.
 
 ## Source of truth
 
-`docs/productized-automations-spec.md` — read "Locked decisions (eng review)",
-"Corrected flow (PR1)", and "NOT in scope (PR1)". PR2 builds the API+UI that PR1
-deferred. The `automations` table + scheduler already exist — reuse them.
+`docs/productized-automations-spec.md` — read "Locked decisions", the
+"Implementation status & pending verification" section (PR1/PR2/#139 done, PR3 = this),
+and "NOT in scope (PR1)" (catalog + multi-replica were the deferred items = PR3).
 
-## What already exists (PR1 — reuse, do NOT rebuild)
+## What already exists (reuse, do NOT rebuild)
 
-- `internal/db/automations.go`: `Automation` struct, `CreateAutomation`,
-  `GetAutomation`, `DeleteAutomation`, `ScanDueAutomations`, `MarkAutomationRun`,
-  `ComputeNextRun` (robfig/cron/v3, supports `@every`/`@daily`/5-field).
-- `internal/server/automation_scheduler.go`: `StartAutomationScheduler` ticker.
+- `internal/db/automations.go`: `Automation`, `CreateAutomation`, `GetAutomation`,
+  `UpdateAutomation`, `ListAutomations`, `DeleteAutomation`, `ScanDueAutomations`,
+  `MarkAutomationRun`, `ComputeNextRun` (robfig/cron/v3).
+- `internal/server/automation_scheduler.go`: `StartAutomationScheduler` ticker →
+  `runDueAutomations` → `ScanDueAutomations` → `fireAutomation` (per row) → `MarkAutomationRun`.
+- `internal/server/automation_handlers.go`: CRUD handlers, `validateCron`,
+  `validateAutomationChannel`.
+- `web/src/components/WorkspaceAutomationsTab.tsx` + `web/src/lib/api.ts`: management UI + client.
 - Migration `046_automations.sql`: table + partial index `(next_run_at) WHERE enabled`.
-- Automation `Config` is JSONB; the scheduler reads `{channel_id, workspace_id,
-  wechat_user_id, prompt}` from it to fire a turn.
 
-## Files in Scope
+## Part A — Multi-replica safety (claim with SKIP LOCKED + lease)
 
-DB layer — ADD to `internal/db/automations.go`:
-- `ListAutomations(ctx, workspaceID string) ([]Automation, error)` — `WHERE workspace_id = $1 ORDER BY created_at`.
-- `UpdateAutomation(ctx, a *Automation) error` — update name, skill_ref, cron, channel_id,
-  config, enabled; recompute `next_run_at` via `ComputeNextRun` when cron or enabled changes
-  (enabling a row with NULL next_run must set it; disabling may leave it). `updated_at = NOW()`.
+Today `ScanDueAutomations` is a plain SELECT and `replicaCount: 1`, so two replicas
+would double-fire. Make the scan an atomic **claim** so only one replica fires each due row.
 
-API handlers — NEW `internal/server/automation_handlers.go`:
-- `POST   /api/workspaces/{id}/automations`        → create (validate cron via ComputeNextRun; set next_run_at; 400 on bad cron)
-- `GET    /api/workspaces/{id}/automations`        → list
-- `GET    /api/workspaces/{id}/automations/{aid}`  → get one
-- `PATCH  /api/workspaces/{id}/automations/{aid}`  → update (enable toggle, cron, config, name)
-- `DELETE /api/workspaces/{id}/automations/{aid}`  → delete
-- Guard every handler with `s.requireWorkspaceRole(w, r, workspaceID, "owner", "maintainer", "developer")`
-  (see `internal/server/server.go:1184` + existing members/invites handlers for the exact pattern).
-- Validate the `channel_id` belongs to the workspace (reuse `workspace_im_channels` lookup).
-- Register routes in `internal/server/server.go` next to the other `/api/workspaces/{id}/...`
-  routes (~line 500-513).
+- Migration `047_automation_lock.sql` — NEW: `ALTER TABLE automations ADD COLUMN
+  locked_until TIMESTAMPTZ;` (nullable). Optional index if helpful.
+- `internal/db/automations.go` — ADD `ClaimDueAutomations(ctx, lease time.Duration, limit int)
+  ([]Automation, error)`:
+  - One statement: `UPDATE automations SET locked_until = NOW() + $lease
+    WHERE id IN (SELECT id FROM automations WHERE enabled AND next_run_at IS NOT NULL
+    AND next_run_at <= NOW() AND (locked_until IS NULL OR locked_until < NOW())
+    ORDER BY next_run_at ASC FOR UPDATE SKIP LOCKED LIMIT $limit) RETURNING <all cols>`.
+  - Atomically claims + leases the rows; concurrent replicas skip locked rows.
+  - ComputeNextRun is Go-side (cron parse), so next_run is advanced later by MarkAutomationRun —
+    the `locked_until` lease prevents re-claim in the gap between claim and MarkRun.
+- `internal/db/automations.go` — `MarkAutomationRun` MUST also clear the lock
+  (`locked_until = NULL`) when it sets next_run_at/last_error, so the row is claimable next cycle.
+- `internal/server/automation_scheduler.go` — `runDueAutomations` calls
+  `ClaimDueAutomations` instead of `ScanDueAutomations` (keep `ScanDueAutomations` if still
+  used by tests, or migrate callers). Pick a sane lease (e.g. 5 min) and limit (e.g. 50).
+- Keep `replicaCount: 1` as-is — this just makes >1 SAFE; do not change the chart.
 
-Frontend — NEW `web/src/components/Automations.tsx` (+ wire route + sidebar):
-- Route `/automations` in `web/src/App.tsx` (mirror the `/playground` route + the
-  workspace-sidebar entry added in #135 — see `web/src/components/TopBar.tsx` / sidebar).
-- List automations: name, cron, channel, enabled toggle, last_run / next_run / last_error badge.
-- Create/edit form: name, cron (text + hint, e.g. `0 8 * * 1-5` or `@daily`), channel picker
-  (workspace IM channels), skill_ref (optional), config JSON (the `{channel_id, workspace_id,
-  wechat_user_id, prompt}` payload — prefill channel_id/workspace_id from selection).
-- Enable/disable toggle calls PATCH. Delete with confirm.
-- API client methods in `web/src/lib/api.ts` (mirror existing workspace CRUD calls).
+## Part B — Ready-made catalog
 
-OpenAPI + docs:
-- After adding handlers, run `make openapi` and `make api-docs` (CI has drift checks that
-  WILL fail otherwise — this bit us before).
+Pre-built automation templates a tenant can enable in one click (parity with openLEO
+briefs/triage/reports — see `docs/openleo-competitive-analysis.md`).
 
-Tests — NEW `internal/server/automation_handlers_test.go`:
-- create / list / get / patch(enable toggle) / delete happy paths.
-- 403 when caller lacks workspace role.
-- 400 on malformed cron at create.
-- channel not in workspace → rejected.
-- Reuse fake patterns from `codex_im_inbound_test.go` / existing handler tests;
-  DB-backed tests gate on `TEST_DATABASE_URL` (skip if unset).
+- Define templates in code (NOT a DB seed): `internal/server/automation_catalog.go` —
+  a slice of `{key, title, description, suggested_cron, prompt_template, skill_ref?}`.
+  Seed 3: e.g. `daily-followup` (`0 9 * * 1-5`), `weekly-report` (`0 8 * * 1`),
+  `lead-triage` (`@hourly`). Keep prompts generic/benign.
+- API: `GET /api/automations/catalog` → returns the template list (no workspace scope
+  needed; it's static). Register in `server.go`.
+- UI (`WorkspaceAutomationsTab.tsx`): an "Add from catalog" affordance listing templates;
+  clicking one opens the existing New-automation form **prefilled** (name, cron, prompt
+  from the template) so the user just picks a channel + saves. Reuse the existing create flow.
+- `web/src/lib/api.ts`: add `getAutomationCatalog()`.
 
 ## Constraints
 
 - No force-push. No new top-level deps.
-- Reuse PR1's DB layer + scheduler — do NOT touch the scheduler logic or `processTurn`.
-- `replicaCount: 1` → NO SKIP LOCKED / leader election (PR3).
-- NO ready-made catalog seed (PR3).
+- Reuse PR1/PR2 DB + handlers + UI — extend, don't duplicate.
+- Migration number is 047 (046 is latest). Don't renumber existing migrations.
+- A claimed run that fails MUST still set `last_error` AND clear `locked_until` (no stuck locks).
 - Build tag `goolm` in all Go commands; integration tests need `TEST_DATABASE_URL`.
-- Run `make openapi` + `make api-docs` before pushing (CI drift checks).
-- Do NOT commit `web/dist/`. Every change ships as a PR — open ONE PR for PR2.
+- Run `make openapi` + `make api-docs` before pushing (CI drift checks WILL fail otherwise).
+- Do NOT commit `web/dist/`. One PR for PR3.
+
+## Tests
+
+- `internal/db/automations_test.go` — `ClaimDueAutomations`: claims due rows, sets
+  `locked_until`; a second concurrent claim returns nothing (rows locked); MarkAutomationRun
+  clears the lock + advances next_run. (DB-gated on `TEST_DATABASE_URL`.)
+- `internal/server/automation_handlers_test.go` — `GET /automations/catalog` returns the
+  templates; "create from template" produces a valid automation (cron/prompt prefilled).
+- Keep existing PR1/PR2 tests green.
 
 ## Next Action
 
-Read `docs/productized-automations-spec.md` (locked-decisions + NOT-in-scope) and
-`internal/db/automations.go`, then add `ListAutomations` + `UpdateAutomation` to the DB layer.
+Read `docs/productized-automations-spec.md` + `internal/db/automations.go` +
+`internal/server/automation_scheduler.go`, then write migration `047_automation_lock.sql`
+and `ClaimDueAutomations`.
 
 ## Done When
 
 - `go build -tags goolm ./...` + `go vet -tags goolm ./...` pass.
-- CRUD endpoints work, all guarded by workspace role; bad cron → 400; foreign channel → rejected.
-- `/automations` UI lists + creates + toggles + edits + deletes; shows last_run/next_run/last_error.
+- Scheduler uses `ClaimDueAutomations` (SKIP LOCKED + lease); MarkRun clears the lock.
+- `GET /api/automations/catalog` returns ≥3 templates; UI lets a user enable one (prefilled form).
 - `make openapi` + `make api-docs` run (no CI drift).
-- Handler tests pass (CRUD + 403 + 400 + foreign-channel).
+- New tests pass (claim concurrency + catalog); PR1/PR2 tests stay green.
 - PR opened against `main`; CI green. Update this file: Status=AWAITING_MERGE + PR URL
   under `## PR Ready for Merge`.
 
 ## Progress Log
 
 <!-- Cursor appends one line here after each response -->
-- 2026-05-29T00:00:00Z STARTED — orchestrator reseeded context for automations PR2
-  (PR1 #134 merged; this builds the CRUD API + management UI on top)
+- 2026-05-29T00:00:00Z STARTED — orchestrator reseeded context for automations PR3
+  (PR1 #134 + PR2 #138 + fix #139 merged; this adds multi-replica safety + ready-made catalog)

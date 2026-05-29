@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -117,4 +118,142 @@ func TestScanDueAndMarkRunIntegration(t *testing.T) {
 	}
 
 	_ = past // silence unused in some toolchains
+}
+
+func automationLockedUntil(t *testing.T, d *DB, ctx context.Context, id string) *time.Time {
+	t.Helper()
+	var locked sql.NullTime
+	if err := d.QueryRowContext(ctx, `SELECT locked_until FROM automations WHERE id = $1`, id).Scan(&locked); err != nil {
+		t.Fatal(err)
+	}
+	if !locked.Valid {
+		return nil
+	}
+	return &locked.Time
+}
+
+func TestClaimDueAutomations(t *testing.T) {
+	d := newTestDB(t)
+	ctx := context.Background()
+	wsID := "ws-claim-" + t.Name()
+	if err := d.CreateWorkspace(wsID, "claim test"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteWorkspace(wsID) })
+
+	chID := "ch-claim-" + t.Name()
+	if _, err := d.ExecContext(ctx,
+		`INSERT INTO workspace_im_channels (id, workspace_id, provider, bot_id, user_id) VALUES ($1, $2, 'weixin', 'b', 'u')`,
+		chID, wsID); err != nil {
+		t.Fatal(err)
+	}
+
+	autoID := "auto-claim-" + t.Name()
+	past := time.Now().UTC().Add(-time.Minute)
+	a := &Automation{
+		ID:          autoID,
+		WorkspaceID: wsID,
+		Name:        "claim me",
+		SkillRef:    "playground",
+		Cron:        "@daily",
+		ChannelID:   chID,
+		Config:      json.RawMessage(`{"prompt":"hi"}`),
+		Enabled:     true,
+		NextRunAt:   &past,
+	}
+	if err := d.CreateAutomation(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteAutomation(ctx, autoID) })
+
+	claimed, err := d.ClaimDueAutomations(ctx, 5*time.Minute, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != autoID {
+		t.Fatalf("first claim: got %+v", claimed)
+	}
+	lock := automationLockedUntil(t, d, ctx, autoID)
+	if lock == nil || !lock.After(time.Now().UTC()) {
+		t.Fatalf("expected locked_until in future, got %v", lock)
+	}
+
+	claimed2, err := d.ClaimDueAutomations(ctx, 5*time.Minute, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed2) != 0 {
+		t.Fatalf("second claim should skip locked row, got %+v", claimed2)
+	}
+
+	next, err := ComputeNextRun("@daily", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkAutomationRun(ctx, autoID, time.Now().UTC().Truncate(time.Second), nil, next); err != nil {
+		t.Fatal(err)
+	}
+	if lockAfter := automationLockedUntil(t, d, ctx, autoID); lockAfter != nil {
+		t.Fatalf("MarkAutomationRun must clear locked_until, still locked until %v", lockAfter)
+	}
+}
+
+func TestMarkAutomationRunClearsLockOnFailure(t *testing.T) {
+	d := newTestDB(t)
+	ctx := context.Background()
+	wsID := "ws-lockfail-" + t.Name()
+	if err := d.CreateWorkspace(wsID, "lock fail"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteWorkspace(wsID) })
+
+	chID := "ch-lockfail-" + t.Name()
+	if _, err := d.ExecContext(ctx,
+		`INSERT INTO workspace_im_channels (id, workspace_id, provider, bot_id, user_id) VALUES ($1, $2, 'weixin', 'b', 'u')`,
+		chID, wsID); err != nil {
+		t.Fatal(err)
+	}
+
+	autoID := "auto-lockfail-" + t.Name()
+	past := time.Now().UTC().Add(-time.Minute)
+	a := &Automation{
+		ID:          autoID,
+		WorkspaceID: wsID,
+		Name:        "lock fail",
+		SkillRef:    "playground",
+		Cron:        "@daily",
+		ChannelID:   chID,
+		Config:      json.RawMessage(`{"prompt":"hi"}`),
+		Enabled:     true,
+		NextRunAt:   &past,
+	}
+	if err := d.CreateAutomation(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteAutomation(ctx, autoID) })
+
+	_, err := d.ExecContext(ctx,
+		`UPDATE automations SET locked_until = NOW() + interval '10 minutes' WHERE id = $1`, autoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errMsg := "channel send failed"
+	next, err := ComputeNextRun("@daily", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkAutomationRun(ctx, autoID, time.Now().UTC().Truncate(time.Second), &errMsg, next); err != nil {
+		t.Fatal(err)
+	}
+	if lock := automationLockedUntil(t, d, ctx, autoID); lock != nil {
+		t.Fatalf("failed run must still clear locked_until, got %v", lock)
+	}
+	got, err := d.GetAutomation(ctx, autoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError == nil || *got.LastError != errMsg {
+		t.Fatalf("last_error=%v", got.LastError)
+	}
 }

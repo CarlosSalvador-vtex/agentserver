@@ -40,13 +40,13 @@ func ComputeNextRun(cronExpr string, from time.Time) (time.Time, error) {
 	return sched.Next(from), nil
 }
 
-// ScanDueAutomations returns enabled automations with next_run_at <= now, ordered by next_run_at.
+// ScanDueAutomations returns enabled due automations not lease-locked. Prefer ClaimDueAutomations for schedulers.
 func (db *DB) ScanDueAutomations(ctx context.Context) ([]Automation, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, workspace_id, name, skill_ref, cron, channel_id, config, enabled,
-		        last_run_at, next_run_at, last_error, created_at, updated_at
+		`SELECT `+automationSelectCols+`
 		 FROM automations
 		 WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= NOW()
+		   AND (locked_until IS NULL OR locked_until < NOW())
 		 ORDER BY next_run_at ASC`,
 	)
 	if err != nil {
@@ -81,6 +81,50 @@ func (db *DB) ScanDueAutomations(ctx context.Context) ([]Automation, error) {
 	return out, rows.Err()
 }
 
+// ClaimDueAutomations atomically claims due automations (multi-replica safe via SKIP LOCKED).
+func (db *DB) ClaimDueAutomations(ctx context.Context, lease time.Duration, limit int) ([]Automation, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	secs := lease.Seconds()
+	rows, err := db.QueryContext(ctx,
+		`UPDATE automations SET locked_until = NOW() + ($1 * interval '1 second'), updated_at = NOW()
+		 WHERE id IN (
+		   SELECT id FROM automations
+		   WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= NOW()
+		     AND (locked_until IS NULL OR locked_until < NOW())
+		   ORDER BY next_run_at ASC
+		   LIMIT $2
+		   FOR UPDATE SKIP LOCKED
+		 )
+		 RETURNING `+automationSelectCols,
+		secs, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Automation
+	for rows.Next() {
+		var a Automation
+		var config []byte
+		var lastRun, nextRun sql.NullTime
+		var lastErr sql.NullString
+		if err := rows.Scan(
+			&a.ID, &a.WorkspaceID, &a.Name, &a.SkillRef, &a.Cron, &a.ChannelID, &config,
+			&a.Enabled, &lastRun, &nextRun, &lastErr, &a.CreatedAt, &a.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if err := scanAutomation(config, lastRun, nextRun, lastErr, &a); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // MarkAutomationRun records the outcome of a scheduled fire and schedules the next run.
 // If nextRun is zero, next_run_at is cleared (e.g. malformed cron).
 func (db *DB) MarkAutomationRun(ctx context.Context, id string, runAt time.Time, lastErr *string, nextRun time.Time) error {
@@ -91,7 +135,7 @@ func (db *DB) MarkAutomationRun(ctx context.Context, id string, runAt time.Time,
 		next = nextRun
 	}
 	_, err := db.ExecContext(ctx,
-		`UPDATE automations SET last_run_at = $2, last_error = $3, next_run_at = $4, updated_at = NOW() WHERE id = $1`,
+		`UPDATE automations SET last_run_at = $2, last_error = $3, next_run_at = $4, locked_until = NULL, updated_at = NOW() WHERE id = $1`,
 		id, runAt, lastErr, next,
 	)
 	return err
@@ -116,12 +160,7 @@ func (db *DB) DeleteAutomation(ctx context.Context, id string) error {
 const automationSelectCols = `id, workspace_id, name, skill_ref, cron, channel_id, config, enabled,
 		        last_run_at, next_run_at, last_error, created_at, updated_at`
 
-func scanAutomation(
-	config []byte,
-	lastRun, nextRun sql.NullTime,
-	lastErr sql.NullString,
-	a *Automation,
-) error {
+func scanAutomation(config []byte, lastRun, nextRun sql.NullTime, lastErr sql.NullString, a *Automation) error {
 	a.Config = json.RawMessage(config)
 	if lastRun.Valid {
 		a.LastRunAt = &lastRun.Time

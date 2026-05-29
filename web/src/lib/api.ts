@@ -1063,6 +1063,16 @@ export async function revokeWorkspaceAPIKey(workspaceId: string, keyId: string):
 
 export type Automation = components['schemas']['AutomationResponse']
 
+export type AutomationCatalogEntry = components['schemas']['AutomationCatalogEntryResponse']
+
+export async function getAutomationCatalog(): Promise<AutomationCatalogEntry[]> {
+  const r = await apiFetch<{ templates: AutomationCatalogEntry[] }>({
+    method: 'GET',
+    path: '/api/automations/catalog',
+  })
+  return r.templates ?? []
+}
+
 export async function listWorkspaceAutomations(workspaceId: string): Promise<Automation[]> {
   const r = await apiFetch<{ automations: Automation[] }>({
     method: 'GET',

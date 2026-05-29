@@ -313,6 +313,21 @@ type AutomationCreateRequest struct {
 	Prompt    string `json:"prompt" validate:"required" example:"Summarize open tasks"`
 } // @name AutomationCreateRequest
 
+// AutomationCatalogEntryResponse is a ready-made automation template.
+type AutomationCatalogEntryResponse struct {
+	Key            string `json:"key" validate:"required" example:"daily-followup"`
+	Title          string `json:"title" validate:"required" example:"Daily follow-up"`
+	Description    string `json:"description" validate:"required"`
+	SuggestedCron  string `json:"suggested_cron" validate:"required" example:"0 9 * * 1-5"`
+	PromptTemplate string `json:"prompt_template" validate:"required"`
+	SkillRef       string `json:"skill_ref,omitempty" example:"playground"`
+} // @name AutomationCatalogEntryResponse
+
+// AutomationCatalogListResponse is returned by GET /api/automations/catalog.
+type AutomationCatalogListResponse struct {
+	Templates []AutomationCatalogEntryResponse `json:"templates" validate:"required"`
+} // @name AutomationCatalogListResponse
+
 // AutomationPatchRequest is the body for PATCH /api/workspaces/{id}/automations/{automationId}.
 type AutomationPatchRequest struct {
 	Name      *string `json:"name" extensions:"x-nullable=true"`

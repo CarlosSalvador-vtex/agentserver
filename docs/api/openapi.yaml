@@ -1548,6 +1548,34 @@ paths:
       summary: Set active workspace for the current session
       tags:
         - Auth
+  /api/automations/catalog:
+    get:
+      description: Returns ready-made automation templates for onboarding (static, not
+        workspace-scoped).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationCatalogListResponse"
+        "401":
+          description: unauthorized
+          content:
+            application/json:
+              schema:
+                type: string
+        "500":
+          description: internal error
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+        - BearerAuth: []
+      summary: List automation catalog templates
+      tags:
+        - automations
   /api/codex/tokens:
     get:
       parameters:
@@ -6789,6 +6817,40 @@ components:
           type: string
       required:
         - status
+      type: object
+    AutomationCatalogEntryResponse:
+      properties:
+        description:
+          type: string
+        key:
+          example: daily-followup
+          type: string
+        prompt_template:
+          type: string
+        skill_ref:
+          example: playground
+          type: string
+        suggested_cron:
+          example: 0 9 * * 1-5
+          type: string
+        title:
+          example: Daily follow-up
+          type: string
+      required:
+        - description
+        - key
+        - prompt_template
+        - suggested_cron
+        - title
+      type: object
+    AutomationCatalogListResponse:
+      properties:
+        templates:
+          items:
+            $ref: "#/components/schemas/AutomationCatalogEntryResponse"
+          type: array
+      required:
+        - templates
       type: object
     AutomationCreateRequest:
       properties:

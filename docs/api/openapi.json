@@ -2566,6 +2566,52 @@
         }
       }
     },
+    "/api/automations/catalog": {
+      "get": {
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "description": "Returns ready-made automation templates for onboarding (static, not workspace-scoped).",
+        "tags": [
+          "automations"
+        ],
+        "summary": "List automation catalog templates",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationCatalogListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/codex/tokens": {
       "get": {
         "security": [
@@ -11022,6 +11068,54 @@
           "status": {
             "type": "string",
             "example": "ok"
+          }
+        }
+      },
+      "AutomationCatalogEntryResponse": {
+        "type": "object",
+        "required": [
+          "description",
+          "key",
+          "prompt_template",
+          "suggested_cron",
+          "title"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "example": "daily-followup"
+          },
+          "prompt_template": {
+            "type": "string"
+          },
+          "skill_ref": {
+            "type": "string",
+            "example": "playground"
+          },
+          "suggested_cron": {
+            "type": "string",
+            "example": "0 9 * * 1-5"
+          },
+          "title": {
+            "type": "string",
+            "example": "Daily follow-up"
+          }
+        }
+      },
+      "AutomationCatalogListResponse": {
+        "type": "object",
+        "required": [
+          "templates"
+        ],
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AutomationCatalogEntryResponse"
+            }
           }
         }
       },
