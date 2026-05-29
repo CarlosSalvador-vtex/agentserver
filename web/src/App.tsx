@@ -386,8 +386,6 @@ export default function App() {
         onLogout={handleLogout}
         onShowAdmin={user?.role === 'admin' ? () => navigate('/admin') : undefined}
         onShowManageWorkspaces={() => navigate('/workspaces')}
-        onShowPlayground={() => navigate('/playground')}
-        onShowMarketplace={() => navigate('/marketplace')}
       />
       <Routes>
         <Route path="/w/:workspaceId" element={
