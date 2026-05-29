@@ -1059,6 +1059,73 @@ export async function revokeWorkspaceAPIKey(workspaceId: string, keyId: string):
   }
 }
 
+// --- Workspace automations (scheduled proactive runs) -----------------------
+
+export type Automation = components['schemas']['AutomationResponse']
+
+export async function listWorkspaceAutomations(workspaceId: string): Promise<Automation[]> {
+  const r = await apiFetch<{ automations: Automation[] }>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/automations`,
+  })
+  return r.automations ?? []
+}
+
+export async function getWorkspaceAutomation(workspaceId: string, automationId: string): Promise<Automation> {
+  return apiFetch<Automation>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/automations/${encodeURIComponent(automationId)}`,
+  })
+}
+
+export interface WorkspaceAutomationCreateInput {
+  name: string
+  skill_ref: string
+  cron: string
+  channel_id: string
+  enabled?: boolean
+  prompt: string
+}
+
+export async function createWorkspaceAutomation(
+  workspaceId: string,
+  body: WorkspaceAutomationCreateInput,
+): Promise<Automation> {
+  return apiFetch<Automation>({
+    method: 'POST',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/automations`,
+    body,
+  })
+}
+
+export interface WorkspaceAutomationPatchInput {
+  name?: string
+  skill_ref?: string
+  cron?: string
+  channel_id?: string
+  enabled?: boolean
+  prompt?: string
+}
+
+export async function patchWorkspaceAutomation(
+  workspaceId: string,
+  automationId: string,
+  body: WorkspaceAutomationPatchInput,
+): Promise<Automation> {
+  return apiFetch<Automation>({
+    method: 'PATCH',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/automations/${encodeURIComponent(automationId)}`,
+    body,
+  })
+}
+
+export async function deleteWorkspaceAutomation(workspaceId: string, automationId: string): Promise<void> {
+  await apiFetch<void>({
+    method: 'DELETE',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/automations/${encodeURIComponent(automationId)}`,
+  })
+}
+
 // === Operations (Plan 3c) ===
 
 export interface ListOperationsFilters {

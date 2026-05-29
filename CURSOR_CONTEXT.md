@@ -1,97 +1,107 @@
 # Cursor Agent Context
 
 > Updated: 2026-05-29T00:00:00Z
-> Branch: feat/automations-pr1
+> Branch: feat/automations-pr2
 > Status: IN_PROGRESS
 > Model: composer-2.5
 
 ## Active Task
 
-Implement **PR1 of productized automations** (proactive scheduled skills) as locked
-by the eng review in `docs/productized-automations-spec.md`. PR1 = an in-process cron
-scheduler + an `automations` table + ONE automation running end-to-end (cron fires →
-synthesize a turn → reuse the imbridge run+deliver path → message lands in the channel).
-Do NOT build the catalog, the management UI, or multi-replica safety — those are
-explicitly deferred (see "NOT in scope (PR1)" in the spec).
+Implement **PR2 of productized automations** — the management surface on top of the
+PR1 scheduler (already merged in `main`: `automations` table, in-process scheduler,
+run via `processTurn`). PR2 = **CRUD API + management UI** so a tenant can create,
+list, enable/disable, edit, and delete scheduled automations, and see last-run /
+next-run / last-error.
+
+**DO NOT** build (deferred to PR3): the ready-made catalog of pre-built automations,
+and multi-replica safety (`SELECT ... FOR UPDATE SKIP LOCKED` / leader election —
+`replicaCount` is still 1).
 
 ## Source of truth
 
-`docs/productized-automations-spec.md` — read these sections, in order:
-1. **"Locked decisions (eng review 2026-05-29)"** — scope + architecture (authoritative)
-2. **"Corrected flow (PR1)"** — the real flow (IGNORE "Proposed flow", marked superseded)
-3. **"What already exists (reused, not rebuilt)"** — reuse, do not rebuild
-4. **"Failure modes (PR1)"** table — this IS your test checklist
-5. **"NOT in scope (PR1)"** — do not build these
+`docs/productized-automations-spec.md` — read "Locked decisions (eng review)",
+"Corrected flow (PR1)", and "NOT in scope (PR1)". PR2 builds the API+UI that PR1
+deferred. The `automations` table + scheduler already exist — reuse them.
+
+## What already exists (PR1 — reuse, do NOT rebuild)
+
+- `internal/db/automations.go`: `Automation` struct, `CreateAutomation`,
+  `GetAutomation`, `DeleteAutomation`, `ScanDueAutomations`, `MarkAutomationRun`,
+  `ComputeNextRun` (robfig/cron/v3, supports `@every`/`@daily`/5-field).
+- `internal/server/automation_scheduler.go`: `StartAutomationScheduler` ticker.
+- Migration `046_automations.sql`: table + partial index `(next_run_at) WHERE enabled`.
+- Automation `Config` is JSONB; the scheduler reads `{channel_id, workspace_id,
+  wechat_user_id, prompt}` from it to fire a turn.
 
 ## Files in Scope
 
-Read first (the seams to reuse — do NOT duplicate their logic):
-- `internal/server/codex_im_inbound.go` — `processTurn(ctx, codexInboundRequest)` ALREADY
-  does run + deliver (resolve session → run turn → POST output to imbridge send → provider).
-  The scheduler's "fire" = build a `codexInboundRequest{ChannelID, WorkspaceID, Text}` and
-  call `processTurn` in-process (same binary). This is the run+deliver reuse the review
-  locked — do NOT re-implement exec or delivery. Confirm exact struct fields here.
-- `internal/server/playground_test_sandbox.go` → `StartPlaygroundReaper(ctx)` (~line 153)
-  and `internal/server/playground_cm_reaper.go` → `StartConfigMapReaper(ctx)` — copy this
-  in-process ticker pattern (ticker + `select { case <-ctx.Done(): return ... }`).
-- `internal/db/im_channels.go` → `GetSandboxForChannel(channelID)` — how a channel resolves
-  to a live sandbox (relevant to the no-live-sandbox fallback case).
-- `cmd/serve.go` ~lines 340-349 — where `StartPlaygroundReaper`/`StartConfigMapReaper` are
-  wired into `healthCtx`. Wire the new scheduler here the same way.
+DB layer — ADD to `internal/db/automations.go`:
+- `ListAutomations(ctx, workspaceID string) ([]Automation, error)` — `WHERE workspace_id = $1 ORDER BY created_at`.
+- `UpdateAutomation(ctx, a *Automation) error` — update name, skill_ref, cron, channel_id,
+  config, enabled; recompute `next_run_at` via `ComputeNextRun` when cron or enabled changes
+  (enabling a row with NULL next_run must set it; disabling may leave it). `updated_at = NOW()`.
 
-Create:
-- `internal/db/migrations/046_automations.sql` — NEW. `automations` table:
-  `id uuid pk, workspace_id uuid not null, name text, skill_ref text, cron text not null,
-  channel_id text not null, config jsonb, enabled bool not null default true,
-  last_run_at timestamptz, next_run_at timestamptz, last_error text,
-  created_at timestamptz default now(), updated_at timestamptz default now()`.
-  Add partial index: `CREATE INDEX ... ON automations (next_run_at) WHERE enabled;`
-  (review decision, Issue 4).
-- `internal/db/automations.go` — NEW. `ScanDue(ctx, now)` (`WHERE enabled AND next_run_at <= now()`),
-  `ComputeNextRun(cron, from)` (robfig/cron/v3 parser — check go.mod, add only if missing),
-  CRUD + `MarkRun(id, ranAt, nextRun, lastErr)`.
-- `internal/server/automation_scheduler.go` — NEW.
-  `(s *Server) StartAutomationScheduler(ctx)`: ~1min ticker → `ScanDue` → for each due row:
-  build `codexInboundRequest` and call `processTurn`; on ANY error set `last_error` via
-  `MarkRun` (never silent); always advance `next_run_at` via `ComputeNextRun`; a malformed
-  cron skips that row without killing the loop.
+API handlers — NEW `internal/server/automation_handlers.go`:
+- `POST   /api/workspaces/{id}/automations`        → create (validate cron via ComputeNextRun; set next_run_at; 400 on bad cron)
+- `GET    /api/workspaces/{id}/automations`        → list
+- `GET    /api/workspaces/{id}/automations/{aid}`  → get one
+- `PATCH  /api/workspaces/{id}/automations/{aid}`  → update (enable toggle, cron, config, name)
+- `DELETE /api/workspaces/{id}/automations/{aid}`  → delete
+- Guard every handler with `s.requireWorkspaceRole(w, r, workspaceID, "owner", "maintainer", "developer")`
+  (see `internal/server/server.go:1184` + existing members/invites handlers for the exact pattern).
+- Validate the `channel_id` belongs to the workspace (reuse `workspace_im_channels` lookup).
+- Register routes in `internal/server/server.go` next to the other `/api/workspaces/{id}/...`
+  routes (~line 500-513).
 
-Tests:
-- `internal/db/automations_test.go` — `ScanDue` (due / none / db-error),
-  `ComputeNextRun` (valid / malformed cron).
-- `internal/server/automation_scheduler_test.go` — ONE integration test: cron fires → fire →
-  fake-deliver, asserting delivery happened AND `last_run_at`/`last_error` set correctly.
-  Reuse the fake patterns in `codex_im_inbound_test.go` (codexCaller / sessionStore fakes).
+Frontend — NEW `web/src/components/Automations.tsx` (+ wire route + sidebar):
+- Route `/automations` in `web/src/App.tsx` (mirror the `/playground` route + the
+  workspace-sidebar entry added in #135 — see `web/src/components/TopBar.tsx` / sidebar).
+- List automations: name, cron, channel, enabled toggle, last_run / next_run / last_error badge.
+- Create/edit form: name, cron (text + hint, e.g. `0 8 * * 1-5` or `@daily`), channel picker
+  (workspace IM channels), skill_ref (optional), config JSON (the `{channel_id, workspace_id,
+  wechat_user_id, prompt}` payload — prefill channel_id/workspace_id from selection).
+- Enable/disable toggle calls PATCH. Delete with confirm.
+- API client methods in `web/src/lib/api.ts` (mirror existing workspace CRUD calls).
+
+OpenAPI + docs:
+- After adding handlers, run `make openapi` and `make api-docs` (CI has drift checks that
+  WILL fail otherwise — this bit us before).
+
+Tests — NEW `internal/server/automation_handlers_test.go`:
+- create / list / get / patch(enable toggle) / delete happy paths.
+- 403 when caller lacks workspace role.
+- 400 on malformed cron at create.
+- channel not in workspace → rejected.
+- Reuse fake patterns from `codex_im_inbound_test.go` / existing handler tests;
+  DB-backed tests gate on `TEST_DATABASE_URL` (skip if unset).
 
 ## Constraints
 
-- No force-push. No new top-level deps beyond robfig/cron/v3 IF not already in go.mod.
-- `replicaCount: 1` in dev → do NOT add `SELECT ... FOR UPDATE SKIP LOCKED` / leader election yet.
-- Reuse `processTurn` for run+deliver — do NOT write a second exec/deliver path.
-- A scheduled run that fails MUST set `automations.last_error` (critical-gap guard).
-- Migration number is 046 (045 is latest existing). Do not renumber existing migrations.
+- No force-push. No new top-level deps.
+- Reuse PR1's DB layer + scheduler — do NOT touch the scheduler logic or `processTurn`.
+- `replicaCount: 1` → NO SKIP LOCKED / leader election (PR3).
+- NO ready-made catalog seed (PR3).
 - Build tag `goolm` in all Go commands; integration tests need `TEST_DATABASE_URL`.
-- Do NOT commit `web/dist/`. Every change ships as a PR — open ONE PR for PR1.
+- Run `make openapi` + `make api-docs` before pushing (CI drift checks).
+- Do NOT commit `web/dist/`. Every change ships as a PR — open ONE PR for PR2.
 
 ## Next Action
 
-Read the `docs/productized-automations-spec.md` sections listed above, then
-`internal/server/codex_im_inbound.go` (`processTurn` + `codexInboundRequest` struct) to
-confirm exact field names, then write migration `046_automations.sql`.
+Read `docs/productized-automations-spec.md` (locked-decisions + NOT-in-scope) and
+`internal/db/automations.go`, then add `ListAutomations` + `UpdateAutomation` to the DB layer.
 
 ## Done When
 
-- `go build -tags goolm ./...` and `go vet -tags goolm ./...` pass.
-- `automations` table migration applies cleanly; partial index present.
-- `StartAutomationScheduler` wired in `cmd/serve.go` next to the other reapers.
-- Unit tests (ScanDue, ComputeNextRun) + ONE integration test (fire→deliver, asserts
-  delivery + last_run/last_error) pass.
-- A scheduled run reuses `processTurn` (no duplicated exec/deliver code).
-- PR opened against `main`; CI green. Update this file: Status=AWAITING_MERGE + add PR URL
+- `go build -tags goolm ./...` + `go vet -tags goolm ./...` pass.
+- CRUD endpoints work, all guarded by workspace role; bad cron → 400; foreign channel → rejected.
+- `/automations` UI lists + creates + toggles + edits + deletes; shows last_run/next_run/last_error.
+- `make openapi` + `make api-docs` run (no CI drift).
+- Handler tests pass (CRUD + 403 + 400 + foreign-channel).
+- PR opened against `main`; CI green. Update this file: Status=AWAITING_MERGE + PR URL
   under `## PR Ready for Merge`.
 
 ## Progress Log
 
 <!-- Cursor appends one line here after each response -->
-- 2026-05-29T00:00:00Z STARTED — orchestrator reseeded context for automations PR1
-  (prior task B10/PR #117 closed out)
+- 2026-05-29T00:00:00Z STARTED — orchestrator reseeded context for automations PR2
+  (PR1 #134 merged; this builds the CRUD API + management UI on top)

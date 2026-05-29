@@ -6145,6 +6145,299 @@
         }
       }
     },
+    "/api/workspaces/{id}/automations": {
+      "get": {
+        "description": "Returns all scheduled automations for the workspace.",
+        "tags": [
+          "Automations"
+        ],
+        "summary": "List workspace automations",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Creates a scheduled automation. Recomputes next_run_at from cron.",
+        "tags": [
+          "Automations"
+        ],
+        "summary": "Create automation",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationCreateRequest"
+              }
+            }
+          },
+          "description": "Automation payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/automations/{automationId}": {
+      "get": {
+        "tags": [
+          "Automations"
+        ],
+        "summary": "Get automation",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Automation ID",
+            "name": "automationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Automations"
+        ],
+        "summary": "Delete automation",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Automation ID",
+            "name": "automationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Automations"
+        ],
+        "summary": "Update automation",
+        "parameters": [
+          {
+            "description": "Workspace ID",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Automation ID",
+            "name": "automationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationPatchRequest"
+              }
+            }
+          },
+          "description": "Fields to update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{id}/credentials/{kind}": {
       "get": {
         "security": [
@@ -10729,6 +11022,139 @@
           "status": {
             "type": "string",
             "example": "ok"
+          }
+        }
+      },
+      "AutomationCreateRequest": {
+        "type": "object",
+        "required": [
+          "channel_id",
+          "cron",
+          "name",
+          "prompt",
+          "skill_ref"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "cron": {
+            "type": "string",
+            "example": "0 9 * * 1-5"
+          },
+          "enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "Daily standup digest"
+          },
+          "prompt": {
+            "type": "string",
+            "example": "Summarize open tasks"
+          },
+          "skill_ref": {
+            "type": "string",
+            "example": "standup-skill"
+          }
+        }
+      },
+      "AutomationListResponse": {
+        "type": "object",
+        "required": [
+          "automations"
+        ],
+        "properties": {
+          "automations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AutomationResponse"
+            }
+          }
+        }
+      },
+      "AutomationPatchRequest": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "cron": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "prompt": {
+            "type": "string",
+            "nullable": true
+          },
+          "skill_ref": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AutomationResponse": {
+        "type": "object",
+        "required": [
+          "channel_id",
+          "created_at",
+          "cron",
+          "id",
+          "name",
+          "skill_ref",
+          "updated_at",
+          "workspace_id"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "config": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "cron": {
+            "type": "string",
+            "example": "0 9 * * 1-5"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "last_run_at": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "type": "string"
+          },
+          "skill_ref": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
           }
         }
       },
