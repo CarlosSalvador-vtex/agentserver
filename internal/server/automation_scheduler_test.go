@@ -44,18 +44,21 @@ func insertAutomationFixtures(t *testing.T, d *db.DB, ctx context.Context) (wsID
 	}
 	t.Cleanup(func() { _ = d.DeleteWorkspace(wsID) })
 
+	// The channel's bound user_id IS the wechat_user_id the create handler
+	// derives for the automation config, so set it to the returned userID to
+	// keep fixtures self-consistent (handler reads ch.UserID, tests assert userID).
+	userID = "wxid_auto_" + t.Name()
 	chID = "ch-auto-" + t.Name()
 	_, err := d.ExecContext(ctx,
 		`INSERT INTO workspace_im_channels (id, workspace_id, provider, bot_id, user_id)
-		 VALUES ($1, $2, 'weixin', 'bot', 'wxid_testuser')`,
-		chID, wsID,
+		 VALUES ($1, $2, 'weixin', 'bot', $3)`,
+		chID, wsID, userID,
 	)
 	if err != nil {
 		t.Fatalf("channel: %v", err)
 	}
 	t.Cleanup(func() { _, _ = d.ExecContext(ctx, `DELETE FROM workspace_im_channels WHERE id = $1`, chID) })
 
-	userID = "wxid_auto_" + t.Name()
 	return wsID, chID, userID
 }
 
