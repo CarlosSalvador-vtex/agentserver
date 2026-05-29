@@ -1,0 +1,4 @@
+{
+  "name": "doc-search",
+  "description": "Multi-file skill: SKILL.md + prompt.md + references/faq.json. Tests: multi-file payload, references dir, channel whatsapp. Composes with persona P6 (acento)."
+}

@@ -1,0 +1,4 @@
+{
+  "name": "matrix-notifier",
+  "description": "Skill with SKILL.md + openclaw.plugin.json manifest. Tests: plugin manifest file, channel matrix."
+}

@@ -1,0 +1,6 @@
+[
+  { "q": "como reseto minha senha", "a": "Acesse Configuracoes > Seguranca > Redefinir senha e siga o link enviado por e-mail." },
+  { "q": "qual o horario de atendimento", "a": "Segunda a sexta, das 9h as 18h (horario de Brasilia)." },
+  { "q": "como cancelo minha assinatura", "a": "Va em Conta > Assinatura > Cancelar. O acesso continua ate o fim do ciclo." },
+  { "q": "aceitam pix", "a": "Sim, aceitamos Pix, cartao de credito e boleto." }
+]

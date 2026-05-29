@@ -1,0 +1,4 @@
+{
+  "name": "Asistente de Ventas",
+  "description": "Spanish-language sales assistant with a handoff_to_human_if constraint. Tests: Spanish voice, medium formality, handoff-only constraint, composition with agent A2."
+}

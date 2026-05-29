@@ -1,0 +1,4 @@
+{
+  "name": "サポート担当",
+  "description": "Japanese-language support persona. EDGE CASE: pure-CJK name. Tests sanitizeLabelValue (#126) — a CJK-only name sanitizes to an empty K8s label. Composes with agent A6 (also CJK) to exercise the collision path."
+}

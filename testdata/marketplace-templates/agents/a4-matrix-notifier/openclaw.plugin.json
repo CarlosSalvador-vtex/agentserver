@@ -1,0 +1,7 @@
+{
+  "name": "matrix-notifier",
+  "version": "1.0.0",
+  "command": "/notify",
+  "entry": "index.mjs",
+  "platforms": ["matrix"]
+}

@@ -1,0 +1,4 @@
+{
+  "name": "echo-bot",
+  "description": "EDGE CASE: pure-prompt skill, no tools. Single SKILL.md file. Tests the no-tool path (skill with no bash tools / no references). Channel: dashboard."
+}
