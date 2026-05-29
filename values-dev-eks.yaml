@@ -106,14 +106,12 @@ sandbox:
     # WhatsApp pairing (E.164). One-time QR scan via dashboard subdomain.
     whatsappAllowedUsers:
       - "+5527996073736"
-  # Cobrança skill — text-only MVP for pt-BR debt-collection sims (LGPD-safe).
-  # Assets live in deploy/helm/agentserver/skills/cobranca/; the
-  # skills-configmap.yaml template renders them into a ConfigMap which the
-  # sandbox manager mounts inside every new OpenClaw + Hermes pod.
-  skills:
-    cobranca:
-      enabled: true
-      platforms: [hermes, openclaw]
+  # No default skills mounted — OpenClaw/Hermes sandboxes start clean. Skills
+  # now come ONLY from a sandbox's composition (draft:/git: refs). The cobranca
+  # assets still live in deploy/helm/agentserver/skills/cobranca/ and remain a
+  # composable system template; they are just no longer force-mounted into every
+  # pod. To re-enable a default mount, add it back under skills: { <name>: {...} }.
+  skills: {}
   # Applied to every sandbox pod template so they can schedule on tainted nodes
   tolerations:
     - key: "internal-workers"
