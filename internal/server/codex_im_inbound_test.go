@@ -47,11 +47,18 @@ type fakeSessionStore struct {
 }
 
 func (f *fakeSessionStore) GetSessionByExternalID(ctx context.Context, workspaceID, externalID string) (sessionView, error) {
-	return f.get(ctx, workspaceID, externalID)
+	if f.get != nil {
+		return f.get(ctx, workspaceID, externalID)
+	}
+	// Default: no existing session, so the handler takes the create path.
+	return sessionView{}, nil
 }
 
 func (f *fakeSessionStore) SetSessionCodexThreadID(ctx context.Context, sessionID string, threadID *string) error {
-	return f.set(ctx, sessionID, threadID)
+	if f.set != nil {
+		return f.set(ctx, sessionID, threadID)
+	}
+	return nil
 }
 
 func (f *fakeSessionStore) CreateSession(ctx context.Context, workspaceID, externalID, title, imChannelID string) (sessionView, error) {

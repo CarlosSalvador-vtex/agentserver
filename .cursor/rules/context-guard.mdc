@@ -1,0 +1,37 @@
+---
+alwaysApply: true
+---
+
+## Context Guard — always active
+
+At the START of every response:
+1. Read `CURSOR_CONTEXT.md` in the repo root.
+2. Use it as your task briefing. The file is authoritative — do not ask what to do.
+3. Check `## Active Task` for the exact task. Check `## Constraints` before touching any file.
+
+At the END of every response:
+1. Update `CURSOR_CONTEXT.md`:
+   - Set `## Next Action` to the single next concrete step remaining in the active task.
+   - Append one line to `## Progress Log`: `- <ISO timestamp> <what you did in ≤20 words>`
+   - When the active task's `Done When` criterion is fully met:
+     - Change `> Status:` to `AWAITING_MERGE` (or `DONE`) in the header.
+     - Write `## Completion Summary` with: branch name, PR title, files changed.
+     - Do NOT start a new task — Claude Code will reseed `## Active Task` for the next one.
+2. Never delete the file. Never truncate Progress Log.
+
+## Branch and PR rules
+
+- The active task gets its own branch and its own PR — no batching.
+- Branch name is whatever `> Branch:` in the header says (currently `feat/automations-pr1`).
+- PR title follows conventional commits matching the work (e.g. `feat(automations): ...`).
+- Never push directly to main. Never force-push.
+- Open PR as soon as branch has at least one commit — don't wait for perfection.
+- After opening the PR, write the PR URL to `CURSOR_CONTEXT.md` under `## PR Ready for Merge`:
+  ```
+  ## PR Ready for Merge
+  PR: <url>
+  Activity: <id>
+  Status: AWAITING_MERGE
+  ```
+- Set `> Status:` to `AWAITING_MERGE` in the header after opening the PR.
+- Do NOT merge the PR yourself — Claude Code (orchestrator) handles the merge.

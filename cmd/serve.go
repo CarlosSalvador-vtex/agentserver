@@ -348,6 +348,8 @@ var serveCmd = &cobra.Command{
 		// left behind when an AgentSandbox CRD is deleted out-of-band.
 		srv.StartConfigMapReaper(healthCtx)
 
+		srv.StartAutomationScheduler(healthCtx)
+
 		httpServer := &http.Server{Addr: addr, Handler: srv.Router()}
 
 		// Graceful shutdown on SIGTERM/SIGINT

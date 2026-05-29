@@ -97,6 +97,15 @@ func (h *codexInboundHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundRequest) {
+	if err := h.runTurnSync(ctx, req); err != nil {
+		log.Printf("codex_im: turn failed channel=%s user=%s: %v", req.ChannelID, req.WechatUserID, err)
+	}
+}
+
+// runTurnSync executes one IM Codex turn synchronously (session resolve,
+// RunTurn, deliver reply). Used by the inbound queue worker and by the
+// automation scheduler — do not duplicate exec/deliver logic elsewhere.
+func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundRequest) error {
 	// Issue 1: use WechatUserID directly — bridge already sets it from
 	// msg.FromUserID (bare wxid_xxx, same convention as stateless_cc's
 	// chat_jid). Appending "@im.wechat" caused every lookup to miss.
@@ -105,7 +114,7 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 	if err != nil {
 		log.Printf("codex_im: resolve session channel=%s user=%s: %v", req.ChannelID, externalID, err)
 		h.sendError(ctx, req, "⚠️ 内部错误，请重试")
-		return
+		return err
 	}
 	// Issue 2: create session on first contact (mirror stateless_cc pattern).
 	if sess.ID == "" {
@@ -117,7 +126,7 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 		if err != nil {
 			log.Printf("codex_im: create session channel=%s user=%s: %v", req.ChannelID, externalID, err)
 			h.sendError(ctx, req, "⚠️ 内部错误，请重试")
-			return
+			return err
 		}
 	}
 
@@ -130,7 +139,12 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 	if err != nil {
 		log.Printf("codex_im: cxg call channel=%s user=%s: %v", req.ChannelID, externalID, err)
 		h.sendError(ctx, req, "⚠️ Codex 处理失败，请稍后重试")
-		return
+		return err
+	}
+	if cresp == nil {
+		log.Printf("codex_im: nil codex response channel=%s user=%s", req.ChannelID, externalID)
+		h.sendError(ctx, req, "⚠️ Codex 无响应，请稍后重试")
+		return fmt.Errorf("nil codex response")
 	}
 
 	// Detect thread-not-found across all error surfaces: transport.message
@@ -153,7 +167,12 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 		if err != nil {
 			log.Printf("codex_im: cxg retry channel=%s user=%s: %v", req.ChannelID, externalID, err)
 			h.sendError(ctx, req, "⚠️ Codex 处理失败，请稍后重试")
-			return
+			return err
+		}
+		if cresp == nil {
+			log.Printf("codex_im: nil codex retry response channel=%s user=%s", req.ChannelID, externalID)
+			h.sendError(ctx, req, "⚠️ Codex 无响应，请稍后重试")
+			return fmt.Errorf("nil codex retry response")
 		}
 	}
 
@@ -161,7 +180,7 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 	if cresp.Transport != nil {
 		log.Printf("codex_im: transport=%s channel=%s user=%s msg=%s", cresp.Transport.Code, req.ChannelID, externalID, cresp.Transport.Message)
 		h.sendError(ctx, req, transportToUserMessage(cresp.Transport))
-		return
+		return fmt.Errorf("codex transport: %s", cresp.Transport.Message)
 	}
 
 	// Persist thread id if new or changed.
@@ -184,7 +203,7 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 	if err := json.Unmarshal(cresp.Turn, &turn); err != nil {
 		log.Printf("codex_im: decode turn: %v", err)
 		h.sendError(ctx, req, "⚠️ Codex 返回格式异常")
-		return
+		return err
 	}
 
 	switch turn.Status {
@@ -192,22 +211,25 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 		text := lastAgentMessageText(turn.Items)
 		if text == "" {
 			h.sendError(ctx, req, "⚠️ Codex 没有返回文本内容")
-			return
+			return fmt.Errorf("codex turn completed with no agent text")
 		}
-		h.sendText(ctx, req, text)
+		if err := h.sendText(ctx, req, text); err != nil {
+			return err
+		}
+		return nil
 	case "failed":
 		if turn.Error != nil && turn.Error.CodexErrorInfo != nil {
 			switch *turn.Error.CodexErrorInfo {
 			case "contextWindowExceeded":
 				_ = h.sessions.SetSessionCodexThreadID(ctx, sess.ID, nil)
 				h.sendError(ctx, req, "⚠️ 上下文已满，请新开会话")
-				return
+				return fmt.Errorf("codex context window exceeded")
 			case "usageLimitExceeded":
 				h.sendError(ctx, req, "⚠️ Codex 配额已用尽")
-				return
+				return fmt.Errorf("codex usage limit exceeded")
 			case "serverOverloaded":
 				h.sendError(ctx, req, "⚠️ Codex 繁忙，请稍后重试")
-				return
+				return fmt.Errorf("codex server overloaded")
 			}
 		}
 		// Heuristic: thread-not-found inside turn.error (rare — codex
@@ -220,15 +242,18 @@ func (h *codexInboundHandler) processTurn(ctx context.Context, req codexInboundR
 		if isThreadNotFoundErr(msg) {
 			_ = h.sessions.SetSessionCodexThreadID(ctx, sess.ID, nil)
 			h.sendError(ctx, req, "⚠️ 会话已重置，请重发消息")
-			return
+			return fmt.Errorf("codex thread not found")
 		}
 		log.Printf("codex_im: turn failed channel=%s user=%s: %s", req.ChannelID, externalID, msg)
 		h.sendError(ctx, req, "⚠️ Codex 处理失败")
+		return fmt.Errorf("codex turn failed: %s", msg)
 	case "interrupted":
 		h.sendError(ctx, req, "⚠️ 处理已取消，请重发")
+		return fmt.Errorf("codex turn interrupted")
 	default:
 		log.Printf("codex_im: unexpected status %q", turn.Status)
 		h.sendError(ctx, req, "⚠️ Codex 返回异常状态")
+		return fmt.Errorf("codex unexpected status %q", turn.Status)
 	}
 }
 
@@ -407,28 +432,27 @@ func imageInputItem(mediaType, base64Data string) (map[string]any, bool) {
 // sendText / sendError both POST /api/internal/imbridge/send. The
 // endpoint's StopTyping side-effect kicks in automatically.
 
-func (h *codexInboundHandler) sendText(ctx context.Context, req codexInboundRequest, text string) {
-	h.postSend(ctx, map[string]any{
+func (h *codexInboundHandler) sendText(ctx context.Context, req codexInboundRequest, text string) error {
+	return h.postSend(ctx, map[string]any{
 		"channel_id": req.ChannelID,
 		"to_user_id": req.WechatUserID,
 		"text":       text,
 	})
 }
 
-func (h *codexInboundHandler) sendError(ctx context.Context, req codexInboundRequest, text string) {
-	h.postSend(ctx, map[string]any{
+func (h *codexInboundHandler) sendError(ctx context.Context, req codexInboundRequest, text string) error {
+	return h.postSend(ctx, map[string]any{
 		"channel_id": req.ChannelID,
 		"to_user_id": req.WechatUserID,
 		"text":       text,
 	})
 }
 
-func (h *codexInboundHandler) postSend(ctx context.Context, body map[string]any) {
+func (h *codexInboundHandler) postSend(ctx context.Context, body map[string]any) error {
 	b, _ := json.Marshal(body)
 	r, err := http.NewRequestWithContext(ctx, "POST", h.imbridgeSendURL+"/api/internal/imbridge/send", bytes.NewReader(b))
 	if err != nil {
-		log.Printf("codex_im: build send req: %v", err)
-		return
+		return fmt.Errorf("build imbridge send request: %w", err)
 	}
 	r.Header.Set("Content-Type", "application/json")
 	if h.internalSecret != "" {
@@ -436,14 +460,14 @@ func (h *codexInboundHandler) postSend(ctx context.Context, body map[string]any)
 	}
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
-		log.Printf("codex_im: send POST: %v", err)
-		return
+		return fmt.Errorf("imbridge send POST: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("codex_im: send status=%d body=%s", resp.StatusCode, body)
+		rb, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("imbridge send status=%d body=%s", resp.StatusCode, rb)
 	}
+	return nil
 }
 
 // newCodexInboundHandler wires up the handler with its dispatcher
