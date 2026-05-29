@@ -1,0 +1,112 @@
+# Karpenter default NodePool + EC2NodeClass for dev-ti-eks-analytics-platform.
+#
+# Mirrors the prod `default` pool, with dev-specific AWS resources:
+#   - instanceProfile: karpenter-instance-profile-e7e396e  (dev node role,
+#     wraps dev-ti-eks-analytics-platform-node-role)
+#   - securityGroup:   sg-083605992e64fa3b5  (dev-ti-eks-analytics-platform-node-security-group)
+#   - subnets:         the 3 private subnets dev nodes already run in (1a/1b/1c)
+#   - tags:            Environment=DEV
+#
+# Deviations from prod (intentional, dev-appropriate):
+#   - limits reduced to 200 vCPU / 200Gi (prod: 1000/1000Gi) as a dev cost cap
+#   - amiSelectorTerms uses al2023@latest (prod pins a dated alias)
+#
+# Purpose: host the application's OpenClaw sandbox pods. The pool is untainted
+# (like prod), so sandbox pods — which carry tolerations but no nodeSelector —
+# schedule here via Karpenter when the internal-workers managed node group
+# lacks capacity. Creating the pool launches no EC2 until a matching pending
+# pod appears.
+#
+# Apply:  kubectl --context <dev> apply -f deploy/karpenter/dev-default-nodepool.yaml
+# Prod equivalent is managed by ArgoCD (app: node-pools); this dev manifest is
+# applied manually until dev is onboarded to the same GitOps flow.
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2023
+  amiSelectorTerms:
+  - alias: al2023@latest
+  blockDeviceMappings:
+  - deviceName: /dev/xvda
+    ebs:
+      volumeSize: 50Gi
+      volumeType: gp3
+  instanceProfile: karpenter-instance-profile-e7e396e
+  kubelet:
+    clusterDNS:
+    - 10.43.0.10
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 1
+    httpTokens: required
+  securityGroupSelectorTerms:
+  - id: sg-083605992e64fa3b5
+  subnetSelectorTerms:
+  - id: subnet-05731d48fa430d313
+  - id: subnet-0b5819dd9b85fab28
+  - id: subnet-0a53f8474451c3b70
+  tags:
+    ApplicationName: dev-ti-vtex-eks-analytics-platform
+    Environment: DEV
+    Oncall: sre-observability
+    Owner: Analytics
+    Product: analytics-stack
+    managed-by: agentserver-openclaw
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  disruption:
+    budgets:
+    - nodes: 10%
+    consolidateAfter: 1m
+    consolidationPolicy: WhenEmptyOrUnderutilized
+  limits:
+    cpu: "200"
+    memory: 200Gi
+  template:
+    spec:
+      expireAfter: 1209600s
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+      - key: karpenter.k8s.aws/instance-family
+        operator: In
+        values:
+        - m6i
+        - m6a
+        - m7i
+        - c6i
+        - c6a
+      - key: karpenter.k8s.aws/instance-cpu
+        operator: Gt
+        values:
+        - "2"
+      - key: karpenter.k8s.aws/instance-memory
+        operator: Gt
+        values:
+        - "8192"
+      - key: karpenter.k8s.aws/instance-size
+        operator: In
+        values:
+        - xlarge
+        - 2xlarge
+        - 4xlarge
+      - key: karpenter.sh/capacity-type
+        operator: In
+        values:
+        - on-demand
+        - spot
+      - key: kubernetes.io/arch
+        operator: In
+        values:
+        - amd64
+      taints: []
