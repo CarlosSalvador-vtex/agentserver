@@ -39,6 +39,10 @@ Automation = { skill_ref, cron, channel, config }
 
 ## Proposed flow
 
+> **Superseded by "Locked decisions (eng review)" below.** The original draft routed
+> the run through the agent task queue; the eng review changed it to reuse the imbridge
+> reactive path. Kept here for history — see "Corrected flow (PR1)".
+
 ```
 1. Tenant enables an automation from a catalog (skill + cron + channel + config form)
 2. Scheduler (per-workspace) fires at the cron time
@@ -103,6 +107,76 @@ Ready-made (parity) + author-able (moat).
 ## Suggested first step
 
 Spike: one hardcoded automation (e.g. "every 5 min, run skill X, send to my WhatsApp")
-wired cron → `POST /api/agent/tasks` → ephemeral sandbox → IM send. Proves the
-proactive seam before any catalog/UI. Then run `/plan-eng-review` on the scheduler
-architecture (multi-replica safety, run isolation, cost caps).
+wired cron → run a turn → IM send. Proves the proactive seam before any catalog/UI.
+
+## Locked decisions (eng review 2026-05-29)
+
+Reviewed via /plan-eng-review. Scope reduced to PR1 + the seam corrected:
+
+- **PR1 scope (reduced):** in-process scheduler (mirrors the existing
+  `StartPlaygroundReaper` ticker — `replicaCount: 1`, so **no SKIP LOCKED / leader
+  election** yet) + an `automations` table + ONE automation running end-to-end.
+  **Defer** the catalog, the management UI, and multi-replica safety to later PRs.
+- **Run path (corrects the "task queue" framing above):** the proactive run **reuses
+  the imbridge reactive path**, not the agent task queue. The reactive path already
+  does channel → `GetSandboxForChannel` → `ExecSimple` (run a turn in the pod) →
+  deliver via provider. The scheduler synthesizes a turn through that path.
+- **Where it lives:** automations **table + cron ticker in agentserver** (with
+  workspaces/skills); the run+deliver is done by calling an **internal imbridge
+  endpoint** so exec+deliver is never duplicated (DRY).
+- **Sandbox lifecycle:** reuse the channel's live sandbox (warm, has memory); **fall
+  back** to resume/spawn an ephemeral one if none is alive. Never silently skip.
+- **Scheduler query:** partial index `(next_run) WHERE enabled`; scanDue does
+  `WHERE enabled AND next_run <= now()` — indexed, scales.
+- **Tests:** unit on scheduler branches (scanDue due/none/error, computeNextRun
+  valid/malformed, fire sandbox-live/fallback/exec-error/deliver-error) + **one
+  integration** simulating cron → fire → fake-deliver, asserting delivery + last_run/
+  error status. Silent-failure of a scheduled run is the thing tests must catch.
+
+### Corrected flow (PR1)
+
+```
+cron ticker (agentserver, ~1min)
+  → scanDue: WHERE enabled AND next_run <= now()   [partial index]
+  → for each due automation:
+      → call internal imbridge run endpoint { channel, skill_ref/prompt }
+          → GetSandboxForChannel (reuse live sandbox; else resume/spawn ephemeral)
+          → ExecSimple: run the turn in the pod (no human)
+          → deliver output via the channel provider
+      → update last_run_at / next_run_at / last_error
+```
+
+## NOT in scope (PR1)
+
+- Catalog of ready-made automations + enable/configure UI — follow-up PR.
+- Multi-replica safety (SKIP LOCKED / leader election) — only when replicaCount > 1.
+- Quiet hours, retry/backoff policy, per-automation concurrency caps — later.
+- Per-run cost caps beyond reusing the warm channel sandbox — later.
+
+## What already exists (reused, not rebuilt)
+
+- imbridge reactive path: `GetSandboxForChannel` + `ExecSimple` + provider deliver.
+- In-process ticker precedent: `StartPlaygroundReaper`, `idlewatcher`.
+- Composition (`draft:`/`git:`), `workspace_im_channels`, sandbox Manager.
+
+## Failure modes (PR1)
+
+| Path | Failure | Test? | Error handling? | Visible? |
+|------|---------|-------|-----------------|----------|
+| fire → resolve sandbox | channel has no live sandbox | yes (fallback) | resume/spawn ephemeral | last_run ok |
+| fire → ExecSimple | exec/turn errors | yes | mark last_error, next run continues | last_error set |
+| fire → deliver | imbridge/provider send fails | yes | mark last_error | last_error set |
+| scanDue | malformed cron | yes | skip that row, don't kill the loop | last_error set |
+
+Critical-gap guard: a scheduled run that fails must set `last_error` (never silent).
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 4 issues, 0 critical gaps |
+
+- **SCOPE:** reduced — PR1 = in-process scheduler + 1 automation end-to-end; catalog/UI/multi-replica deferred.
+- **DECISIONS:** run reuses imbridge reactive path (not task queue); data+schedule in agentserver, run+deliver via internal imbridge call (DRY); reuse warm channel sandbox + ephemeral fallback; partial index on (next_run) WHERE enabled; unit + 1 integration covering fire→deliver + failure modes.
+- **UNRESOLVED:** none.
+- **VERDICT:** ENG CLEARED — ready to implement PR1.
