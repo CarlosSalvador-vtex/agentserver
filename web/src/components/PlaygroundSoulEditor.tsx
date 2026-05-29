@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Save, Send, ArrowLeft, Loader2, Play, FileDiff, History } from 'lucide-react'
 import {
   getPlaygroundSoul,
@@ -40,6 +40,7 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const firstTime = searchParams.get('firstTime') === '1'
+  const backTo = searchParams.get('from') === 'admin' ? '/admin/skills' : '/playground'
 
   const [draft, setDraft] = useState<PlaygroundSoulFull | null>(null)
   const [fm, setFm] = useState<SoulFrontmatter>({})
@@ -178,7 +179,7 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
     <div className="flex h-screen flex-col">
       {!isDevMode ? (
         <header className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-5 py-3">
-          <button onClick={() => navigate('/playground')} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          <button onClick={() => navigate(backTo)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
             <ArrowLeft size={16} />
           </button>
           <div className="flex-1 min-w-0">
@@ -205,7 +206,7 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
         </header>
       ) : (
         <header className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-5 py-3">
-          <button onClick={() => navigate('/playground')} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          <button onClick={() => navigate(backTo)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
             <ArrowLeft size={16} />
           </button>
           <span className="text-sm font-semibold text-[var(--foreground)]">{draft.name}</span>
@@ -504,9 +505,9 @@ export function PlaygroundSoulEditor({ isDevMode }: { isDevMode?: boolean }) {
       </div>
 
       <div className="border-t border-[var(--border)] bg-[var(--card)] px-5 py-2 text-[11px] text-[var(--muted-foreground)]">
-        <Link to="/playground" className="hover:text-[var(--foreground)]">
+        <button onClick={() => navigate(backTo)} className="hover:text-[var(--foreground)]">
           ← back to catalog
-        </Link>
+        </button>
       </div>
     </div>
   )

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Users, Box, Container, Settings, ChevronRight, Library, Upload, Download, Globe, Lock, Trash2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Users, Box, Container, Settings, ChevronRight, Library, Upload, Download, Globe, Lock, Trash2, Pencil } from 'lucide-react'
 import {
   type AdminUser,
   type AdminWorkspace,
@@ -44,7 +44,7 @@ const tabs = [
   { path: 'users', label: 'Users', icon: Users },
   { path: 'workspaces', label: 'Workspaces', icon: Box },
   { path: 'sandboxes', label: 'Sandboxes', icon: Container },
-  { path: 'skills', label: 'Skills', icon: Library },
+  { path: 'skills', label: 'Templates', icon: Library },
   { path: 'settings', label: 'Settings', icon: Settings },
 ] as const
 
@@ -183,6 +183,7 @@ function SandboxesTab() {
 type SkillKind = 'skill' | 'soul'
 
 function SkillsTab() {
+  const navigate = useNavigate()
   const [kind, setKind] = useState<SkillKind>('skill')
   const [skills, setSkills] = useState<MarketplaceSkillSummary[]>([])
   const [souls, setSouls] = useState<MarketplaceSoulSummary[]>([])
@@ -281,7 +282,7 @@ function SkillsTab() {
         <div>
           <h2 className="text-base font-semibold text-[var(--foreground)]">System Templates</h2>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-            System-wide skills and souls visible in the marketplace. Import JSON files exported from any deployment.
+            System-wide agents and personas visible in the marketplace. Import JSON files exported from any deployment.
           </p>
         </div>
         <>
@@ -310,7 +311,7 @@ function SkillsTab() {
                 : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/50'
             }`}
           >
-            {k === 'skill' ? `Skills (${skills.length})` : `Souls (${souls.length})`}
+            {k === 'skill' ? `Agents (${skills.length})` : `Personas (${souls.length})`}
           </button>
         ))}
       </div>
@@ -318,7 +319,7 @@ function SkillsTab() {
       {loading ? (
         <LoadingSpinner />
       ) : items.length === 0 ? (
-        <p className="text-sm italic text-[var(--muted-foreground)]">No system {kind}s yet. Import a JSON file to get started.</p>
+        <p className="text-sm italic text-[var(--muted-foreground)]">No {kind === 'skill' ? 'agents' : 'personas'} yet. Import a JSON file to get started.</p>
       ) : (
         <div className="rounded-lg border border-[var(--border)]">
           <table className="w-full text-sm">
@@ -357,6 +358,17 @@ function SkillsTab() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => navigate(
+                          kind === 'skill'
+                            ? `/playground/skills/${item.id}?from=admin`
+                            : `/playground/souls/${item.id}?from=admin`
+                        )}
+                        className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)]"
+                        title="Edit in playground"
+                      >
+                        <Pencil size={11} /> Edit
+                      </button>
                       <button
                         onClick={() => handleExport(item.id, item.name)}
                         className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)]"
