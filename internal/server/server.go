@@ -512,7 +512,8 @@ func (s *Server) Router() http.Handler {
 		r.Post("/api/workspaces/{id}/invites", s.handleCreateInvite)
 		r.Delete("/api/workspaces/{id}/invites/{inviteId}", s.handleRevokeInvite)
 
-		// Workspace automations (CRUD; in-process scheduler on main)
+		// Automation catalog (static templates) + workspace automations CRUD; in-process scheduler on main
+		r.Get("/api/automations/catalog", s.handleGetAutomationCatalog)
 		r.Get("/api/workspaces/{id}/automations", s.handleListAutomations)
 		r.Post("/api/workspaces/{id}/automations", s.handleCreateAutomation)
 		r.Get("/api/workspaces/{id}/automations/{automationId}", s.handleGetAutomation)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Clock, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Clock, Plus, Pencil, Trash2, Library } from 'lucide-react'
 import {
   listWorkspaceAutomations,
   createWorkspaceAutomation,
@@ -7,7 +7,9 @@ import {
   deleteWorkspaceAutomation,
   listWorkspaceIMChannels,
   listPlaygroundSkills,
+  getAutomationCatalog,
   type Automation,
+  type AutomationCatalogEntry,
   type IMChannel,
   type PlaygroundSkillSummary,
 } from '../lib/api'
@@ -60,6 +62,9 @@ export function WorkspaceAutomationsTab({ workspaceId }: WorkspaceAutomationsTab
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [showCatalog, setShowCatalog] = useState(false)
+  const [catalog, setCatalog] = useState<AutomationCatalogEntry[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
   const [editing, setEditing] = useState<Automation | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
   const [saving, setSaving] = useState(false)
@@ -96,6 +101,32 @@ export function WorkspaceAutomationsTab({ workspaceId }: WorkspaceAutomationsTab
     if (channels.length > 0) {
       setForm((f) => ({ ...f, channel_id: channels[0].id }))
     }
+    setShowForm(true)
+  }
+
+  const openCatalog = () => {
+    setShowCatalog(true)
+    setCatalogLoading(true)
+    getAutomationCatalog()
+      .then(setCatalog)
+      .catch(() => {
+        setCatalog([])
+        setError('Failed to load automation catalog')
+      })
+      .finally(() => setCatalogLoading(false))
+  }
+
+  const applyCatalogTemplate = (tpl: AutomationCatalogEntry) => {
+    setShowCatalog(false)
+    setEditing(null)
+    setForm({
+      name: tpl.title ?? '',
+      skill_ref: tpl.skill_ref ?? 'playground',
+      cron: tpl.suggested_cron ?? '@daily',
+      channel_id: channels[0]?.id ?? '',
+      prompt: tpl.prompt_template ?? '',
+      enabled: true,
+    })
     setShowForm(true)
   }
 
@@ -193,14 +224,24 @@ export function WorkspaceAutomationsTab({ workspaceId }: WorkspaceAutomationsTab
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
-          >
-            <Plus size={13} />
-            New automation
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openCatalog}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
+            >
+              <Library size={13} />
+              Add from catalog
+            </button>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--secondary)] transition-colors"
+            >
+              <Plus size={13} />
+              New automation
+            </button>
+          </div>
         </div>
 
         <div className="px-5 py-4">
@@ -299,6 +340,49 @@ export function WorkspaceAutomationsTab({ workspaceId }: WorkspaceAutomationsTab
           )}
         </div>
       </div>
+
+      {showCatalog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
+              <h3 className="text-sm font-medium text-[var(--foreground)]">Automation catalog</h3>
+              <button
+                type="button"
+                onClick={() => setShowCatalog(false)}
+                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                ×
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+              {catalogLoading ? (
+                <p className="text-sm text-[var(--muted-foreground)]">Loading templates…</p>
+              ) : catalog.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)]">No templates available.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {catalog.map((tpl) => (
+                    <li key={tpl.key}>
+                      <button
+                        type="button"
+                        onClick={() => applyCatalogTemplate(tpl)}
+                        className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-left hover:border-[var(--primary)] hover:bg-[var(--secondary)]/50 transition-colors"
+                      >
+                        <div className="text-sm font-medium text-[var(--foreground)]">{tpl.title}</div>
+                        <div className="mt-1 text-xs text-[var(--muted-foreground)]">{tpl.description}</div>
+                        <div className="mt-2 font-mono text-[10px] text-[var(--muted-foreground)]">
+                          {tpl.suggested_cron}
+                          {tpl.skill_ref ? ` · ${tpl.skill_ref}` : ''}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

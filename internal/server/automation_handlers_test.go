@@ -17,6 +17,35 @@ func newAutomationHandlerTestServer(t *testing.T) (*Server, string, string, stri
 	return &Server{DB: d}, wsID, chID, userID
 }
 
+func TestHandleGetAutomationCatalog(t *testing.T) {
+	srv, _, _, _ := newAutomationHandlerTestServer(t)
+	req := reqWithUser(http.MethodGet, "/api/automations/catalog", "owner-user", nil, nil)
+	rr := httptest.NewRecorder()
+	srv.handleGetAutomationCatalog(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("catalog: want 200, got %d %s", rr.Code, rr.Body.String())
+	}
+	var resp AutomationCatalogListResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Templates) < 3 {
+		t.Fatalf("expected at least 3 templates, got %d", len(resp.Templates))
+	}
+	keys := make(map[string]bool)
+	for _, tpl := range resp.Templates {
+		if tpl.Key == "" || tpl.Title == "" || tpl.SuggestedCron == "" || tpl.PromptTemplate == "" {
+			t.Fatalf("incomplete template: %+v", tpl)
+		}
+		keys[tpl.Key] = true
+	}
+	for _, want := range []string{"daily-followup", "weekly-report", "lead-triage"} {
+		if !keys[want] {
+			t.Fatalf("missing catalog key %q", want)
+		}
+	}
+}
+
 func TestHandleListAutomationsEmpty(t *testing.T) {
 	srv, wsID, _, _ := newAutomationHandlerTestServer(t)
 	req := reqWithUser(http.MethodGet, "/api/workspaces/"+wsID+"/automations", "owner-user", nil, map[string]string{"id": wsID})

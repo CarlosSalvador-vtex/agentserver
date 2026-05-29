@@ -26,6 +26,31 @@ func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
+// GetAutomationCatalog godoc
+// @Summary      List automation catalog templates
+// @Description  Returns ready-made automation templates for onboarding (static, not workspace-scoped).
+// @Tags         automations
+// @Produce      json
+// @Success      200  {object}  AutomationCatalogListResponse
+// @Failure      401  {string}  string  "unauthorized"
+// @Failure      500  {string}  string  "internal error"
+// @Router       /api/automations/catalog [get]
+// @Security     BearerAuth
+func (s *Server) handleGetAutomationCatalog(w http.ResponseWriter, r *http.Request) {
+	templates := make([]AutomationCatalogEntryResponse, 0, len(automationCatalog))
+	for _, e := range automationCatalog {
+		templates = append(templates, AutomationCatalogEntryResponse{
+			Key:            e.Key,
+			Title:          e.Title,
+			Description:    e.Description,
+			SuggestedCron:  e.SuggestedCron,
+			PromptTemplate: e.PromptTemplate,
+			SkillRef:       e.SkillRef,
+		})
+	}
+	writeJSON(w, http.StatusOK, AutomationCatalogListResponse{Templates: templates})
+}
+
 func automationToResponse(a *db.Automation) AutomationResponse {
 	return AutomationResponse{
 		ID:          a.ID,
