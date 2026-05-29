@@ -18,9 +18,9 @@ constraints e decision points.
 | 5 | [B07](B07-audit-log-per-workspace.md) | Audit log por workspace | ~150 | ✅ PR #72 | Compliance pré-SOC2 |
 | 6 | [B03](B03-delete-user.md) | DELETE user LGPD | ~120 | OPEN | B07 shipped (recommended) |
 | 7 | [B09](B09-choose-workspace-apex.md) | "Choose workspace" UI no apex | ~130 | OPEN | UX cross-tenant |
-| 8 | [B08](B08-codex-auth-vs-cookie.md) | codex-auth × cookie host-only | 0-200 | OPEN (decision) | Decisão arquitetural — sem impl antes de aprovação |
-| 9 | [B04](B04-sso-per-workspace.md) | SSO por workspace (Opção B) | ~600 | OPEN | Enterprise readiness |
-| 10 | [B05](B05-hybrid-sso-password.md) | Híbrido SSO + senha (Opção C) | +150 | OPEN | Depende de B04 |
+| 8 | [B08](B08-codex-auth-vs-cookie.md) | codex-auth × cookie host-only | 0-200 | ❌ CANCELLED | Codex integration descartado (ver `docs/ops/codex-not-used.md`); Path A (status quo) é suficiente |
+| 9 | [B04](B04-sso-per-workspace.md) | SSO por workspace (Opção B) | ~600 | ❌ CANCELLED | Fora de escopo do produto atual |
+| 10 | [B05](B05-hybrid-sso-password.md) | Híbrido SSO + senha (Opção C) | +150 | ❌ CANCELLED | Dependia de B04 |
 
 ## Como usar com Cursor
 
