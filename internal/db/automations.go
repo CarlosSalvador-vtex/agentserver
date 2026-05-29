@@ -27,7 +27,9 @@ type Automation struct {
 	UpdatedAt   time.Time
 }
 
-var standardCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+// Standard 5-field cron plus descriptors (@hourly, @daily, @every 1h) so
+// automations can use the friendlier shorthands as well as raw cron.
+var standardCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
 // ComputeNextRun returns the next fire time after from for a standard 5-field cron expression.
 func ComputeNextRun(cronExpr string, from time.Time) (time.Time, error) {
