@@ -402,8 +402,8 @@ func (s *Server) handleIMTelegramConfigure(w http.ResponseWriter, r *http.Reques
 	if _, ok := s.requireWorkspaceMember(w, r, sbx.WorkspaceID); !ok {
 		return
 	}
-	if sbx.Type != "nanoclaw" {
-		http.Error(w, "telegram binding is only available for nanoclaw sandboxes", http.StatusBadRequest)
+	if !telegramBindAllowedType(sbx.Type) {
+		http.Error(w, telegramBindingSandboxTypeMsg, http.StatusBadRequest)
 		return
 	}
 	if sbx.Status != "running" {
