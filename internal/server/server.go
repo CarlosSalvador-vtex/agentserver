@@ -512,6 +512,13 @@ func (s *Server) Router() http.Handler {
 		r.Post("/api/workspaces/{id}/invites", s.handleCreateInvite)
 		r.Delete("/api/workspaces/{id}/invites/{inviteId}", s.handleRevokeInvite)
 
+		// Workspace automations (CRUD; in-process scheduler on main)
+		r.Get("/api/workspaces/{id}/automations", s.handleListAutomations)
+		r.Post("/api/workspaces/{id}/automations", s.handleCreateAutomation)
+		r.Get("/api/workspaces/{id}/automations/{automationId}", s.handleGetAutomation)
+		r.Patch("/api/workspaces/{id}/automations/{automationId}", s.handlePatchAutomation)
+		r.Delete("/api/workspaces/{id}/automations/{automationId}", s.handleDeleteAutomation)
+
 		// Workspace audit log (B07) — owner/maintainer
 		r.Get("/api/workspaces/{id}/audit", s.handleListWorkspaceAudit)
 

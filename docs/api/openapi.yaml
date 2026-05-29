@@ -3704,6 +3704,188 @@ paths:
       summary: List workspace audit events
       tags:
         - Workspaces
+  "/api/workspaces/{id}/automations":
+    get:
+      description: Returns all scheduled automations for the workspace.
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationListResponse"
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: List workspace automations
+      tags:
+        - Automations
+    post:
+      description: Creates a scheduled automation. Recomputes next_run_at from cron.
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationCreateRequest"
+        description: Automation payload
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Create automation
+      tags:
+        - Automations
+  "/api/workspaces/{id}/automations/{automationId}":
+    delete:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Automation ID
+          in: path
+          name: automationId
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: insufficient permissions
+          content:
+            "*/*":
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            "*/*":
+              schema:
+                type: string
+      summary: Delete automation
+      tags:
+        - Automations
+    get:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Automation ID
+          in: path
+          name: automationId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationResponse"
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Get automation
+      tags:
+        - Automations
+    patch:
+      parameters:
+        - description: Workspace ID
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Automation ID
+          in: path
+          name: automationId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationPatchRequest"
+        description: Fields to update
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationResponse"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
+        "403":
+          description: insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: string
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema:
+                type: string
+      summary: Update automation
+      tags:
+        - Automations
   "/api/workspaces/{id}/credentials/{kind}":
     get:
       parameters:
@@ -6607,6 +6789,101 @@ components:
           type: string
       required:
         - status
+      type: object
+    AutomationCreateRequest:
+      properties:
+        channel_id:
+          type: string
+        cron:
+          example: 0 9 * * 1-5
+          type: string
+        enabled:
+          type: boolean
+          nullable: true
+        name:
+          example: Daily standup digest
+          type: string
+        prompt:
+          example: Summarize open tasks
+          type: string
+        skill_ref:
+          example: standup-skill
+          type: string
+      required:
+        - channel_id
+        - cron
+        - name
+        - prompt
+        - skill_ref
+      type: object
+    AutomationListResponse:
+      properties:
+        automations:
+          items:
+            $ref: "#/components/schemas/AutomationResponse"
+          type: array
+      required:
+        - automations
+      type: object
+    AutomationPatchRequest:
+      properties:
+        channel_id:
+          type: string
+          nullable: true
+        cron:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        skill_ref:
+          type: string
+          nullable: true
+      type: object
+    AutomationResponse:
+      properties:
+        channel_id:
+          type: string
+        config:
+          type: string
+        created_at:
+          type: string
+        cron:
+          example: 0 9 * * 1-5
+          type: string
+        enabled:
+          type: boolean
+        id:
+          type: string
+        last_error:
+          type: string
+        last_run_at:
+          type: string
+        name:
+          type: string
+        next_run_at:
+          type: string
+        skill_ref:
+          type: string
+        updated_at:
+          type: string
+        workspace_id:
+          type: string
+      required:
+        - channel_id
+        - created_at
+        - cron
+        - id
+        - name
+        - skill_ref
+        - updated_at
+        - workspace_id
       type: object
     ChannelAutoBindRequest:
       properties:

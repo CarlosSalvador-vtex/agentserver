@@ -64,6 +64,7 @@ import {
 } from '../lib/api'
 import { ConfirmModal } from './Modals'
 import { WorkspaceAPIKeysTab } from './WorkspaceAPIKeysTab'
+import { WorkspaceAutomationsTab } from './WorkspaceAutomationsTab'
 import { TracesTab, TRACES_PER_PAGE } from './SandboxDetail'
 import { WeixinLoginModal } from './WeixinLoginModal'
 import { TelegramConfigModal } from './TelegramConfigModal'
@@ -82,6 +83,7 @@ export type Tab =
   | 'credentials'
   | 'members'
   | 'api-keys'
+  | 'automations'
   | 'settings'
 
 interface WorkspaceDetailProps {
@@ -111,6 +113,7 @@ const TAB_TO_SLUG: Record<Tab, string> = {
   credentials: 'credentials',
   members: 'members',
   'api-keys': 'api-keys',
+  automations: 'automations',
   settings: 'settings',
 }
 
@@ -203,6 +206,7 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
     // synchronously). Backend enforces the per-operation permissions
     // anyway (list = any member, mint/revoke = owner/maintainer).
     { key: 'api-keys' as Tab, label: 'API Keys', icon: <Key size={16} /> },
+    { key: 'automations' as Tab, label: 'Automations', icon: <Clock size={16} /> },
     { key: 'settings', label: 'Settings', icon: <Settings size={16} /> },
   ]
 
@@ -308,6 +312,9 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
           )}
           {tab === 'api-keys' && (
             <WorkspaceAPIKeysTab workspaceId={workspace.id} />
+          )}
+          {tab === 'automations' && (
+            <WorkspaceAutomationsTab workspaceId={workspace.id} />
           )}
           {tab === 'settings' && (
             <SettingsTab workspace={workspace} />

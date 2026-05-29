@@ -281,6 +281,48 @@ type IMChannelPatchResponse struct {
 	Status string `json:"status" validate:"required" example:"updated"`
 } // @name IMChannelPatchResponse
 
+// AutomationResponse is a workspace automation returned by automation CRUD APIs.
+type AutomationResponse struct {
+	ID          string  `json:"id" validate:"required"`
+	WorkspaceID string  `json:"workspace_id" validate:"required"`
+	Name        string  `json:"name" validate:"required"`
+	SkillRef    string  `json:"skill_ref" validate:"required"`
+	Cron        string  `json:"cron" validate:"required" example:"0 9 * * 1-5"`
+	ChannelID   string  `json:"channel_id" validate:"required"`
+	Enabled     bool    `json:"enabled"`
+	Config      string  `json:"config,omitempty"`
+	LastRunAt   *string `json:"last_run_at,omitempty"`
+	NextRunAt   *string `json:"next_run_at,omitempty"`
+	LastError   *string `json:"last_error,omitempty"`
+	CreatedAt   string  `json:"created_at" validate:"required"`
+	UpdatedAt   string  `json:"updated_at" validate:"required"`
+} // @name AutomationResponse
+
+// AutomationListResponse is returned by GET /api/workspaces/{id}/automations.
+type AutomationListResponse struct {
+	Automations []AutomationResponse `json:"automations" validate:"required"`
+} // @name AutomationListResponse
+
+// AutomationCreateRequest is the body for POST /api/workspaces/{id}/automations.
+type AutomationCreateRequest struct {
+	Name      string `json:"name" validate:"required" example:"Daily standup digest"`
+	SkillRef  string `json:"skill_ref" validate:"required" example:"standup-skill"`
+	Cron      string `json:"cron" validate:"required" example:"0 9 * * 1-5"`
+	ChannelID string `json:"channel_id" validate:"required"`
+	Enabled   *bool  `json:"enabled" extensions:"x-nullable=true"`
+	Prompt    string `json:"prompt" validate:"required" example:"Summarize open tasks"`
+} // @name AutomationCreateRequest
+
+// AutomationPatchRequest is the body for PATCH /api/workspaces/{id}/automations/{automationId}.
+type AutomationPatchRequest struct {
+	Name      *string `json:"name" extensions:"x-nullable=true"`
+	SkillRef  *string `json:"skill_ref" extensions:"x-nullable=true"`
+	Cron      *string `json:"cron" extensions:"x-nullable=true"`
+	ChannelID *string `json:"channel_id" extensions:"x-nullable=true"`
+	Enabled   *bool   `json:"enabled" extensions:"x-nullable=true"`
+	Prompt    *string `json:"prompt" extensions:"x-nullable=true"`
+} // @name AutomationPatchRequest
+
 // IMWeixinQRStartResponse is returned by POST .../im/weixin/qr-start.
 type IMWeixinQRStartResponse struct {
 	QRCodeURL string `json:"qrcode_url" validate:"required"`
