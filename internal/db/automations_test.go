@@ -141,6 +141,13 @@ func TestClaimDueAutomations(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = d.DeleteWorkspace(wsID) })
 
+	chID := "ch-claim-" + t.Name()
+	if _, err := d.ExecContext(ctx,
+		`INSERT INTO workspace_im_channels (id, workspace_id, provider, bot_id, user_id) VALUES ($1, $2, 'weixin', 'b', 'u')`,
+		chID, wsID); err != nil {
+		t.Fatal(err)
+	}
+
 	autoID := "auto-claim-" + t.Name()
 	past := time.Now().UTC().Add(-time.Minute)
 	a := &Automation{
@@ -149,7 +156,7 @@ func TestClaimDueAutomations(t *testing.T) {
 		Name:        "claim me",
 		SkillRef:    "playground",
 		Cron:        "@daily",
-		ChannelID:   "ch",
+		ChannelID:   chID,
 		Config:      json.RawMessage(`{"prompt":"hi"}`),
 		Enabled:     true,
 		NextRunAt:   &past,
@@ -200,6 +207,13 @@ func TestMarkAutomationRunClearsLockOnFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = d.DeleteWorkspace(wsID) })
 
+	chID := "ch-lockfail-" + t.Name()
+	if _, err := d.ExecContext(ctx,
+		`INSERT INTO workspace_im_channels (id, workspace_id, provider, bot_id, user_id) VALUES ($1, $2, 'weixin', 'b', 'u')`,
+		chID, wsID); err != nil {
+		t.Fatal(err)
+	}
+
 	autoID := "auto-lockfail-" + t.Name()
 	past := time.Now().UTC().Add(-time.Minute)
 	a := &Automation{
@@ -208,7 +222,7 @@ func TestMarkAutomationRunClearsLockOnFailure(t *testing.T) {
 		Name:        "lock fail",
 		SkillRef:    "playground",
 		Cron:        "@daily",
-		ChannelID:   "ch",
+		ChannelID:   chID,
 		Config:      json.RawMessage(`{"prompt":"hi"}`),
 		Enabled:     true,
 		NextRunAt:   &past,
