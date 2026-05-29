@@ -246,6 +246,11 @@ type OpenclawConfigOptions struct {
 	// enables the bundled "whatsapp" plugin (added to EnabledPlugins).
 	// Empty disables the WA channel entirely.
 	WhatsappAllowed []string
+	// WeixinEnabled re-enables the bundled "openclaw-weixin" plugin. The
+	// OpenClaw image ships it enabled by default; we now always overwrite
+	// plugins.entries (see below) to start sandboxes clean, so weixin is OFF
+	// unless this flag is set (from sandbox.openclaw.weixinEnabled).
+	WeixinEnabled bool
 	// SoulBody is the persona body to inject as agent.systemPrompt in the
 	// merged openclaw.json. Set by the playground composition layer; the
 	// upstream openclaw agent reads agent.systemPrompt and prepends it to
@@ -380,12 +385,20 @@ func BuildOpenclawConfig(proxyBaseURL, proxyToken, gatewayToken string, customMo
 	if len(opts.WhatsappAllowed) > 0 {
 		plugins["whatsapp"] = pluginEntry{Enabled: true}
 	}
-	if len(plugins) > 0 {
-		c.Plugins = &struct {
-			Entries  map[string]pluginEntry   `json:"entries"`
-			Installs map[string]pluginInstall `json:"installs,omitempty"`
-		}{Entries: plugins}
+	// Re-enable the bundled WeChat plugin only when explicitly asked.
+	if opts.WeixinEnabled {
+		plugins["openclaw-weixin"] = pluginEntry{Enabled: true}
 	}
+	// ALWAYS emit plugins.entries (even empty). The inject wrapper shallow-
+	// merges this object over the image's openclaw.json, REPLACING its default
+	// plugins set — the image ships "openclaw-weixin" enabled, so without this
+	// a sandbox with no composed skills would silently boot with WeChat on.
+	// Emitting (possibly empty) entries makes sandboxes start clean: only the
+	// plugins we list here are enabled.
+	c.Plugins = &struct {
+		Entries  map[string]pluginEntry   `json:"entries"`
+		Installs map[string]pluginInstall `json:"installs,omitempty"`
+	}{Entries: plugins}
 
 	// WhatsApp channel.
 	if len(opts.WhatsappAllowed) > 0 {

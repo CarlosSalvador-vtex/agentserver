@@ -75,6 +75,7 @@ func (m *Manager) applyOpenclawConfig(opts process.StartOptions, composition *Re
 	openclawCfg := BuildOpenclawConfig(cfgBaseURL, cfgAPIKey, opts.OpenclawToken, cfgModels, OpenclawConfigOptions{
 		EnabledPlugins:  mergedSkills,
 		WhatsappAllowed: openclawWA,
+		WeixinEnabled:   m.cfg.OpenclawWeixinEnabled,
 		SoulBody:        composition.SoulBody,
 	})
 
@@ -87,7 +88,9 @@ const path = require('os').homedir() + '/.openclaw/openclaw.json';
 let existing = {};
 try { existing = JSON.parse(fs.readFileSync(path, 'utf8')); } catch {}
 const inject = JSON.parse(process.env.__OPENCLAW_INJECT_CFG);
-// Deep-merge: inject keys override existing, but preserve plugins/channels.
+// Shallow-merge: inject keys override existing. We ALWAYS send plugins.entries
+// (possibly empty) so this replaces the image's default plugin set — sandboxes
+// boot clean (no bundled openclaw-weixin) unless a plugin is explicitly enabled.
 Object.assign(existing, inject);
 if (inject.gateway) {
   existing.gateway = existing.gateway || {};

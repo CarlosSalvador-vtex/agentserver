@@ -100,3 +100,27 @@ func TestDefaultConfig_JupyterEnvWiring(t *testing.T) {
 		t.Errorf("JupyterPort=%d, want 8888", c.JupyterPort)
 	}
 }
+
+func TestBuildOpenclawConfig_PluginsAlwaysEmitted(t *testing.T) {
+	// Clean sandbox: no plugins requested → entries present but empty, so the
+	// inject overwrites the image's default (openclaw-weixin) → boots clean.
+	clean := BuildOpenclawConfig("", "", "", nil, OpenclawConfigOptions{})
+	if !strings.Contains(clean, `"entries"`) {
+		t.Fatalf("expected plugins.entries always emitted, got: %s", clean)
+	}
+	if strings.Contains(clean, "openclaw-weixin") {
+		t.Errorf("weixin must be OFF by default, got: %s", clean)
+	}
+
+	// weixin re-enabled only when WeixinEnabled.
+	wx := BuildOpenclawConfig("", "", "", nil, OpenclawConfigOptions{WeixinEnabled: true})
+	if !strings.Contains(wx, "openclaw-weixin") {
+		t.Errorf("weixin should be enabled when WeixinEnabled, got: %s", wx)
+	}
+
+	// composed skill shows up as an enabled entry.
+	sk := BuildOpenclawConfig("", "", "", nil, OpenclawConfigOptions{EnabledPlugins: []string{"cobranca"}})
+	if !strings.Contains(sk, "cobranca") {
+		t.Errorf("composed plugin missing, got: %s", sk)
+	}
+}
