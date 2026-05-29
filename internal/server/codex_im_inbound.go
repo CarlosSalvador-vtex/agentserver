@@ -141,6 +141,11 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 		h.sendError(ctx, req, "⚠️ Codex 处理失败，请稍后重试")
 		return err
 	}
+	if cresp == nil {
+		log.Printf("codex_im: nil codex response channel=%s user=%s", req.ChannelID, externalID)
+		h.sendError(ctx, req, "⚠️ Codex 无响应，请稍后重试")
+		return fmt.Errorf("nil codex response")
+	}
 
 	// Detect thread-not-found across all error surfaces: transport.message
 	// (when codex returns -32600 on turn/start because thread is unknown,
@@ -163,6 +168,11 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 			log.Printf("codex_im: cxg retry channel=%s user=%s: %v", req.ChannelID, externalID, err)
 			h.sendError(ctx, req, "⚠️ Codex 处理失败，请稍后重试")
 			return err
+		}
+		if cresp == nil {
+			log.Printf("codex_im: nil codex retry response channel=%s user=%s", req.ChannelID, externalID)
+			h.sendError(ctx, req, "⚠️ Codex 无响应，请稍后重试")
+			return fmt.Errorf("nil codex retry response")
 		}
 	}
 
