@@ -1,0 +1,4 @@
+{
+  "name": "Casual Helper",
+  "description": "Friendly low-formality English assistant with a single max_turns constraint. Tests: English voice, low formality, minimal constraints, composition with agent A1."
+}

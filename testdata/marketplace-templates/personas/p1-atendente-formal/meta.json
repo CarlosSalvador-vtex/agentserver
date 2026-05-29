@@ -1,0 +1,4 @@
+{
+  "name": "Atendente Formal",
+  "description": "Persona de atendimento formal pt-BR com constraints completas (refuse_patterns + handoff). Testa: idioma pt-BR, formality high, todas as constraints, composicao com agent A5."
+}

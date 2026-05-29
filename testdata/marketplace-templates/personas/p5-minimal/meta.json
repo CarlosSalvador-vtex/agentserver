@@ -1,0 +1,4 @@
+{
+  "name": "Minimal Persona",
+  "description": "EDGE CASE: minimal soul. Empty voice/constraints/compatible_skills. Tests that optional frontmatter fields handle being absent without breaking import or the editor."
+}

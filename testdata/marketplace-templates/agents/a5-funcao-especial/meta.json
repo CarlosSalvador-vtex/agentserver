@@ -1,0 +1,4 @@
+{
+  "name": "Função Especial",
+  "description": "EDGE CASE: skill name with pt-BR accents (ç, ã). Regression guard for #126 sanitizeLabelValue. SKILL.md + one bash tool. Channels whatsapp+telegram. Composes with persona P1."
+}

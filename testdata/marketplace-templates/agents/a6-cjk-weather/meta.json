@@ -1,0 +1,4 @@
+{
+  "name": "天気エージェント",
+  "description": "EDGE CASE: pure-CJK skill name. sanitizeLabelValue (#126) maps this to an EMPTY K8s label — collision risk with other CJK skills. SKILL.md only, channel dashboard. Composes with persona P4 (also CJK)."
+}

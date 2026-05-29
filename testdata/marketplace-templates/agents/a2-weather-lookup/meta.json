@@ -1,0 +1,4 @@
+{
+  "name": "weather-lookup",
+  "description": "Single bash tool skill (mock weather). Tests: one tool, SKILL.md only, channel telegram. Composes with persona P3 (es)."
+}

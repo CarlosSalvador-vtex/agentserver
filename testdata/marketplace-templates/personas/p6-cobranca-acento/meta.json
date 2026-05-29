@@ -1,0 +1,4 @@
+{
+  "name": "Negociação & Cobrança",
+  "description": "EDGE CASE: pt-BR name with accents (ç, ã) and a special char (&). Regression guard for #126 sanitizeLabelValue. Composes with agent A3."
+}
