@@ -180,3 +180,34 @@ Critical-gap guard: a scheduled run that fails must set `last_error` (never sile
 - **DECISIONS:** run reuses imbridge reactive path (not task queue); data+schedule in agentserver, run+deliver via internal imbridge call (DRY); reuse warm channel sandbox + ephemeral fallback; partial index on (next_run) WHERE enabled; unit + 1 integration covering fire→deliver + failure modes.
 - **UNRESOLVED:** none.
 - **VERDICT:** ENG CLEARED — ready to implement PR1.
+
+## Implementation status & pending verification (2026-05-29)
+
+| Slice | PR | State |
+|-------|----|-------|
+| PR1 — `automations` table + in-process scheduler + run via `processTurn` + tests | #134 | ✅ merged, deployed to dev |
+| PR2 — CRUD API + management UI (Automations tab) | #138 | ✅ merged, deployed to dev |
+| Fix — unknown `channel_id` returned 500 → now 400 | #139 | ✅ merged, deployed + verified live |
+| PR3 — ready-made catalog + multi-replica safety (`SKIP LOCKED`/leader election) | — | ⏳ not started (deferred) |
+
+### Verified live (dev)
+
+- Automations sidebar nav + tab render; empty state + New-automation form (name, cron
+  with hint, IM-channel picker, skill ref, prompt, enabled).
+- API `GET /api/workspaces/{id}/automations` → 200; bad cron → 400; unknown channel → 400 (post-#139).
+
+### ⏳ PENDING — full fire→deliver E2E (user will do later)
+
+The end-to-end **cron → scheduler → sandbox → real IM delivery** is NOT yet verified
+live. Blocker: no workspace accessible to the test user has a **paired IM channel**
+(empresa-custom-teste `22707304-…` and "Auto Derive Me" have none; "Default workspace"
+`f6e625e9-…` holds the +5527996073736 WhatsApp pairing but is owned by another user).
+
+To close it:
+1. Pair a WhatsApp channel in an accessible workspace (IM tab → QR scan).
+2. Create an automation on that channel with a short cron (`@every 1m`) + benign prompt.
+3. Confirm the scheduler fires (~1 min), the message lands, `last_run_at` updates and
+   `last_error` stays null.
+
+Until then, fire→deliver is covered only by the PR1 integration test (with fakes).
+Deploy is local — see `docs` / `scripts/deploy-dev.sh`.
