@@ -696,6 +696,17 @@ func (s *Server) handleBindSandboxToChannel(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// OpenClaw sandboxes run the turn directly in-pod (B13), not via codex/cxg.
+	// Flip the channel to the "openclaw" routing mode so forwardMessage dispatches
+	// to forwardToOpenclaw. Persist it + apply the in-memory override so the
+	// already-running poller picks it up without a restart.
+	if sbx.Type == "openclaw" {
+		if err := s.db.UpdateIMChannelRoutingMode(req.ChannelID, "openclaw"); err != nil {
+			log.Printf("bind: set openclaw routing mode for channel %s: %v", req.ChannelID, err)
+		}
+		s.bridge.SetChannelRoutingMode(req.ChannelID, "openclaw")
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
 }
