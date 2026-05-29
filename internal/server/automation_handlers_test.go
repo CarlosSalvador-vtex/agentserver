@@ -109,8 +109,9 @@ func TestHandleCreateGetPatchDeleteAutomation(t *testing.T) {
 	if rrDel.Code != http.StatusNoContent {
 		t.Fatalf("delete: want 204, got %d", rrDel.Code)
 	}
-	if _, err := srv.DB.GetAutomation(ctx, created.ID); err == nil {
-		t.Fatal("automation should be gone")
+	// GetAutomation returns (nil, nil) — not an error — when the row is gone.
+	if a, err := srv.DB.GetAutomation(ctx, created.ID); err != nil || a != nil {
+		t.Fatalf("automation should be gone: a=%v err=%v", a, err)
 	}
 }
 
