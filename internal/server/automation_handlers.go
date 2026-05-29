@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -72,6 +74,10 @@ func parseAutomationConfig(raw json.RawMessage) (automationConfigPayload, error)
 
 func (s *Server) validateAutomationChannel(_ context.Context, workspaceID, channelID string) (*db.IMChannel, int, error) {
 	ch, err := s.DB.GetIMChannel(channelID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Unknown channel id — a client error, not a server fault.
+		return nil, http.StatusBadRequest, nil
+	}
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

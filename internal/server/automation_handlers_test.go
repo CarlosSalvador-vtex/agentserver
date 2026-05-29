@@ -170,4 +170,20 @@ func TestHandleCreateAutomationForeignChannel(t *testing.T) {
 	}
 }
 
+// A channel id that doesn't exist at all (GetIMChannel → sql.ErrNoRows) must be
+// a 400 client error, not a 500 — regression for the live-E2E finding where an
+// unknown channel surfaced as "internal error".
+func TestHandleCreateAutomationUnknownChannel(t *testing.T) {
+	srv, wsID, _, _ := newAutomationHandlerTestServer(t)
+	body, _ := json.Marshal(AutomationCreateRequest{
+		Name: "x", Cron: "@hourly", ChannelID: "does-not-exist", Prompt: "hi",
+	})
+	req := reqWithUser(http.MethodPost, "/api/workspaces/"+wsID+"/automations", "owner-user", body, map[string]string{"id": wsID})
+	rr := httptest.NewRecorder()
+	srv.handleCreateAutomation(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown channel: want 400, got %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }
