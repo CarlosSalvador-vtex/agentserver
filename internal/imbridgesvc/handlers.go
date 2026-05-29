@@ -823,8 +823,8 @@ func (s *Server) handleUpdateWorkspaceIMChannel(w http.ResponseWriter, r *http.R
 		// stateless_cc is no longer accepted — the agentserver endpoint
 		// it pointed to (POST /api/workspaces/{id}/im/inbound) was
 		// removed in the #135 purge.
-		if mode != "codex" {
-			http.Error(w, "invalid routing_mode: must be codex", http.StatusBadRequest)
+		if mode != "codex" && mode != "openclaw" {
+			http.Error(w, "invalid routing_mode: must be codex or openclaw", http.StatusBadRequest)
 			return
 		}
 		if err := s.db.UpdateIMChannelRoutingMode(channelID, mode); err != nil {

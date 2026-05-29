@@ -407,8 +407,9 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 }
 
 // forwardMessage routes an inbound message based on the binding's RoutingMode.
-// "codex" (and empty/default) forwards to agentserver's codex-app-gateway
-// path. Legacy "nanoclaw" routing mode is no longer supported.
+// "openclaw" runs a turn via ExecSimple(openclaw agent) in the bound pod.
+// "codex" (and empty/default) forwards to agentserver's codex-app-gateway path.
+// Legacy "nanoclaw" routing mode is no longer supported.
 // DispatchInbound feeds a single inbound message into the same forward
 // pipeline used by polling providers. Used by push-based providers
 // (e.g. WhatsApp Cloud webhook handlers) that can't sit inside the
@@ -453,8 +454,18 @@ func (b *Bridge) forwardMessage(ctx context.Context, binding BridgeBinding, msg 
 	}
 	if mode == "nanoclaw" {
 		log.Printf("imbridge: routing_mode=nanoclaw is deprecated for channel=%s; using codex", binding.ChannelID)
+		mode = "codex"
 	}
-	return b.forwardToCodex(ctx, binding, msg)
+
+	var forwarded bool
+	var err error
+	switch mode {
+	case routingModeOpenclaw:
+		forwarded, err = b.forwardToOpenclaw(ctx, binding, msg)
+	default:
+		forwarded, err = b.forwardToCodex(ctx, binding, msg)
+	}
+	return forwarded, err
 }
 
 // forwardToCodex POSTs the inbound message to agentserver's
