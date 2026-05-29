@@ -19,6 +19,8 @@ import {
   Hash,
   Brain,
   Activity,
+  FlaskConical,
+  Store,
 } from 'lucide-react'
 import {
   listMembers,
@@ -228,6 +230,26 @@ export function WorkspaceDetail({ workspace, onRename, initialTab, sandboxOverri
                     {t.badge}
                   </span>
                 )}
+              </button>
+            ))}
+          </nav>
+          <hr className="mx-2 border-[var(--border)]" />
+          <nav className="flex flex-col gap-0.5 p-2">
+            {[
+              { label: 'Playground', icon: <FlaskConical size={16} />, path: '/playground' },
+              { label: 'Marketplace', icon: <Store size={16} />, path: '/marketplace' },
+            ].map((link) => (
+              <button
+                key={link.path}
+                onClick={() => navigate(link.path)}
+                className={`inline-flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  location.pathname.startsWith(link.path)
+                    ? 'bg-[var(--secondary)] text-[var(--foreground)]'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--secondary)]/50'
+                }`}
+              >
+                {link.icon}
+                <span className="flex-1 text-left">{link.label}</span>
               </button>
             ))}
           </nav>
