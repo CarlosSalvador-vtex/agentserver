@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 const routingModeOpenclaw = "openclaw"
@@ -20,6 +21,45 @@ const routingModeOpenclaw = "openclaw"
 func openclawSessionID(channelID, fromUserID string) string {
 	sum := sha256.Sum256([]byte(channelID + "\x00" + fromUserID))
 	return "im-" + hex.EncodeToString(sum[:16])
+}
+
+// buildOpenclawAgentCommand returns the command vector for `openclaw agent`.
+// Used by tests and by the agentserver-side turn handler (the imbridge no longer
+// calls ExecSimple directly — it POSTs to agentserver's /api/internal/openclaw/turn).
+func buildOpenclawAgentCommand(message, sessionID string) []string {
+	return []string{
+		"node", "openclaw.mjs", "agent",
+		"--message", message,
+		"--json",
+		"--session-id", sessionID,
+	}
+}
+
+// parseOpenclawAgentStdout extracts the agent reply from openclaw agent --json stdout.
+// Config warnings are on stderr (captured separately by ExecSimple); this only parses stdout.
+func parseOpenclawAgentStdout(stdout string) (string, error) {
+	out := strings.TrimSpace(stdout)
+	if out == "" {
+		return "", fmt.Errorf("openclaw agent: empty stdout")
+	}
+	var result struct {
+		Payloads []struct {
+			Text string `json:"text"`
+		} `json:"payloads"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return "", fmt.Errorf("openclaw agent: parse json: %w", err)
+	}
+	var parts []string
+	for _, p := range result.Payloads {
+		if t := strings.TrimSpace(p.Text); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("openclaw agent: no payloads text")
+	}
+	return strings.Join(parts, "\n\n"), nil
 }
 
 // openclawTurnRequest is the payload for POST /api/internal/openclaw/turn
