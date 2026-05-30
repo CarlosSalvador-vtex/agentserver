@@ -1,133 +1,168 @@
 # Pendências — Investigação e Features
 
-> Capturado em sessão 2026-05-30. Itens para investigar e implementar em momento oportuno.
-> Cada item tem contexto técnico inicial para facilitar retomada.
+> Capturado em sessão 2026-05-30. Reagrupado 2026-05-30.
+> Contexto técnico inicial incluído em cada item para facilitar retomada.
 
 ---
 
-## P1 — Idle timeout: o sandbox está parando ou sendo pausado?
+## Grupo A — Comportamento do Sandbox (ciclo de vida, memória, capacidade)
 
-**Pergunta:** após o tempo de inatividade configurado, o sandbox é **parado/deletado** (pod removido) ou **pausado** (pod suspenso, retomável)?
+Todos os itens abaixo são interdependentes: entender pause vs stop (A1) desbloqueia
+A2 (auto-resume) e A3 (persistência). Capacidade paralela (A4) é independente mas usa
+o mesmo contexto de como o pod funciona.
 
-**Contexto técnico levantado:**
-- `internal/sbxstore/idlewatcher.go`: goroutine roda a cada 1 minuto, chama `ListIdleSandboxes` + `procMgr.Pause(sbx.ID)`.
-- Fluxo: status `running` → `pausing` → (chama `Pause`) → `paused` + limpa `pod_ip`.
-- O que `procMgr.Pause()` faz concretamente (stop do pod K8s? freeze? delete CRD?) **ainda não investigado**.
-- `cmd/serve.go:327`: idle watcher inicializado com timeout dinâmico via `srv.GetEffectiveIdleTimeout()`.
-- Configurável por workspace (campo `max_idle_timeout` em `workspace_defaults`).
-- Dev: UI mostra "Max Idle: 30 min" no overview do workspace.
+### A1 — Idle timeout: o sandbox para ou é pausado?
+
+**Pergunta:** após o tempo de inatividade, o sandbox é **parado/deletado** (pod removido,
+memória perdida) ou **pausado** (pod suspenso, retomável)?
+
+**Contexto técnico:**
+- `internal/sbxstore/idlewatcher.go`: goroutine a cada 1min → `ListIdleSandboxes` →
+  `procMgr.Pause(sbx.ID)`. Fluxo de status: `running` → `pausing` → `paused` + limpa `pod_ip`.
+- O que `procMgr.Pause()` faz **concretamente** não foi investigado. Pode ser:
+  - Delete do pod K8s (barato, mas perde estado em memória)
+  - Freeze/suspend (preserva processo, mais caro)
+  - Delete do CRD `AgentSandbox` (recriável, mas PVC preservado se separado)
+- Configurável por workspace: `max_idle_timeout` (default 30 min, visto na UI dev).
 
 **O que investigar:**
-1. `internal/sandbox/manager.go` → implementação de `Pause()` — stop/delete pod ou freeze?
-2. Se `paused`: como reativar? Há um `Resume()` e quando é chamado automaticamente (próxima mensagem do usuário)?
-3. Estado persiste no DB (`sandboxes.status`)? Sessão/memória do OpenClaw sobrevive?
+1. `internal/sandbox/manager.go` → implementação de `Pause()`.
+2. O pod é deletado ou suspenso?
+3. Se deletado: o PVC (`session-data`) sobrevive?
 
 ---
 
-## P2 — Skills com endpoints reais: integração com dados externos
+### A2 — Auto-resume: sandbox pausado é reativado ao receber nova mensagem?
 
-**Ideia:** as skills atuais (cobrança, vendas) usam dados fictícios/hardcoded no prompt. Melhorar integrando com endpoints externos reais.
+**Pergunta:** quando o usuário manda mensagem com o sandbox `paused`, o sistema reativa
+automaticamente ou a mensagem falha silenciosamente?
 
-**Exemplos concretos:**
-- Skill de cobrança: endpoint que busca valor da dívida pelo CPF (ex.: `GET /api/mock/dividas?cpf=XXX` → `{ valor: 1500.00, vencimento: "2026-02-10", credor: "Acme" }`).
-- Skill de vendas: endpoint de catálogo de produtos com preços reais.
-- Skill de SAC: endpoint de status de pedido por número.
-
-**Como skills podem chamar endpoints hoje:**
-- Via `index.mjs` (plugin/agentic tier): `registerTool` expõe uma função Go ou HTTP call.
-- Via tools nativas do OpenClaw (`web_fetch`, `web_search`) se habilitadas.
-- Via skill prompt que instrui o agente a usar tools já registradas.
+**Contexto técnico:**
+- `internal/server/openclaw_turn_handler.go` (`handleOpenclawTurn`): chama
+  `GetSandboxForChannel` → `ExecSimple`. Não foi verificado se checa status `paused`
+  antes de executar.
+- `GetSandboxForChannel` filtra por `status = 'running' AND pod_ip != ''` — retorna
+  `sql.ErrNoRows` para sandbox paused → `handleOpenclawTurn` retorna 404 para o imbridge
+  → imbridge loga erro e não entrega resposta → **usuário fica sem resposta (bug silencioso)**.
+- `process.Manager` tem `Resume(id, sandboxName, command, args)` — existe mas não está
+  sendo chamado no caminho IM.
 
 **O que investigar/implementar:**
-1. Criar mock endpoints em agentserver (ex.: `GET /api/mock/cobranca/{cpf}`) que retornam dados fictícios mas estruturados — remove hardcoding do prompt.
-2. Documentar padrão de `registerTool` no `index.mjs` para chamar esses endpoints com auth.
-3. Avaliar se a tool `web_fetch` do OpenClaw é suficiente ou se precisa de SDK customizado.
-4. Sugestão de integração real: webhook/API do tenant registrado no agentserver que a skill chama — multi-tenant, cada tenant configura sua URL de dados.
+1. Confirmar o bug: sandbox paused + msg IM → sem resposta.
+2. Implementar auto-resume em `handleOpenclawTurn` antes de `ExecSimple`:
+   se `GetSandboxForChannel` retorna not-found, buscar sandbox paused e chamar `Resume`.
+3. `Resume` provisiona novo pod? Usa o mesmo PVC?
 
 ---
 
-## P3 — Persistência de sessão/memória quando sandbox é pausado/morto
+### A3 — Persistência de sessão/memória após pause ou kill
 
-**Pergunta:** quando um sandbox é pausado por inatividade (ou morto por qualquer razão), o estado da conversa (memória, histórico de sessão) é salvo no banco de dados para ser reutilizado na próxima vez?
+**Pergunta:** após o sandbox ser pausado ou morto, a memória de conversas anteriores
+é preservada para quando o usuário voltar?
 
 **Contexto técnico:**
-- OpenClaw salva estado em `/home/agent/.openclaw/workspace/` (PVC — `session-data` PVC).
-- O PVC é `ReadWriteOnce` e **persiste** entre reinícios de pod (não é efêmero).
-- `AGENTS.md`, `USER.md`, `HEARTBEAT.md` etc. são lidos a cada turn pelo OpenClaw.
-- Sessão codex: armazenada em `agent_sessions.codex_thread_id` no DB.
-- Sessão OpenClaw (turn via `openclaw agent --session-id`): estado local no PVC.
+- OpenClaw salva estado em `/home/agent/.openclaw/workspace/` **no PVC** (`session-data`).
+  Arquivos: `AGENTS.md`, `USER.md`, `HEARTBEAT.md`, histórico da sessão.
+- O PVC é `ReadWriteOnce` e existe independente do pod (K8s PersistentVolume).
+- **Se o pod é pausado/deletado mas o PVC sobrevive**: na próxima vez que o pod sobe
+  com o mesmo PVC, o OpenClaw relê os arquivos → memória preservada.
+- **Se o PVC é deletado** (delete do CRD + claim): memória perdida.
+- Sessão IM (`--session-id` derivado de `channelID + userID`): estado em memória do
+  pod durante o turn. Se pod reinicia, a próxima call `openclaw agent --session-id X`
+  lê do PVC — memória persiste se PVC ok.
 
 **O que investigar:**
-1. O PVC sobrevive a um `Pause` + eventual `Resume`? (Provavelmente sim — é um PVC K8s separado do pod.)
-2. O PVC sobrevive se o CRD for deletado (reaper, timeout longo, admin delete)?
-3. Quando sandbox é recriado (após delete), o mesmo PVC é reutilizado (mesmo `session-data` PV)?
-4. Para sessões IM (canal bound): `--session-id` derivado de `(channelID, fromUserID)` → persiste entre runs do `openclaw agent` dentro do mesmo pod. Mas se pod é deletado, memória é perdida (está no PVC mas o index do OpenClaw pode não reindexar automaticamente).
+1. `Pause()` → deleta o pod mas preserva o PVC? Ou deleta ambos?
+2. `Resume()` → monta o mesmo PVC no novo pod?
+3. Há algum caso onde o PVC é deletado (reaper, admin, TTL)?
+4. Testar: pausar sandbox manualmente → re-resume → checar se `AGENTS.md` ainda está.
 
 ---
 
-## P4 — Viabilidade de salvar conversas no banco de dados
+### A4 — Capacidade paralela: quantas conversas simultâneas por sandbox?
 
-**Ideia:** persistir as conversas (turns de cada usuário com cada bot) no DB para auditoria, analytics, replay e conformidade.
+**Pergunta:** um único sandbox OpenClaw consegue atender múltiplos usuários em paralelo
+(ex.: WhatsApp com vários clientes ao mesmo tempo)?
+
+**Contexto técnico:**
+- `openclaw agent --session-id X --message Y` é síncrono (~2-5s por turn).
+- `handleOpenclawTurn` no agentserver é chamado pelo imbridge para cada msg inbound.
+- O poll loop do imbridge (`bridge.go/pollLoop`) é **sequencial por canal** — mas se
+  múltiplos usuários mandam msg ao mesmo tempo, o agentserver pode receber requests
+  concorrentes (HTTP server é concorrente).
+- `ExecSimple` abre um `kubectl exec` no pod. 2 calls concorrentes ao mesmo pod são
+  tecnicamente possíveis, mas OpenClaw pode ter locking de arquivo de sessão.
+- WhatsApp Business API (tier padrão): 250 conversas/24h; tier alto: 1000+.
+
+**O que investigar:**
+1. `ExecSimple` concorrente no mesmo pod — OpenClaw suporta?
+2. Há mutex ou semáforo em `handleOpenclawTurn` por sandbox?
+3. Se 1 turn por vez: N usuários simultâneos = N * latência média de espera. Aceitável?
+4. Escala horizontal: precisa de 1 sandbox por usuário ativo ou por canal?
+
+---
+
+## Grupo B — Skills e Integração com Dados Externos
+
+### B1 — Skills com endpoints reais (dados fictícios → dados reais)
+
+**Ideia:** as skills atuais (cobrança, vendas, SAC) usam dados hardcoded no prompt.
+Melhorar integrando com endpoints que retornam dados reais (ou mock estruturado).
+
+**Exemplos concretos:**
+- Cobrança: `GET /api/mock/dividas?cpf=321` → `{ valor: 1500.00, vencimento: "2026-02-10" }`
+- Vendas: `GET /api/mock/produtos?categoria=notebook` → catálogo com preços
+- SAC: `GET /api/mock/pedidos/{numero}` → status do pedido
+
+**Como skills chamam endpoints hoje:**
+- Via `index.mjs` (plugin/agentic tier): `registerTool` registra uma função que faz
+  HTTP call. O agente chama a tool e usa o retorno.
+- Via tool nativa `web_fetch` do OpenClaw (se habilitada no `openclaw.json`).
+- Via prompt que instrui o agente a usar tools já registradas.
+
+**O que implementar:**
+1. Criar mock endpoints em agentserver: `GET /api/sim/cobranca/{cpf}`, `/api/sim/produtos`,
+   `/api/sim/pedidos/{id}` — retornam dados fictícios estruturados (remove hardcoding do prompt).
+2. Documentar padrão de `registerTool` no `index.mjs` para chamar esses endpoints com auth.
+3. **Padrão multi-tenant de integração:** tenant registra URL da sua API no agentserver
+   (novo campo em `workspace_settings`). Skill faz call para essa URL com token do tenant.
+   Cada tenant conecta seus próprios sistemas (CRM, ERP, etc.) sem fork da skill.
+
+---
+
+## Grupo C — Dados e Conformidade
+
+### C1 — Viabilidade de salvar conversas no banco de dados
+
+**Ideia:** persistir turns IM (inbound + outbound) no DB para auditoria, analytics e
+conformidade.
 
 **Contexto atual:**
-- `draft_audit_events` existe para ações do playground (não para conversas IM).
-- Turns IM: processados em `processTurn` / `runTurnSync` → reply enviado → **nada persiste no DB**.
-- OpenClaw guarda histórico localmente no PVC (arquivos `workspace/`), mas não em DB relacional.
-- `agent_sessions` no DB guarda só `session_id` + `codex_thread_id` — não o conteúdo das mensagens.
+- Turns processados em `runTurnSync` → reply enviado → **nada persiste no DB**.
+- `agent_sessions` guarda só `session_id` + `codex_thread_id`, não o conteúdo.
+- OpenClaw guarda histórico localmente no PVC, não em DB relacional.
 
 **O que avaliar:**
-1. Criar tabela `im_messages` (inbound + outbound, por canal, por usuário, com timestamp).
-2. Gravar em `runTurnSync` (inbound text + agent reply) antes de entregar.
-3. LGPD: conversas podem conter dados pessoais → política de retenção necessária (TTL, purge por workspace, anonimização).
-4. Volume: cada turn = 2 rows. Com N bots × M usuários ativos → estimar volume antes de implementar.
-5. Alternativa mais leve: logar só metadados (timestamp, channelID, sessionID, token_count) sem o conteúdo — compliance sem armazenar PII.
+1. Criar tabela `im_messages` (channelID, fromUserID, direction, text, timestamp).
+2. Gravar em `runTurnSync` antes/depois de entregar (inbound + reply).
+3. **LGPD gate:** conversas podem conter CPF, nome, valores de dívida → política de
+   retenção obrigatória (TTL, purge por workspace, anonimização automática).
+4. Estimativa de volume antes de implementar (N bots × M usuários × K turns/dia).
+5. Alternativa leve: logar só metadados (timestamp, channelID, sessionID, token_count)
+   sem conteúdo — compliance sem armazenar PII.
 
 ---
 
-## P5 — Sandbox: paused vs stopped — como reativar?
+## Tabela Resumo
 
-**Pergunta complementar ao P1:** se o sandbox é **pausado** (não deletado), como ele é reativado quando o usuário manda uma nova mensagem? É automático?
+| ID | Título | Grupo | Prioridade |
+|----|--------|-------|------------|
+| A1 | Idle timeout: para ou pausa? | Sandbox | Alta |
+| A2 | Auto-resume após pause (potencial bug silencioso) | Sandbox | Alta |
+| A3 | Persistência de memória após pause/kill | Sandbox | Média |
+| A4 | Capacidade paralela por sandbox | Sandbox | Média |
+| B1 | Skills com endpoints reais | Integração | Alta |
+| C1 | Salvar conversas no DB (+ LGPD) | Dados | Média |
 
-**Contexto técnico:**
-- `idlewatcher.go` → pausa via `procMgr.Pause()` → status = `paused`.
-- `internal/sandbox/manager.go` tem `Resume(id, sandboxName, command, args)` (via `process.Manager` interface).
-- A lógica de "reativar ao receber mensagem" deveria estar em `forwardToOpenclaw` / `handleOpenclawTurn`: se sandbox está `paused`, chama `Resume` antes de `ExecSimple`.
-- **Não confirmado** se isso existe hoje — pode ser que mensagens cheguem com sandbox `paused` e falhem silenciosamente.
-
-**O que investigar:**
-1. `handleOpenclawTurn` (`internal/server/openclaw_turn_handler.go`): verifica status do sandbox antes de ExecSimple? Se `paused`, chama resume?
-2. `GetSandboxForChannel` retorna sandbox paused ou só running?
-3. Se não há auto-resume: é um bug — mensagem chega, sandbox paused, turn falha, usuário não recebe resposta.
-
----
-
-## P6 — Capacidade: quantas conversas paralelas um único sandbox WhatsApp pode servir?
-
-**Pergunta:** um sandbox OpenClaw consegue atender múltiplos usuários do WhatsApp em paralelo, ou é 1 usuário por vez?
-
-**Contexto técnico:**
-- `openclaw agent --session-id <id>` roda um turn síncrono (bloqueia até LLM responder, ~2-5s).
-- `ExecSimple` é chamado por `handleOpenclawTurn` que é chamado pelo poller do imbridge.
-- O imbridge poll loop é sequencial por canal (1 msg de cada vez por canal).
-- Se 2 usuários mandam msg ao mesmo tempo para o mesmo bot WhatsApp → 2 calls a `handleOpenclawTurn` sequencialmente? Ou concorrentemente?
-- `agent_sessions` garante isolamento de memória por `(channelID, userID)`, mas o pod processa um turn por vez.
-
-**O que investigar:**
-1. O poll loop do imbridge é sequencial ou paralelo por mensagem?
-2. `handleOpenclawTurn` tem concorrência limitada (mutex? semáforo)?
-3. Se simultâneo: `openclaw agent` permite 2 instâncias concorrentes no mesmo pod (locking de arquivo? conflito de sessão)?
-4. Para N usuários simultâneos: precisa de N sandboxes (1 por usuário) ou N pods de OpenClaw?
-5. WhatsApp Business API: rate limits por número (250 conv/24h tier padrão; 1000 com qualidade alta). Quantos usuários simultâneos o pod suporta antes de a latência degradar?
-
----
-
-## Resumo / Priorização sugerida
-
-| # | Título | Tipo | Prioridade sugerida |
-|---|--------|------|---------------------|
-| P1 | Idle timeout: stop ou pause? | Investigação | Alta (afeta custos e UX) |
-| P2 | Skills com endpoints reais | Feature | Alta (MVP sim multi-bot) |
-| P3 | Persistência sessão após pause/kill | Investigação | Média |
-| P4 | Salvar conversas no DB | Feature/decisão | Média (LGPD gates) |
-| P5 | Auto-resume de sandbox pausado | Bug/investigação | Alta (potencial bug silencioso) |
-| P6 | Capacidade paralela por sandbox | Investigação | Média (escala do sim) |
+**Ordem recomendada de investigação:**
+A1 → A2 (depende de A1) → A3 (depende de A1) → A4 (independente) → B1 → C1
