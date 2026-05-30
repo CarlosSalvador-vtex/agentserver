@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -10,12 +11,16 @@ import (
 	"time"
 
 	"github.com/agentserver/agentserver/internal/db"
+	"github.com/agentserver/agentserver/internal/sbxstore"
 )
 
 // SandboxExecerIface is the minimal interface the OpenClaw-direct turn handler
 // needs from the sandbox manager. *sandbox.Manager satisfies this.
 type SandboxExecerIface interface {
 	ExecSimple(ctx context.Context, sandboxID string, command []string) (string, error)
+	// ResumeContainerWithIP scales a paused sandbox back to 1 replica and
+	// returns the pod IP. Used by auto-resume on first IM turn after idle pause.
+	ResumeContainerWithIP(sandboxID string) (string, error)
 }
 
 const openclawTurnTimeout = 120 * time.Second
@@ -55,9 +60,30 @@ func (s *Server) handleOpenclawTurn(w http.ResponseWriter, r *http.Request) {
 
 	sandboxID, _, _, _, err := s.DB.GetSandboxForChannel(req.ChannelID)
 	if err != nil {
-		log.Printf("openclaw turn: GetSandboxForChannel channel=%s: %v", req.ChannelID, err)
-		http.Error(w, "no running sandbox for channel", http.StatusNotFound)
-		return
+		// No running sandbox. Check if one is paused (idle watcher scales replicas
+		// to 0 but keeps the PVC + DB row with status='paused'). If so, resume it
+		// automatically so the bot can reply — the user's message wakes it up.
+		pausedID, pauseErr := s.DB.GetPausedSandboxForChannel(req.ChannelID)
+		if pauseErr != nil {
+			log.Printf("openclaw turn: no sandbox for channel=%s (running err: %v)", req.ChannelID, err)
+			http.Error(w, "no running sandbox for channel", http.StatusNotFound)
+			return
+		}
+		log.Printf("openclaw turn: sandbox %s paused, auto-resuming for channel=%s", pausedID, req.ChannelID)
+		resumeCtx, resumeCancel := context.WithTimeout(r.Context(), 90*time.Second)
+		defer resumeCancel()
+		podIP, resumeErr := s.SandboxExecer.ResumeContainerWithIP(pausedID)
+		if resumeErr != nil {
+			log.Printf("openclaw turn: auto-resume failed sandbox=%s: %v", pausedID, resumeErr)
+			http.Error(w, "sandbox resume failed", http.StatusServiceUnavailable)
+			return
+		}
+		if podIP != "" {
+			_ = s.DB.UpdateSandboxPodIP(pausedID, podIP)
+		}
+		_ = s.Sandboxes.UpdateStatus(pausedID, sbxstore.StatusRunning)
+		_ = resumeCtx
+		sandboxID = pausedID
 	}
 
 	sessionID := req.SessionID
@@ -129,7 +155,12 @@ type openclawParseError struct{ msg string }
 
 func (e *openclawParseError) Error() string { return "openclaw agent: " + e.msg }
 
-// Compile-time assertion that db.DB satisfies the channel lookup needed.
+// Compile-time assertions that db.DB satisfies the channel lookups needed.
 var _ interface {
 	GetSandboxForChannel(channelID string) (sandboxID, podIP, bridgeSecret, assistantName string, err error)
+	GetPausedSandboxForChannel(channelID string) (sandboxID string, err error)
+	UpdateSandboxPodIP(sandboxID, podIP string) error
 } = (*db.DB)(nil)
+
+// Ensure sql is referenced (used in GetPausedSandboxForChannel error comparison).
+var _ = sql.ErrNoRows
