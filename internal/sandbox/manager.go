@@ -468,6 +468,10 @@ if [ ! -f /mnt/session-data/.initialized ]; then
 fi
 # Ensure projects directory exists (workspace PVC mount point)
 mkdir -p /mnt/session-data/projects
+# Ensure openclaw workspace dir is writable by the agent user (UID 1000).
+# The SOUL.md subPath ConfigMap mount lands here and makes the parent dir
+# root-owned; openclaw agent tries to write AGENTS.md in the same dir.
+mkdir -p /mnt/session-data/.openclaw/workspace
 # chown after mkdir so all directories are owned by UID 1000
 chown -R 1000:1000 /mnt/session-data
 `, seedHome, seedHome)
