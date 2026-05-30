@@ -371,8 +371,22 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 
 		consecutiveFailures = 0
 
-		// Forward messages BEFORE advancing cursor.
-		allForwarded := true
+		// Advance cursor BEFORE forwarding (at-most-once delivery).
+		//
+		// Previously the cursor advanced only after all messages were forwarded,
+		// which caused double-delivery for slow turns (e.g. OpenClaw ExecSimple
+		// takes 2-5s): the next poll iteration ran before the cursor advanced and
+		// Telegram returned the same updates again. Advancing early means a
+		// forwarding failure is logged but the message is NOT retried — acceptable
+		// for non-idempotent turns like openclaw agent where a duplicate response
+		// is worse than a missed one.
+		if result.NewCursor != "" && result.NewCursor != cursor {
+			cursor = result.NewCursor
+			if err := b.db.UpdateIMChannelCursor(channelID, cursor); err != nil {
+				log.Printf("imbridge: failed to save cursor channel=%s: %v", channelID, err)
+			}
+		}
+
 		for _, msg := range result.Messages {
 			// Persist provider-specific metadata.
 			for k, v := range msg.Metadata {
@@ -383,25 +397,13 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 
 			forwarded, err := b.forwardMessage(ctx, binding, msg)
 			if err != nil {
-				log.Printf("imbridge: forward failed channel=%s from=%s: %v (will retry next poll)",
+				log.Printf("imbridge: forward failed channel=%s from=%s: %v",
 					channelID, msg.FromUserID, err)
-				allForwarded = false
-				break
+				continue // cursor already advanced; log and move on
 			}
 			if forwarded {
 				b.startTypingForUser(binding, msg)
 			}
-		}
-
-		if allForwarded && result.NewCursor != "" {
-			cursor = result.NewCursor
-			if err := b.db.UpdateIMChannelCursor(channelID, cursor); err != nil {
-				log.Printf("imbridge: failed to save cursor channel=%s: %v", channelID, err)
-			}
-		}
-
-		if !allForwarded {
-			sleepCtx(ctx, bridgeRetryDelay)
 		}
 	}
 }
