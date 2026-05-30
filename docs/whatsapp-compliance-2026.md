@@ -66,34 +66,104 @@ See `docs/cursor-handoffs/B14-whatsapp-content-guardrails.md`.
 ### 🟡 Operational (onboarding + infra decisions)
 
 **OPS-1 — Per-tenant WhatsApp number registration**
-Each deployed WhatsApp phone number must be registered under a WhatsApp Business Account
-belonging to the **tenant** (the business using agentserver), not a shared
-agentserver/OpenClaw account. If multiple tenant bots share a single BSP account, Meta
-may flag the aggregate behavior as a general-purpose platform.
 
-Action: document in the onboarding runbook that tenants must provide their own WhatsApp
-phone number registered under their own Meta Business Suite account. agentserver acts as
-a BSP/ISV, not as the first-party account holder.
+**Why it matters:** if multiple tenant bots share a single BSP account or phone number,
+Meta sees the aggregate traffic as a general-purpose platform (not individual business
+bots), which is banned. Each phone number must belong to the specific business deploying
+the bot, not to agentserver/OpenClaw as the SaaS provider.
+
+**What needs to happen:**
+- Each tenant must register their own WhatsApp phone number under their own **Meta
+  Business Suite** account and grant agentserver API access (System User token or BSP
+  delegation). agentserver acts as a BSP/ISV — it makes the technical connection but the
+  number belongs to the client.
+- This is already technically supported: `POST /api/workspaces/{id}/im/whatsapp/configure`
+  accepts `phone_number_id` + `access_token` from the tenant's Meta account. The gap is
+  that this is not documented as a **compliance requirement** in the onboarding runbook.
+- The agentserver operator must NOT register a pool of numbers in their own Meta account
+  and sub-lease them to tenants — that model violates the policy.
+
+**Who / when:** Product + Engineering, in the onboarding runbook, before first
+commercial customer. No code changes needed.
+
+---
 
 **OPS-2 — HSM template approval for proactive outbound (cobrança)**
-WhatsApp Cloud API requires pre-approved Message Templates (HSM) for proactive outbound
-messages (bot-initiated). The cobrança automation (Automations PR1–3) fires outbound
-messages — these must use approved templates.
 
-Action: before enabling cobrança automation in production, submit and approve a WhatsApp
-Message Template for the debt notification flow. Also flag for legal review: debt
-collection messaging in Brazil may face PROCON/BACEN regulations independent of Meta
-policy.
+**Why it matters:** WhatsApp Business Cloud API requires **pre-approved Message
+Templates (HSM — Highly Structured Messages)** for any message *initiated by the bot*
+(outbound/proactive). Sending free-form text as the first message in a session is only
+allowed if the user messaged the bot first in the last 24h (the "customer service window").
+The cobrança Automation (Automations PR1–3) fires outbound messages to customers — this
+is bot-initiated, so it requires an approved template.
+
+**What are HSM templates:** structured messages with fixed text + named placeholders,
+registered in Meta Business Suite and reviewed by Meta (1-3 business days). Example:
+
+```
+Template name: cobranca_notificacao_v1
+Body: "Olá {{1}}, sou da Acme. Identificamos uma pendência de {{2}} vencida em {{3}}.
+Para regularizar, confirme os 3 últimos dígitos do seu CPF."
+```
+
+Once approved, the `whatsapp_provider.go` `Send()` must be updated to accept a
+`template_name` + `components` payload (instead of free-form text) for the first
+proactive message. Subsequent replies within the 24h window can use free-form text.
+
+**Brazilian layer (PROCON/BACEN):** independent of Meta policy, debt collection via
+messaging in Brazil is regulated. Key rules: allowed hours (8h-20h weekdays, 8h-14h
+Saturdays), maximum contact frequency, mandatory opt-out mechanism, identification of the
+creditor. These are legal requirements regardless of WhatsApp's own policy.
+
+**Who / when:** Product + Jurídico, before enabling cobrança Automations in production.
+Requires: (1) template submission and approval in Meta Business Suite; (2) code change in
+`whatsapp_provider.go` to send template on first message; (3) legal review of the
+message content against PROCON/BACEN rules.
+
+---
 
 **OPS-3 — Regional policy monitoring (Brazil, EU)**
-Brazil is currently excluded from the ban; the EU situation is evolving. Confirm current
-regional policy before go-live in these jurisdictions.
+
+**Brazil:** excluded from the ban by judicial order effective 2026-01-15 (court ordered
+Meta to suspend enforcement in Brazil). This exemption may be reversed if the order is
+overturned. Before deploying commercially in Brazil, confirm the current status — the ban
+could be reinstated on short notice. **Action:** assign a named owner (Jurídico/CSM) to
+check WhatsApp Business Platform policy news in Brazil before each new customer contract
+in that territory.
+
+**European Union:** opened an investigation in December 2025. In March 2026, Meta
+announced it would allow rival AI chatbots in Europe but for a fee. The model is still
+evolving. Before deploying in EU jurisdictions, confirm: (a) whether the paid-access
+model applies to agentserver's use case; (b) whether GDPR-specific data handling
+requirements apply to bot conversations stored in the platform. **Action:** same as
+Brazil — legal review per contract, not a blanket clearance.
+
+**Who / when:** Jurídico/CSM at each customer onboarding in BR or EU. No code changes
+needed; this is a go/no-go checkpoint in the sales/onboarding process.
+
+---
 
 **OPS-4 — Acceptable-use policy in product ToS**
-Document in the product Terms of Service that tenants may only deploy bots with
-specific, defined purposes (not general-purpose AI assistants) via the WhatsApp channel.
-This transfers compliance responsibility to tenants and provides a contractual backstop
-if a tenant misuses the platform.
+
+**Why it matters:** if a tenant deploys a general-purpose AI assistant via the
+agentserver WhatsApp channel, Meta can ban the tenant's phone number — and potentially
+the BSP account — impacting other tenants. Without a contractual backstop, agentserver
+bears operational risk for tenant misuse.
+
+**What needs to be in the ToS:**
+1. "The WhatsApp channel may only be used for bots with a specific, defined business
+   purpose (customer support, sales, collections, scheduling, notifications). General-
+   purpose AI assistants are prohibited."
+2. "The tenant is responsible for compliance with the WhatsApp Business Platform Terms of
+   Service, including obtaining required Message Template approvals for proactive outbound
+   messages."
+3. "agentserver reserves the right to suspend WhatsApp access for any workspace where a
+   bot violates Meta's Acceptable Use Policy."
+4. "The tenant warrants that their WhatsApp phone number is registered under their own
+   Meta Business Suite account and that they are the first-party holder of that number."
+
+**Who / when:** Jurídico, before first commercial contract. This is a one-time document
+update that covers all future tenants.
 
 ## Summary Table
 
