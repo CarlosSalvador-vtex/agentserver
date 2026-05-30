@@ -96,27 +96,31 @@ func (s *Server) handleOpenclawTurn(w http.ResponseWriter, r *http.Request) {
 // parseOpenclawStdout extracts the agent reply text from the JSON output of
 // `openclaw agent --json`. The CLI prints config warnings to stderr (captured
 // separately by ExecSimple) and the JSON result to stdout.
+// Actual shape: {"status":"ok","result":{"payloads":[{"text":"..."}],...}}
 func parseOpenclawStdout(stdout string) (string, error) {
 	stdout = strings.TrimSpace(stdout)
 	if stdout == "" {
 		return "", &openclawParseError{"empty stdout"}
 	}
 	var result struct {
-		Payloads []struct {
-			Text string `json:"text"`
-		} `json:"payloads"`
+		Status string `json:"status"`
+		Result struct {
+			Payloads []struct {
+				Text string `json:"text"`
+			} `json:"payloads"`
+		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		return "", &openclawParseError{"json: " + err.Error()}
 	}
 	var parts []string
-	for _, p := range result.Payloads {
+	for _, p := range result.Result.Payloads {
 		if t := strings.TrimSpace(p.Text); t != "" {
 			parts = append(parts, t)
 		}
 	}
 	if len(parts) == 0 {
-		return "", &openclawParseError{"no payload text"}
+		return "", &openclawParseError{"no payload text (status=" + result.Status + ")"}
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
