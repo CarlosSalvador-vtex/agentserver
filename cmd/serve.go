@@ -85,6 +85,7 @@ var serveCmd = &cobra.Command{
 		var procMgr process.Manager
 		var driveMgr storage.DriveManager
 		var nsMgr *namespace.Manager
+		var k8sSandboxMgr server.SandboxExecerIface // set only for k8s backend
 
 		// Load known sandbox/container names from DB to avoid cleaning paused sandboxes.
 		knownNames, err := database.ListAllActiveSandboxNames()
@@ -166,6 +167,10 @@ var serveCmd = &cobra.Command{
 			mgr.CleanOrphans(knownNames, allNamespaces)
 			log.Printf("Using K8s sandbox backend (namespace prefix: %s, agentserver ns: %s, image: %s)", nsPrefix, cfg.AgentserverNamespace, cfg.Image)
 			procMgr = mgr
+			// Wire the k8s sandbox manager as the OpenClaw exec backend (B13).
+			// ExecSimple runs inside the agentserver pod which has the correct
+			// SA + kubelet TLS trust; imbridge cannot exec directly.
+			k8sSandboxMgr = mgr
 
 			workspaceDriveSize := parseEnvBytes("USER_DRIVE_SIZE", 10*1024*1024*1024)
 			storageClass := os.Getenv("STORAGE_CLASS")
@@ -224,6 +229,7 @@ var serveCmd = &cobra.Command{
 		}
 
 		srv := server.New(authSvc, oidcMgr, database, sandboxStore, procMgr, driveMgr, nsMgr, tunnel.NewRegistry(), staticFS, !strings.EqualFold(os.Getenv("PASSWORD_AUTH_ENABLED"), "false"))
+		srv.SandboxExecer = k8sSandboxMgr // nil for docker/no-k8s; 503 fallback in handler
 		srv.DatabaseURL = dbURL
 		srv.Audit = audit.NewService(database, 1000)
 		defer srv.Audit.Shutdown(5 * time.Second)

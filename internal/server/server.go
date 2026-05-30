@@ -117,6 +117,13 @@ type Server struct {
 	// Stored here so per-route wrapper methods (im_routes.go) can call it.
 	imBridgeProxy http.HandlerFunc
 
+	// SandboxExecer can execute one-shot commands in sandbox pods.
+	// Set in cmd/serve.go when the k8s backend is used. Used by the
+	// OpenClaw-direct IM turn handler (B13) so that ExecSimple runs inside
+	// the agentserver pod (which has the correct SA + kubelet TLS trust),
+	// not inside the imbridge pod.
+	SandboxExecer SandboxExecerIface
+
 	// Per-user rate limiters guarding playground LLM round-trips and pod
 	// spawns. Dry-run is allowed ~10 req/min/user with burst 3;
 	// test-sandbox is ~3 req/min/user with burst 1 (still also bounded by
@@ -358,6 +365,12 @@ func (s *Server) Router() http.Handler {
 	} else {
 		log.Printf("server: codex routing endpoint disabled (set CODEX_APP_GATEWAY_REST_URL to enable)")
 	}
+
+	// OpenClaw-direct IM turn (B13). The imbridge forwardToOpenclaw path
+	// POSTs here so the exec runs inside the agentserver pod (correct SA +
+	// kubelet TLS) instead of the imbridge pod (which lacks exec trust).
+	// Registered unconditionally — handler returns 503 if SandboxExecer unset.
+	r.Post("/api/internal/openclaw/turn", s.handleOpenclawTurn)
 
 	// Agent registration (auth via OAuth Bearer token).
 	r.Post("/api/agent/register", s.handleAgentRegister)
