@@ -1079,7 +1079,8 @@ func (s *Server) handleWorkspaceTelegramConfigure(w http.ResponseWriter, r *http
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"connected": true, "bot_id": botID})
+	// channel_id is included so the frontend can auto-bind a sandbox immediately after configure.
+	json.NewEncoder(w).Encode(map[string]interface{}{"connected": true, "bot_id": botID, "channel_id": channelID})
 }
 
 // ---------------------------------------------------------------------------

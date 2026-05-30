@@ -6,7 +6,8 @@ interface TelegramConfigModalProps {
   sandboxId?: string
   workspaceId?: string
   onClose: () => void
-  onConnected: () => void
+  /** Called with the new channel_id when workspace-level configure succeeds. */
+  onConnected: (channelId?: string) => void
 }
 
 export function TelegramConfigModal({ sandboxId, workspaceId, onClose, onConnected }: TelegramConfigModalProps) {
@@ -27,7 +28,8 @@ export function TelegramConfigModal({ sandboxId, workspaceId, onClose, onConnect
         : await telegramConfigure(sandboxId!, botToken.trim())
       setBotName((result as any).bot_name || result.bot_id)
       setStatus('connected')
-      onConnected()
+      // Pass channel_id so the caller can auto-bind a sandbox.
+      onConnected((result as any).channel_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to configure bot')
       setStatus('error')

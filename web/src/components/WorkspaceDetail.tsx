@@ -1033,20 +1033,21 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
                         </td>
                         <td className="px-3 py-2">
                           <select
-                            value={ch.routing_mode || 'nanoclaw'}
+                            value={ch.routing_mode || 'openclaw'}
                             onChange={async (e) => {
                               try {
                                 await updateWorkspaceIMChannel(workspaceId, ch.id, {
-                                  routing_mode: e.target.value as 'nanoclaw' | 'codex',
+                                  routing_mode: e.target.value as 'openclaw' | 'nanoclaw' | 'codex',
                                 })
                                 loadChannels()
                               } catch {}
                             }}
                             className="w-full rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[11px] text-[var(--foreground)]"
-                            title="Routing mode: nanoclaw = legacy NanoClaw sandbox; codex = Codex via codex-app-gateway"
+                            title="Routing mode: openclaw = OpenClaw pod (recommended); codex = Codex gateway; nanoclaw = legacy"
                           >
-                            <option value="nanoclaw">nanoclaw</option>
+                            <option value="openclaw">openclaw</option>
                             <option value="codex">codex</option>
+                            <option value="nanoclaw">nanoclaw (legacy)</option>
                           </select>
                         </td>
                         <td className="px-3 py-2">
@@ -1136,7 +1137,26 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
         <TelegramConfigModal
           workspaceId={workspaceId}
           onClose={() => setShowTelegramConfig(false)}
-          onConnected={() => { loadChannels() }}
+          onConnected={async (channelId?: string) => {
+            await loadChannels()
+            // Auto-bind to a running OpenClaw sandbox so the bot can reply
+            // immediately. If no sandbox is running yet, the user can bind
+            // manually via the + action in the channel list.
+            if (channelId) {
+              try {
+                const r = await autoBindChannel(workspaceId, channelId)
+                setBindResult({
+                  channelId,
+                  ok: true,
+                  message: r.reused
+                    ? `Bot connected and bound to sandbox ${r.sandbox_id.slice(0, 8)}…`
+                    : `Bot connected. Provisioning sandbox ${r.sandbox_id.slice(0, 8)}…`,
+                })
+              } catch {
+                // No running sandbox — user will bind manually. Not an error.
+              }
+            }
+          }}
         />
       )}
       {showMatrixConfig && (
