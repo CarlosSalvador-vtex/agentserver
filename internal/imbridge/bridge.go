@@ -31,7 +31,7 @@ type BridgeDB interface {
 	// DispatchInboundChannel looks up the channel by ID and returns the
 	// fields needed to construct a BridgeBinding for push-based providers
 	// (e.g. WhatsApp webhooks).
-	DispatchInboundChannel(channelID string) (workspaceID, provider, botID, botToken, baseURL, routingMode string, err error)
+	DispatchInboundChannel(channelID string) (workspaceID, provider, botID, botToken, baseURL, routingMode, scopeDescription string, err error)
 }
 
 // SandboxResolver looks up the current state of a sandbox.
@@ -423,7 +423,7 @@ func (b *Bridge) pollLoop(ctx context.Context, binding BridgeBinding) {
 //     running sandbox (caller decides whether to drop or retry).
 //   - err != nil for transport/marshal failures.
 func (b *Bridge) DispatchInbound(ctx context.Context, channelID string, msg InboundMessage) (bool, error) {
-	wsID, providerName, botID, botToken, baseURL, routingMode, err := b.db.DispatchInboundChannel(channelID)
+	wsID, providerName, botID, botToken, baseURL, routingMode, scopeDescription, err := b.db.DispatchInboundChannel(channelID)
 	if err != nil {
 		return false, fmt.Errorf("lookup channel %s: %w", channelID, err)
 	}
@@ -434,10 +434,12 @@ func (b *Bridge) DispatchInbound(ctx context.Context, channelID string, msg Inbo
 	binding := BridgeBinding{
 		Provider: provider,
 		Credentials: Credentials{
-			ChannelID: channelID,
-			BotID:     botID,
-			BotToken:  botToken,
-			BaseURL:   baseURL,
+			ChannelID:        channelID,
+			WorkspaceID:      wsID,
+			BotID:            botID,
+			BotToken:         botToken,
+			BaseURL:          baseURL,
+			ScopeDescription: scopeDescription,
 		},
 		ChannelID:   channelID,
 		WorkspaceID: wsID,

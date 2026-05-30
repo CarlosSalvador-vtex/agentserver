@@ -59,7 +59,7 @@ func main() {
 		}
 	}
 
-	srv := imbridgesvc.NewServer(database, authSvc, sandboxStore, bridge)
+	srv := imbridgesvc.NewServer(database, authSvc, sandboxStore, bridge, cfg.LLMProxyURL)
 	srv.RestorePollers()
 	imbridgesvc.LogWhatsAppHMACMode()
 

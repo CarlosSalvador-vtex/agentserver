@@ -15,8 +15,24 @@ type IMChannel struct {
 	BaseURL        string
 	Cursor         string
 	RequireMention bool
-	RoutingMode    string
-	BoundAt        time.Time
+	RoutingMode        string
+	ScopeDescription string
+	BoundAt            time.Time
+}
+
+func finishIMChannel(c *IMChannel, botToken, baseURL, cursor, routingMode *string) {
+	if botToken != nil {
+		c.BotToken = *botToken
+	}
+	if baseURL != nil {
+		c.BaseURL = *baseURL
+	}
+	if cursor != nil {
+		c.Cursor = *cursor
+	}
+	if routingMode != nil {
+		c.RoutingMode = *routingMode
+	}
 }
 
 // CreateIMChannel inserts or updates a workspace IM channel record.
@@ -62,27 +78,16 @@ func (db *DB) GetIMChannelByWorkspaceAndToken(workspaceID, token string) (*IMCha
 	c := &IMChannel{}
 	var botToken, baseURL, cursor, routingMode *string
 	err := db.QueryRow(
-		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, COALESCE(scope_description, ''), bound_at
 		FROM workspace_im_channels
 		WHERE workspace_id = $1 AND provider = 'whatsapp' AND verify_token = $2
 		LIMIT 1`,
 		workspaceID, token,
-	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt)
 	if err != nil {
 		return nil, err
 	}
-	if botToken != nil {
-		c.BotToken = *botToken
-	}
-	if baseURL != nil {
-		c.BaseURL = *baseURL
-	}
-	if cursor != nil {
-		c.Cursor = *cursor
-	}
-	if routingMode != nil {
-		c.RoutingMode = *routingMode
-	}
+	finishIMChannel(c, botToken, baseURL, cursor, routingMode)
 	return c, nil
 }
 
@@ -91,32 +96,21 @@ func (db *DB) GetIMChannel(channelID string) (*IMChannel, error) {
 	c := &IMChannel{}
 	var botToken, baseURL, cursor, routingMode *string
 	err := db.QueryRow(
-		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, COALESCE(scope_description, ''), bound_at
 		FROM workspace_im_channels WHERE id = $1`,
 		channelID,
-	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt)
 	if err != nil {
 		return nil, err
 	}
-	if botToken != nil {
-		c.BotToken = *botToken
-	}
-	if baseURL != nil {
-		c.BaseURL = *baseURL
-	}
-	if cursor != nil {
-		c.Cursor = *cursor
-	}
-	if routingMode != nil {
-		c.RoutingMode = *routingMode
-	}
+	finishIMChannel(c, botToken, baseURL, cursor, routingMode)
 	return c, nil
 }
 
 // ListIMChannels returns all IM channels for a workspace.
 func (db *DB) ListIMChannels(workspaceID string) ([]IMChannel, error) {
 	rows, err := db.Query(
-		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, COALESCE(scope_description, ''), bound_at
 		FROM workspace_im_channels WHERE workspace_id = $1 ORDER BY bound_at`,
 		workspaceID,
 	)
@@ -129,21 +123,10 @@ func (db *DB) ListIMChannels(workspaceID string) ([]IMChannel, error) {
 	for rows.Next() {
 		var c IMChannel
 		var botToken, baseURL, cursor, routingMode *string
-		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt); err != nil {
 			return nil, err
 		}
-		if botToken != nil {
-			c.BotToken = *botToken
-		}
-		if baseURL != nil {
-			c.BaseURL = *baseURL
-		}
-		if cursor != nil {
-			c.Cursor = *cursor
-		}
-		if routingMode != nil {
-			c.RoutingMode = *routingMode
-		}
+		finishIMChannel(&c, botToken, baseURL, cursor, routingMode)
 		channels = append(channels, c)
 	}
 	return channels, rows.Err()
@@ -153,7 +136,7 @@ func (db *DB) ListIMChannels(workspaceID string) ([]IMChannel, error) {
 // Used by RestoreIMBridgePollers.
 func (db *DB) ListAllActiveChannels(provider string) ([]IMChannel, error) {
 	rows, err := db.Query(
-		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, COALESCE(scope_description, ''), bound_at
 		FROM workspace_im_channels
 		WHERE provider = $1 AND bot_token IS NOT NULL`,
 		provider,
@@ -167,21 +150,10 @@ func (db *DB) ListAllActiveChannels(provider string) ([]IMChannel, error) {
 	for rows.Next() {
 		var c IMChannel
 		var botToken, baseURL, cursor, routingMode *string
-		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt); err != nil {
 			return nil, err
 		}
-		if botToken != nil {
-			c.BotToken = *botToken
-		}
-		if baseURL != nil {
-			c.BaseURL = *baseURL
-		}
-		if cursor != nil {
-			c.Cursor = *cursor
-		}
-		if routingMode != nil {
-			c.RoutingMode = *routingMode
-		}
+		finishIMChannel(&c, botToken, baseURL, cursor, routingMode)
 		channels = append(channels, c)
 	}
 	return channels, rows.Err()
@@ -190,13 +162,19 @@ func (db *DB) ListAllActiveChannels(provider string) ([]IMChannel, error) {
 // DispatchInboundChannel returns the fields needed to build a
 // BridgeBinding for push-based providers (e.g. WhatsApp webhook).
 // Returns sql.ErrNoRows if the channel doesn't exist.
-func (db *DB) DispatchInboundChannel(channelID string) (workspaceID, provider, botID, botToken, baseURL, routingMode string, err error) {
-	var token, base, mode *string
+func (db *DB) DispatchInboundChannel(channelID string) (workspaceID, provider, botID, botToken, baseURL, routingMode, scopeDescription string, err error) {
+	var token, base, mode, scope *string
 	err = db.QueryRow(
-		`SELECT workspace_id, provider, bot_id, bot_token, base_url, routing_mode
+		`SELECT workspace_id, provider, bot_id, bot_token, base_url, routing_mode, COALESCE(scope_description, '')
 		FROM workspace_im_channels WHERE id = $1`,
 		channelID,
-	).Scan(&workspaceID, &provider, &botID, &token, &base, &mode)
+	).Scan(&workspaceID, &provider, &botID, &token, &base, &mode, &scope)
+	if err != nil {
+		return
+	}
+	if scope != nil {
+		scopeDescription = *scope
+	}
 	if err != nil {
 		return
 	}
@@ -224,28 +202,17 @@ func (db *DB) FindIMChannelByProviderBot(provider, botID string) (*IMChannel, er
 	c := &IMChannel{}
 	var botToken, baseURL, cursor, routingMode *string
 	err := db.QueryRow(
-		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, COALESCE(scope_description, ''), bound_at
 		FROM workspace_im_channels
 		WHERE provider = $1 AND bot_id = $2
 		ORDER BY bound_at ASC
 		LIMIT 1`,
 		provider, botID,
-	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt)
 	if err != nil {
 		return nil, err
 	}
-	if botToken != nil {
-		c.BotToken = *botToken
-	}
-	if baseURL != nil {
-		c.BaseURL = *baseURL
-	}
-	if cursor != nil {
-		c.Cursor = *cursor
-	}
-	if routingMode != nil {
-		c.RoutingMode = *routingMode
-	}
+	finishIMChannel(c, botToken, baseURL, cursor, routingMode)
 	return c, nil
 }
 
@@ -256,27 +223,16 @@ func (db *DB) FindIMChannelByWorkspaceAndBot(workspaceID, provider, botID string
 	c := &IMChannel{}
 	var botToken, baseURL, cursor, routingMode *string
 	err := db.QueryRow(
-		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, bound_at
+		`SELECT id, workspace_id, provider, bot_id, user_id, bot_token, base_url, cursor, require_mention, routing_mode, COALESCE(scope_description, ''), bound_at
 		FROM workspace_im_channels
 		WHERE workspace_id = $1 AND provider = $2 AND bot_id = $3
 		LIMIT 1`,
 		workspaceID, provider, botID,
-	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt)
 	if err != nil {
 		return nil, err
 	}
-	if botToken != nil {
-		c.BotToken = *botToken
-	}
-	if baseURL != nil {
-		c.BaseURL = *baseURL
-	}
-	if cursor != nil {
-		c.Cursor = *cursor
-	}
-	if routingMode != nil {
-		c.RoutingMode = *routingMode
-	}
+	finishIMChannel(c, botToken, baseURL, cursor, routingMode)
 	return c, nil
 }
 
@@ -439,29 +395,18 @@ func (db *DB) GetIMChannelForSandbox(sandboxID string) (*IMChannel, error) {
 	var botToken, baseURL, cursor, routingMode *string
 
 	err := db.QueryRow(
-		`SELECT c.id, c.workspace_id, c.provider, c.bot_id, c.user_id, c.bot_token, c.base_url, c.cursor, c.require_mention, c.routing_mode, c.bound_at
+		`SELECT c.id, c.workspace_id, c.provider, c.bot_id, c.user_id, c.bot_token, c.base_url, c.cursor, c.require_mention, c.routing_mode, COALESCE(c.scope_description, ''), c.bound_at
 		FROM sandbox_channel_bindings b
 		JOIN workspace_im_channels c ON c.id = b.channel_id
 		WHERE b.sandbox_id = $1
 		ORDER BY b.bound_at DESC
 		LIMIT 1`,
 		sandboxID,
-	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.BoundAt)
+	).Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.BotID, &c.UserID, &botToken, &baseURL, &cursor, &c.RequireMention, &routingMode, &c.ScopeDescription, &c.BoundAt)
 
 	if err != nil {
 		return nil, err
 	}
-	if botToken != nil {
-		c.BotToken = *botToken
-	}
-	if baseURL != nil {
-		c.BaseURL = *baseURL
-	}
-	if cursor != nil {
-		c.Cursor = *cursor
-	}
-	if routingMode != nil {
-		c.RoutingMode = *routingMode
-	}
+	finishIMChannel(c, botToken, baseURL, cursor, routingMode)
 	return c, nil
 }

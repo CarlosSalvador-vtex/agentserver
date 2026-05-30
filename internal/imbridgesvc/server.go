@@ -14,20 +14,24 @@ import (
 
 // Server is the standalone imbridge HTTP service.
 type Server struct {
-	db        *db.DB
-	auth      *auth.Auth
-	sandboxes *sbxstore.Store
-	bridge    *imbridge.Bridge
+	db           *db.DB
+	auth         *auth.Auth
+	sandboxes    *sbxstore.Store
+	bridge       *imbridge.Bridge
+	llmProxyURL  string
 }
 
 // NewServer creates a new imbridge service.
-func NewServer(database *db.DB, authSvc *auth.Auth, sandboxStore *sbxstore.Store, bridge *imbridge.Bridge) *Server {
-	return &Server{
-		db:        database,
-		auth:      authSvc,
-		sandboxes: sandboxStore,
-		bridge:    bridge,
+func NewServer(database *db.DB, authSvc *auth.Auth, sandboxStore *sbxstore.Store, bridge *imbridge.Bridge, llmProxyURL string) *Server {
+	s := &Server{
+		db:          database,
+		auth:        authSvc,
+		sandboxes:   sandboxStore,
+		bridge:      bridge,
+		llmProxyURL: llmProxyURL,
 	}
+	imbridge.SetGuardrailsRuntime(llmProxyURL, s.guardrailsTokenProvider())
+	return s
 }
 
 // Routes returns the HTTP handler for all imbridge endpoints.

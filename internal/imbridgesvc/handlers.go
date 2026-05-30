@@ -75,13 +75,26 @@ func (s *Server) handleImbridgeDirectSend(w http.ResponseWriter, r *http.Request
 	s.bridge.StopTyping(channel.ID, req.ToUserID)
 
 	creds := &imbridge.Credentials{
-		ChannelID: channel.ID,
-		BotID:     channel.BotID,
-		BotToken:  channel.BotToken,
-		BaseURL:   channel.BaseURL,
+		ChannelID:        channel.ID,
+		WorkspaceID:      channel.WorkspaceID,
+		BotID:            channel.BotID,
+		BotToken:         channel.BotToken,
+		BaseURL:          channel.BaseURL,
+		ScopeDescription: channel.ScopeDescription,
 	}
 
-	if err := provider.Send(r.Context(), creds, req.ToUserID, req.Text, meta); err != nil {
+	checker := s.checkerForChannel(r.Context(), channel)
+	if dec := checker.CheckOutbound(r.Context(), req.Text); !dec.Allowed {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "blocked",
+			"message": imbridge.OutboundBlockMessage(dec.Reason),
+		})
+		return
+	}
+
+	sendCtx := imbridge.ContextWithGuardrailsChecker(r.Context(), imbridge.NoopGuardrails{})
+	if err := provider.Send(sendCtx, creds, req.ToUserID, req.Text, meta); err != nil {
 		log.Printf("imbridge direct send: failed channel=%s provider=%s to=%s: %v",
 			channel.ID, provider.Name(), req.ToUserID, err)
 		http.Error(w, "failed to send message", http.StatusBadGateway)
@@ -166,14 +179,31 @@ func (s *Server) handleImbridgeDirectSendImage(w http.ResponseWriter, r *http.Re
 	s.bridge.StopTyping(channel.ID, req.ToUserID)
 
 	creds := &imbridge.Credentials{
-		ChannelID: channel.ID,
-		BotID:     channel.BotID,
-		BotToken:  channel.BotToken,
-		BaseURL:   channel.BaseURL,
+		ChannelID:        channel.ID,
+		WorkspaceID:      channel.WorkspaceID,
+		BotID:            channel.BotID,
+		BotToken:         channel.BotToken,
+		BaseURL:          channel.BaseURL,
+		ScopeDescription: channel.ScopeDescription,
+	}
+
+	checkText := req.Caption
+	if checkText == "" {
+		checkText = "[image]"
+	}
+	checker := s.checkerForChannel(r.Context(), channel)
+	if dec := checker.CheckOutbound(r.Context(), checkText); !dec.Allowed {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "blocked",
+			"message": imbridge.OutboundBlockMessage(dec.Reason),
+		})
+		return
 	}
 
 	meta, _ := s.db.GetAllChannelMeta(channel.ID, req.ToUserID)
-	if err := isp.SendImage(r.Context(), creds, req.ToUserID, data, req.Caption, meta); err != nil {
+	sendCtx := imbridge.ContextWithGuardrailsChecker(r.Context(), imbridge.NoopGuardrails{})
+	if err := isp.SendImage(sendCtx, creds, req.ToUserID, data, req.Caption, meta); err != nil {
 		log.Printf("imbridge direct send-image: failed channel=%s provider=%s to=%s: %v",
 			channel.ID, provider.Name(), req.ToUserID, err)
 		http.Error(w, "failed to send image", http.StatusBadGateway)
@@ -1468,14 +1498,7 @@ func (s *Server) handleWhatsAppWebhookInboundPerWorkspace(w http.ResponseWriter,
 				if msg.Type != "text" || msg.Text.Body == "" {
 					continue
 				}
-				inbound := imbridge.InboundMessage{
-					FromUserID: msg.From + "@wa",
-					SenderName: senderName,
-					Text:       msg.Text.Body,
-				}
-				if _, err := s.bridge.DispatchInbound(r.Context(), channel.ID, inbound); err != nil {
-					log.Printf("whatsapp webhook [%s]: dispatch channel=%s msg=%s: %v", wsID, channel.ID, msg.ID, err)
-				}
+				s.dispatchWhatsAppInbound(r.Context(), channel, senderName, msg.From+"@wa", msg.Text.Body)
 			}
 		}
 	}
@@ -1584,14 +1607,7 @@ func (s *Server) handleWhatsAppWebhookInbound(w http.ResponseWriter, r *http.Req
 					// MVP: text only. TODO: handle media, audio, location, reactions.
 					continue
 				}
-				inbound := imbridge.InboundMessage{
-					FromUserID: msg.From + "@wa",
-					SenderName: senderName,
-					Text:       msg.Text.Body,
-				}
-				if _, err := s.bridge.DispatchInbound(r.Context(), channel.ID, inbound); err != nil {
-					log.Printf("whatsapp webhook: dispatch channel=%s msg=%s: %v", channel.ID, msg.ID, err)
-				}
+				s.dispatchWhatsAppInbound(r.Context(), channel, senderName, msg.From+"@wa", msg.Text.Body)
 			}
 		}
 	}
