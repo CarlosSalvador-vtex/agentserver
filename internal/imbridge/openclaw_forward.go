@@ -37,27 +37,32 @@ func buildOpenclawAgentCommand(message, sessionID string) []string {
 
 // parseOpenclawAgentStdout extracts the agent reply from openclaw agent --json stdout.
 // Config warnings are on stderr (captured separately by ExecSimple); this only parses stdout.
+// parseOpenclawAgentStdout parses `openclaw agent --json` stdout.
+// Actual shape: {"status":"ok","result":{"payloads":[{"text":"..."}],...}}
 func parseOpenclawAgentStdout(stdout string) (string, error) {
 	out := strings.TrimSpace(stdout)
 	if out == "" {
 		return "", fmt.Errorf("openclaw agent: empty stdout")
 	}
 	var result struct {
-		Payloads []struct {
-			Text string `json:"text"`
-		} `json:"payloads"`
+		Status string `json:"status"`
+		Result struct {
+			Payloads []struct {
+				Text string `json:"text"`
+			} `json:"payloads"`
+		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		return "", fmt.Errorf("openclaw agent: parse json: %w", err)
 	}
 	var parts []string
-	for _, p := range result.Payloads {
+	for _, p := range result.Result.Payloads {
 		if t := strings.TrimSpace(p.Text); t != "" {
 			parts = append(parts, t)
 		}
 	}
 	if len(parts) == 0 {
-		return "", fmt.Errorf("openclaw agent: no payloads text")
+		return "", fmt.Errorf("openclaw agent: no payloads text (status=%s)", result.Status)
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
