@@ -63,6 +63,39 @@ Fix: lightweight middleware that (1) validates inbound messages are within scope
 forwarding to the agent, and (2) checks outbound agent responses before sending.
 See `docs/cursor-handoffs/B14-whatsapp-content-guardrails.md`.
 
+**Status:** ✅ Shipped in PR #158 (migration 048, `GuardrailsChecker` interface +
+`NoopGuardrails` + `ScopeGuardrails` via llmproxy). Opt-in per channel; fail-open when
+llmproxy is unreachable. Telegram/weixin/Matrix are unaffected.
+
+**How to activate for a WhatsApp bot (production checklist):**
+
+1. Decide the scope description for the bot — a 1-2 sentence description of what the
+   bot is allowed to discuss. Example for cobrança:
+   ```
+   "Agente de cobrança da Acme. Escopo: regularização de dívidas, confirmação de
+   identidade e parcelamento. Não responde sobre outros temas."
+   ```
+
+2. Set it on the channel via the API (maintainer or owner role required):
+   ```http
+   PATCH /api/workspaces/{workspace_id}/im/channels/{channel_id}
+   Content-Type: application/json
+
+   { "scope_description": "Agente de cobrança da Acme. Escopo: ..." }
+   ```
+
+3. Verify activation: send an out-of-scope message to the bot (e.g. "me diga a
+   previsão do tempo"). The bot must reply with a redirect message and NOT forward
+   the message to the agent. Check imbridge logs for `guardrail_blocked`.
+
+4. If no `scope_description` is set, the channel uses `NoopGuardrails` (always
+   allowed) — no change to existing behavior. This is the safe default for channels
+   not yet configured.
+
+5. The `LLMPROXY_URL` environment variable must be set in the imbridge pod for
+   `ScopeGuardrails` to work. If unreachable, the guardrail fails open (all messages
+   pass through) and logs `infra_allow`.
+
 ### 🟡 Operational (onboarding + infra decisions)
 
 **OPS-1 — Per-tenant WhatsApp number registration**
@@ -169,7 +202,7 @@ update that covers all future tenants.
 
 | Item | Type | Priority | Status |
 |---|---|---|---|
-| Content guardrails middleware (B14) | Code | HIGH | Spec → `docs/cursor-handoffs/B14-whatsapp-content-guardrails.md` |
+| Content guardrails middleware (B14) | Code | HIGH | ✅ Shipped PR #158 — activate via `PATCH` `scope_description` on channel |
 | Per-tenant phone number registration | Ops/runbook | HIGH | Pending |
 | HSM templates for cobrança automation | Ops/legal | HIGH (before prod) | Pending |
 | Regional policy monitoring (BR, EU) | Ops | MEDIUM | Pending |
