@@ -89,6 +89,24 @@ func (db *DB) GetSandboxForChannelViaBinding(channelID string) (sandboxID, podIP
 	return
 }
 
+// GetPausedSandboxForChannel returns the ID of the most-recently-bound sandbox
+// that is in the 'paused' state for the given channel. Used by the OpenClaw IM
+// turn handler to auto-resume a sandbox that was paused by the idle watcher.
+// Returns sql.ErrNoRows when no paused sandbox is found.
+func (db *DB) GetPausedSandboxForChannel(channelID string) (sandboxID string, err error) {
+	err = db.QueryRow(
+		`SELECT s.id
+		FROM sandbox_channel_bindings b
+		JOIN sandboxes s ON s.id = b.sandbox_id
+		WHERE b.channel_id = $1
+		  AND s.status = 'paused'
+		ORDER BY b.bound_at DESC
+		LIMIT 1`,
+		channelID,
+	).Scan(&sandboxID)
+	return
+}
+
 // GetChannelsForSandbox returns every channel bound to a sandbox via
 // the junction. Empty slice when no bindings exist.
 func (db *DB) GetChannelsForSandbox(sandboxID string) ([]IMChannel, error) {
