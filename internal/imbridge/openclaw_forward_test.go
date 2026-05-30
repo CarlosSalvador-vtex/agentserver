@@ -37,7 +37,8 @@ func TestBuildOpenclawAgentCommand(t *testing.T) {
 }
 
 func TestParseOpenclawAgentStdout(t *testing.T) {
-	stdout := `{"payloads":[{"text":"Oi! Como posso ajudar?"}],"meta":{"durationMs":100}}`
+	// Actual shape from `openclaw agent --json`: nested under result.
+	stdout := `{"status":"ok","result":{"payloads":[{"text":"Oi! Como posso ajudar?"}],"meta":{"durationMs":100}}}`
 	reply, err := parseOpenclawAgentStdout(stdout)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +49,7 @@ func TestParseOpenclawAgentStdout(t *testing.T) {
 }
 
 func TestParseOpenclawAgentStdoutMultiplePayloads(t *testing.T) {
-	stdout := `{"payloads":[{"text":"line1"},{"text":"line2"}]}`
+	stdout := `{"status":"ok","result":{"payloads":[{"text":"line1"},{"text":"line2"}]}}`
 	reply, err := parseOpenclawAgentStdout(stdout)
 	if err != nil {
 		t.Fatal(err)
