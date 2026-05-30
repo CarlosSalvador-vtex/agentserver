@@ -24,10 +24,12 @@ type Provider interface {
 
 // Credentials holds the authentication info needed to talk to an IM API.
 type Credentials struct {
-	ChannelID string // workspace_im_channels.id
-	BotID     string
-	BotToken  string
-	BaseURL   string
+	ChannelID        string // workspace_im_channels.id
+	WorkspaceID      string // workspace owning the channel (WhatsApp guardrails)
+	BotID            string
+	BotToken         string
+	BaseURL          string
+	ScopeDescription string // channel scope for content guardrails (empty = no guardrails)
 }
 
 // PollResult is returned by Provider.Poll.

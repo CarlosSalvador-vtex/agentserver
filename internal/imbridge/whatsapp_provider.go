@@ -64,6 +64,11 @@ func (p *WhatsAppProvider) Send(ctx context.Context, creds *Credentials, toUserI
 		return fmt.Errorf("whatsapp: empty text")
 	}
 
+	checker := EffectiveOutboundGuardrails(ctx, creds, runtimeLLMProxyURL, runtimeTokenProvider)
+	if dec := checker.CheckOutbound(ctx, text); !dec.Allowed {
+		return &GuardrailsBlockedError{Reason: dec.Reason, Message: OutboundBlockMessage(dec.Reason)}
+	}
+
 	to := strings.TrimSuffix(toUserID, whatsappJIDSuffix)
 	to = strings.TrimPrefix(to, "+")
 	if to == "" {
