@@ -1,7 +1,8 @@
 # Pendências — Investigação e Features
 
 > Capturado em sessão 2026-05-30. Reagrupado 2026-05-30.
-> Contexto técnico inicial incluído em cada item para facilitar retomada.
+> A1+A2 investigados e corrigidos em 2026-05-30 (PR #163).
+> Contexto técnico incluído em cada item para facilitar retomada.
 
 ---
 
@@ -11,47 +12,32 @@ Todos os itens abaixo são interdependentes: entender pause vs stop (A1) desbloq
 A2 (auto-resume) e A3 (persistência). Capacidade paralela (A4) é independente mas usa
 o mesmo contexto de como o pod funciona.
 
-### A1 — Idle timeout: o sandbox para ou é pausado?
+### A1 — Idle timeout: o sandbox para ou é pausado? ✅ RESOLVIDO
 
-**Pergunta:** após o tempo de inatividade, o sandbox é **parado/deletado** (pod removido,
-memória perdida) ou **pausado** (pod suspenso, retomável)?
+**Resposta (investigado 2026-05-30, PR #163):** **PAUSADO**, não deletado.
 
-**Contexto técnico:**
-- `internal/sbxstore/idlewatcher.go`: goroutine a cada 1min → `ListIdleSandboxes` →
-  `procMgr.Pause(sbx.ID)`. Fluxo de status: `running` → `pausing` → `paused` + limpa `pod_ip`.
-- O que `procMgr.Pause()` faz **concretamente** não foi investigado. Pode ser:
-  - Delete do pod K8s (barato, mas perde estado em memória)
-  - Freeze/suspend (preserva processo, mais caro)
-  - Delete do CRD `AgentSandbox` (recriável, mas PVC preservado se separado)
-- Configurável por workspace: `max_idle_timeout` (default 30 min, visto na UI dev).
-
-**O que investigar:**
-1. `internal/sandbox/manager.go` → implementação de `Pause()`.
-2. O pod é deletado ou suspenso?
-3. Se deletado: o PVC (`session-data`) sobrevive?
+`Pause()` em `internal/sandbox/manager.go` faz `kubectl patch sandbox spec.replicas=0`.
+O pod é removido pelo controller, mas **o PVC `session-data` sobrevive** (comentário no
+código confirma: "Pod goes away, PVC stays"). Status no DB: `running` → `pausing` → `paused`,
+`pod_ip` limpo. `ResumeContainerWithIP()` faz o inverso: `replicas=1`, aguarda pod ready,
+retorna novo IP.
 
 ---
 
-### A2 — Auto-resume: sandbox pausado é reativado ao receber nova mensagem?
+### A2 — Auto-resume: sandbox pausado é reativado ao receber nova mensagem? ✅ RESOLVIDO
 
-**Pergunta:** quando o usuário manda mensagem com o sandbox `paused`, o sistema reativa
-automaticamente ou a mensagem falha silenciosamente?
+**Bug confirmado e corrigido (PR #163).**
 
-**Contexto técnico:**
-- `internal/server/openclaw_turn_handler.go` (`handleOpenclawTurn`): chama
-  `GetSandboxForChannel` → `ExecSimple`. Não foi verificado se checa status `paused`
-  antes de executar.
-- `GetSandboxForChannel` filtra por `status = 'running' AND pod_ip != ''` — retorna
-  `sql.ErrNoRows` para sandbox paused → `handleOpenclawTurn` retorna 404 para o imbridge
-  → imbridge loga erro e não entrega resposta → **usuário fica sem resposta (bug silencioso)**.
-- `process.Manager` tem `Resume(id, sandboxName, command, args)` — existe mas não está
-  sendo chamado no caminho IM.
+`GetSandboxForChannelViaBinding` filtrava `status='running' AND pod_ip!=''` → sandbox
+`paused` retornava `ErrNoRows` → `handleOpenclawTurn` retornava 404 → imbridge logava
+erro → **bot não respondia ao usuário (bug silencioso confirmado)**.
 
-**O que investigar/implementar:**
-1. Confirmar o bug: sandbox paused + msg IM → sem resposta.
-2. Implementar auto-resume em `handleOpenclawTurn` antes de `ExecSimple`:
-   se `GetSandboxForChannel` retorna not-found, buscar sandbox paused e chamar `Resume`.
-3. `Resume` provisiona novo pod? Usa o mesmo PVC?
+**Fix aplicado:**
+- Novo `db.GetPausedSandboxForChannel(channelID)` — busca sandbox `paused` vinculado ao canal.
+- `handleOpenclawTurn`: se running não encontrado → checa paused → chama
+  `SandboxExecerIface.ResumeContainerWithIP()` (timeout 90s) → atualiza `pod_ip` + status
+  `running` → prossegue com `ExecSimple`. Bot responde normalmente; usuário vê apenas
+  uma pequena latência extra (~15-30s na primeira msg após longa inatividade).
 
 ---
 
@@ -157,12 +143,12 @@ conformidade.
 
 | ID | Título | Grupo | Prioridade |
 |----|--------|-------|------------|
-| A1 | Idle timeout: para ou pausa? | Sandbox | Alta |
-| A2 | Auto-resume após pause (potencial bug silencioso) | Sandbox | Alta |
-| A3 | Persistência de memória após pause/kill | Sandbox | Média |
-| A4 | Capacidade paralela por sandbox | Sandbox | Média |
-| B1 | Skills com endpoints reais | Integração | Alta |
-| C1 | Salvar conversas no DB (+ LGPD) | Dados | Média |
+| A1 | Idle timeout: para ou pausa? | Sandbox | ✅ Resolvido (PR #163) |
+| A2 | Auto-resume após pause (bug silencioso) | Sandbox | ✅ Resolvido (PR #163) |
+| A3 | Persistência de memória após pause/kill | Sandbox | Pendente |
+| A4 | Capacidade paralela por sandbox | Sandbox | Pendente |
+| B1 | Skills com endpoints reais | Integração | Pendente |
+| C1 | Salvar conversas no DB (+ LGPD) | Dados | Pendente |
 
 **Ordem recomendada de investigação:**
 A1 → A2 (depende de A1) → A3 (depende de A1) → A4 (independente) → B1 → C1
