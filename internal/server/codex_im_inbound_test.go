@@ -234,7 +234,7 @@ func TestCodexInboundTransportError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	waitFor(t, func() bool { return len(sends.Load().([]*capturedSend)) == 1 })
-	if !strings.Contains(sends.Load().([]*capturedSend)[0].text, "超时") {
+	if !strings.Contains(sends.Load().([]*capturedSend)[0].text, "Tempo limite") {
 		t.Errorf("want timeout message")
 	}
 }
