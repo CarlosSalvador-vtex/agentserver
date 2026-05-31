@@ -115,6 +115,16 @@ func (s *Server) handleOpenclawTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist conversation history (fire-and-forget; log on error but don't block).
+	go func() {
+		if err := s.DB.SaveIMMessage(req.ChannelID, req.FromUserID, "inbound", req.Text, req.SessionID); err != nil {
+			log.Printf("openclaw turn: save inbound message channel=%s: %v", req.ChannelID, err)
+		}
+		if err := s.DB.SaveIMMessage(req.ChannelID, req.FromUserID, "outbound", reply, req.SessionID); err != nil {
+			log.Printf("openclaw turn: save outbound message channel=%s: %v", req.ChannelID, err)
+		}
+	}()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"reply": reply})
 }
@@ -160,6 +170,7 @@ var _ interface {
 	GetSandboxForChannel(channelID string) (sandboxID, podIP, bridgeSecret, assistantName string, err error)
 	GetPausedSandboxForChannel(channelID string) (sandboxID string, err error)
 	UpdateSandboxPodIP(sandboxID, podIP string) error
+	SaveIMMessage(channelID, fromUserID, direction, text, sessionID string) error
 } = (*db.DB)(nil)
 
 // Ensure sql is referenced (used in GetPausedSandboxForChannel error comparison).

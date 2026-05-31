@@ -410,3 +410,58 @@ func (db *DB) GetIMChannelForSandbox(sandboxID string) (*IMChannel, error) {
 	finishIMChannel(c, botToken, baseURL, cursor, routingMode)
 	return c, nil
 }
+
+// SaveIMMessage persists one inbound or outbound IM message for audit/history.
+// direction must be "inbound" or "outbound". sessionID may be empty.
+func (db *DB) SaveIMMessage(channelID, fromUserID, direction, text, sessionID string) error {
+	var sid *string
+	if sessionID != "" {
+		sid = &sessionID
+	}
+	_, err := db.Exec(
+		`INSERT INTO im_messages (channel_id, from_user_id, direction, text, session_id)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		channelID, fromUserID, direction, text, sid,
+	)
+	return err
+}
+
+// ListIMMessages returns the most recent messages for a channel/user pair,
+// ordered oldest-first (up to limit rows).
+func (db *DB) ListIMMessages(channelID, fromUserID string, limit int) ([]IMMessage, error) {
+	rows, err := db.Query(
+		`SELECT id, channel_id, from_user_id, direction, text, COALESCE(session_id, ''), created_at
+		 FROM im_messages
+		 WHERE channel_id = $1 AND from_user_id = $2
+		 ORDER BY created_at DESC
+		 LIMIT $3`,
+		channelID, fromUserID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []IMMessage
+	for rows.Next() {
+		var m IMMessage
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.FromUserID, &m.Direction, &m.Text, &m.SessionID, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, rows.Err()
+}
+
+// IMMessage is one row from im_messages.
+type IMMessage struct {
+	ID         string
+	ChannelID  string
+	FromUserID string
+	Direction  string // "inbound" | "outbound"
+	Text       string
+	SessionID  string
+	CreatedAt  interface{}
+}
