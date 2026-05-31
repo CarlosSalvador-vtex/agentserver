@@ -19,6 +19,10 @@ const (
 	bridgeBackoffDelay     = 30 * time.Second
 	maxConsecutiveFailures = 3
 	forwardTimeout         = 10 * time.Second
+	// openclawForwardTimeout is longer than forwardTimeout because OpenClaw
+	// turns include LLM inference (~2-5s) plus optional pod resume (~30s) when
+	// the sandbox was paused by the idle watcher.
+	openclawForwardTimeout = 150 * time.Second
 )
 
 // BridgeDB is the DB interface needed by the bridge.
