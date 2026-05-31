@@ -315,7 +315,7 @@ func (p *WeixinProvider) StartTyping(ctx context.Context, creds *Credentials, us
 			// No typing ticket — just wait for timeout to send error notice.
 			<-ctx.Done()
 			if ctx.Err() == context.DeadlineExceeded {
-				sendError("⚠️ 消息处理超时，请稍后重试。")
+				sendError("⚠️ Tempo limite de resposta atingido. Tente novamente em instantes.")
 			}
 			return
 		}
@@ -340,7 +340,7 @@ func (p *WeixinProvider) StartTyping(ctx context.Context, creds *Credentials, us
 				bgCancel()
 
 				if ctx.Err() == context.DeadlineExceeded {
-					sendError("⚠️ 消息处理超时，请稍后重试。")
+					sendError("⚠️ Tempo limite de resposta atingido. Tente novamente em instantes.")
 				}
 				return
 			case <-ticker.C:

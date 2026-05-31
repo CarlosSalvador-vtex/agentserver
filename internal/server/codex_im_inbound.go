@@ -138,12 +138,12 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 	})
 	if err != nil {
 		log.Printf("codex_im: cxg call channel=%s user=%s: %v", req.ChannelID, externalID, err)
-		h.sendError(ctx, req, "⚠️ Codex 处理失败，请稍后重试")
+		h.sendError(ctx, req, "⚠️ Falha ao processar mensagem. Tente novamente.")
 		return err
 	}
 	if cresp == nil {
 		log.Printf("codex_im: nil codex response channel=%s user=%s", req.ChannelID, externalID)
-		h.sendError(ctx, req, "⚠️ Codex 无响应，请稍后重试")
+		h.sendError(ctx, req, "⚠️ Serviço sem resposta. Tente novamente.")
 		return fmt.Errorf("nil codex response")
 	}
 
@@ -166,12 +166,12 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 		})
 		if err != nil {
 			log.Printf("codex_im: cxg retry channel=%s user=%s: %v", req.ChannelID, externalID, err)
-			h.sendError(ctx, req, "⚠️ Codex 处理失败，请稍后重试")
+			h.sendError(ctx, req, "⚠️ Falha ao processar mensagem. Tente novamente.")
 			return err
 		}
 		if cresp == nil {
 			log.Printf("codex_im: nil codex retry response channel=%s user=%s", req.ChannelID, externalID)
-			h.sendError(ctx, req, "⚠️ Codex 无响应，请稍后重试")
+			h.sendError(ctx, req, "⚠️ Serviço sem resposta. Tente novamente.")
 			return fmt.Errorf("nil codex retry response")
 		}
 	}
@@ -228,7 +228,7 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 				h.sendError(ctx, req, "⚠️ Codex 配额已用尽")
 				return fmt.Errorf("codex usage limit exceeded")
 			case "serverOverloaded":
-				h.sendError(ctx, req, "⚠️ Codex 繁忙，请稍后重试")
+				h.sendError(ctx, req, "⚠️ Serviço ocupado. Tente novamente em instantes.")
 				return fmt.Errorf("codex server overloaded")
 			}
 		}
@@ -245,7 +245,7 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 			return fmt.Errorf("codex thread not found")
 		}
 		log.Printf("codex_im: turn failed channel=%s user=%s: %s", req.ChannelID, externalID, msg)
-		h.sendError(ctx, req, "⚠️ Codex 处理失败")
+		h.sendError(ctx, req, "⚠️ Falha ao processar mensagem.")
 		return fmt.Errorf("codex turn failed: %s", msg)
 	case "interrupted":
 		h.sendError(ctx, req, "⚠️ 处理已取消，请重发")
@@ -307,9 +307,9 @@ func lastAgentMessageText(items []json.RawMessage) string {
 func transportToUserMessage(t *CodexTransportError) string {
 	switch t.Code {
 	case "brokerTimeout":
-		return "⚠️ 处理超时，请稍后重试"
+		return "⚠️ Tempo limite de resposta atingido. Tente novamente."
 	default:
-		return "⚠️ Codex 处理失败，请稍后重试"
+		return "⚠️ Falha ao processar mensagem. Tente novamente."
 	}
 }
 
