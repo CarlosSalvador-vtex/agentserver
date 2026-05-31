@@ -189,7 +189,12 @@ func (s *Server) handleCreateAutomation(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "channel not found in workspace", http.StatusBadRequest)
 		return
 	}
-	wechatUserID := ch.UserID
+	// to_user_id: explicit value takes precedence over channel's bound UserID.
+	// Telegram channels have no pre-bound UserID; callers must provide to_user_id.
+	wechatUserID := req.ToUserID
+	if wechatUserID == "" {
+		wechatUserID = ch.UserID
+	}
 	cfg, err := buildAutomationConfig(req.ChannelID, wsID, wechatUserID, req.Prompt)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

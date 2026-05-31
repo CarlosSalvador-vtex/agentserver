@@ -6871,6 +6871,13 @@ components:
         skill_ref:
           example: standup-skill
           type: string
+        to_user_id:
+          description: |-
+            ToUserID is the platform user/chat ID to deliver the reply to.
+            For WeChat defaults to the channel's bound UserID. For Telegram and
+            other providers, pass the Telegram chat/user ID explicitly.
+          example: "123456789"
+          type: string
       required:
         - channel_id
         - cron

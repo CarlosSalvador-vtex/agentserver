@@ -311,6 +311,10 @@ type AutomationCreateRequest struct {
 	ChannelID string `json:"channel_id" validate:"required"`
 	Enabled   *bool  `json:"enabled" extensions:"x-nullable=true"`
 	Prompt    string `json:"prompt" validate:"required" example:"Summarize open tasks"`
+	// ToUserID is the platform user/chat ID to deliver the reply to.
+	// For WeChat defaults to the channel's bound UserID. For Telegram and
+	// other providers, pass the Telegram chat/user ID explicitly.
+	ToUserID  string `json:"to_user_id,omitempty" example:"123456789"`
 } // @name AutomationCreateRequest
 
 // AutomationCatalogEntryResponse is a ready-made automation template.
