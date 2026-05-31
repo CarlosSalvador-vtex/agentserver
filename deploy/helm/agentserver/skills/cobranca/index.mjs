@@ -99,11 +99,32 @@ export default definePluginEntry({
           required: ["cpf_last_3"],
         },
         async execute(_toolCallId, rawParams) {
-          const lead = findLeadByCpfLast3(rawParams?.cpf_last_3);
-          if (!lead) {
-            return { found: false, cpf_last_3: rawParams?.cpf_last_3 };
+          const last3 = rawParams?.cpf_last_3;
+          const base = process.env.SIM_API_BASE_URL;
+          if (base) {
+            try {
+              const res = await fetch(
+                `${base}/api/sim/cobranca/lookup?cpf_last_3=${encodeURIComponent(last3)}`,
+                { signal: AbortSignal.timeout(5000) },
+              );
+              if (res.ok) {
+                const data = await res.json();
+                if (data.found && data.lead) {
+                  return { found: true, lead: data.lead, source: "endpoint" };
+                }
+                return { found: false, cpf_last_3: last3, source: "endpoint" };
+              }
+            } catch (err) {
+              api.logger?.warn?.(
+                `[cobranca] lookup_debt endpoint failed, falling back to fixture: ${err.message}`,
+              );
+            }
           }
-          return { found: true, lead };
+          const lead = findLeadByCpfLast3(last3);
+          if (!lead) {
+            return { found: false, cpf_last_3: last3, source: "fixture" };
+          }
+          return { found: true, lead, source: "fixture" };
         },
       }),
       { name: "lookup_debt" },
