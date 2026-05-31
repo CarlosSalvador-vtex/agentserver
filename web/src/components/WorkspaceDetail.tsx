@@ -21,6 +21,7 @@ import {
   Activity,
   FlaskConical,
   Store,
+  History,
 } from 'lucide-react'
 import {
   listMembers,
@@ -61,6 +62,8 @@ import {
   type ModelserverStatus,
   type IMChannel,
   type Sandbox,
+  listIMMessages,
+  type IMMessage,
 } from '../lib/api'
 import { ConfirmModal } from './Modals'
 import { WorkspaceAPIKeysTab } from './WorkspaceAPIKeysTab'
@@ -898,6 +901,9 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
   const [strategy, setStrategy] = useState<ChannelRoutingStrategy | null>(null)
   const [bindingChannelId, setBindingChannelId] = useState<string | null>(null)
   const [bindResult, setBindResult] = useState<{ channelId: string; message: string; ok: boolean } | null>(null)
+  const [historyChannel, setHistoryChannel] = useState<IMChannel | null>(null)
+  const [historyMessages, setHistoryMessages] = useState<IMMessage[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const loadChannels = useCallback(() => {
     listWorkspaceIMChannels(workspaceId).then(r => setImChannels(r.channels || [])).catch(() => {})
@@ -1083,6 +1089,22 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
                               <Plus size={14} />
                             </button>
                             <button
+                              onClick={() => {
+                                setHistoryChannel(ch)
+                                setHistoryMessages([])
+                                setHistoryLoading(true)
+                                listIMMessages(workspaceId, ch.id, undefined, 100)
+                                  .then(msgs => setHistoryMessages(msgs))
+                                  .catch(() => {})
+                                  .finally(() => setHistoryLoading(false))
+                              }}
+                              className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-blue-400 transition-colors"
+                              aria-label="View message history"
+                              title="View conversation history"
+                            >
+                              <History size={14} />
+                            </button>
+                            <button
                               onClick={() => setConfirmDeleteChannel(ch)}
                               className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--destructive)] transition-colors"
                               aria-label="Delete channel"
@@ -1132,6 +1154,45 @@ function IMTab({ workspaceId }: { workspaceId: string }) {
           onClose={() => setShowWeixinLogin(false)}
           onConnected={() => { loadChannels() }}
         />
+      )}
+      {historyChannel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)]">
+              <div>
+                <p className="text-sm font-semibold text-[var(--foreground)]">
+                  Histórico — {historyChannel.bot_id}
+                </p>
+                <p className="text-xs text-[var(--muted-foreground)]">{historyChannel.provider} · {historyChannel.id.slice(0, 8)}</p>
+              </div>
+              <button onClick={() => setHistoryChannel(null)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+              {historyLoading && (
+                <p className="text-xs text-[var(--muted-foreground)] text-center py-8">Carregando...</p>
+              )}
+              {!historyLoading && historyMessages.length === 0 && (
+                <p className="text-xs text-[var(--muted-foreground)] text-center py-8">Nenhuma mensagem registrada ainda.</p>
+              )}
+              {historyMessages.map(m => (
+                <div key={m.ID} className={`flex ${m.Direction === 'outbound' ? 'justify-start' : 'justify-end'}`}>
+                  <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                    m.Direction === 'outbound'
+                      ? 'bg-[var(--secondary)] text-[var(--foreground)]'
+                      : 'bg-blue-600 text-white'
+                  }`}>
+                    <p className="whitespace-pre-wrap break-words">{m.Text}</p>
+                    <p className={`text-[10px] mt-1 ${m.Direction === 'outbound' ? 'text-[var(--muted-foreground)]' : 'text-blue-200'}`}>
+                      {m.Direction === 'inbound' ? '👤 ' : '🤖 '}{m.FromUserID} · {new Date(m.CreatedAt as string).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
       {showTelegramConfig && (
         <TelegramConfigModal

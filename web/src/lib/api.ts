@@ -581,6 +581,31 @@ export async function deleteWorkspaceIMChannel(workspaceId: string, channelId: s
   })
 }
 
+export interface IMMessage {
+  ID: string
+  ChannelID: string
+  FromUserID: string
+  Direction: 'inbound' | 'outbound'
+  Text: string
+  SessionID: string
+  CreatedAt: string
+}
+
+export async function listIMMessages(
+  workspaceId: string,
+  channelId: string,
+  fromUserId?: string,
+  limit = 50,
+): Promise<IMMessage[]> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (fromUserId) params.set('from_user_id', fromUserId)
+  const res = await apiFetch<{ messages: IMMessage[] }>({
+    method: 'GET',
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}/im/channels/${encodeURIComponent(channelId)}/messages?${params}`,
+  })
+  return res.messages ?? []
+}
+
 // Credential Bindings (kubeconfig / external API credentials)
 
 export async function listCredentialBindings(workspaceId: string, kind: string): Promise<CredentialBinding[]> {

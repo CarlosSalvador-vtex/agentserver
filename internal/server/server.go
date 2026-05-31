@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -604,6 +605,7 @@ func (s *Server) Router() http.Handler {
 			r.Put("/api/workspaces/{id}/routing-strategy", s.imBridgeProxy)
 			// Auto-provision-and-bind (server-side; needs k8s, not proxied).
 			r.Post("/api/workspaces/{id}/im/channels/{channelId}/auto-bind", s.handleChannelAutoBind)
+				r.Get("/api/workspaces/{id}/im/channels/{channelId}/messages", s.handleIMChannelMessages)
 			// Legacy sandbox-level IM routes (un-annotated, proxied directly).
 			r.Post("/api/sandboxes/{id}/im/weixin/qr-start", s.imBridgeProxy)
 			r.Post("/api/sandboxes/{id}/im/weixin/qr-wait", s.imBridgeProxy)
@@ -2855,4 +2857,28 @@ func (s *Server) hydraProxyRewrite(targetPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		proxy.ServeHTTP(w, r)
 	}
+}
+
+// handleIMChannelMessages returns conversation history for a channel/user pair.
+// GET /api/workspaces/{id}/im/channels/{channelId}/messages?from_user_id=X&limit=50
+func (s *Server) handleIMChannelMessages(w http.ResponseWriter, r *http.Request) {
+	channelID := chi.URLParam(r, "channelId")
+	fromUserID := r.URL.Query().Get("from_user_id")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+	msgs, err := s.DB.ListIMMessages(channelID, fromUserID, limit)
+	if err != nil {
+		http.Error(w, "failed to list messages: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if msgs == nil {
+		msgs = []db.IMMessage{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"messages": msgs})
 }
