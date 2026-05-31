@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"time"
 )
 
@@ -426,17 +427,31 @@ func (db *DB) SaveIMMessage(channelID, fromUserID, direction, text, sessionID st
 	return err
 }
 
-// ListIMMessages returns the most recent messages for a channel/user pair,
-// ordered oldest-first (up to limit rows).
+// ListIMMessages returns messages for a channel, optionally filtered by user,
+// ordered oldest-first (up to limit rows). If fromUserID is empty, all users
+// are included.
 func (db *DB) ListIMMessages(channelID, fromUserID string, limit int) ([]IMMessage, error) {
-	rows, err := db.Query(
-		`SELECT id, channel_id, from_user_id, direction, text, COALESCE(session_id, ''), created_at
-		 FROM im_messages
-		 WHERE channel_id = $1 AND from_user_id = $2
-		 ORDER BY created_at DESC
-		 LIMIT $3`,
-		channelID, fromUserID, limit,
-	)
+	var rows *sql.Rows
+	var err error
+	if fromUserID != "" {
+		rows, err = db.Query(
+			`SELECT id, channel_id, from_user_id, direction, text, COALESCE(session_id, ''), created_at
+			 FROM im_messages
+			 WHERE channel_id = $1 AND from_user_id = $2
+			 ORDER BY created_at DESC
+			 LIMIT $3`,
+			channelID, fromUserID, limit,
+		)
+	} else {
+		rows, err = db.Query(
+			`SELECT id, channel_id, from_user_id, direction, text, COALESCE(session_id, ''), created_at
+			 FROM im_messages
+			 WHERE channel_id = $1
+			 ORDER BY created_at DESC
+			 LIMIT $2`,
+			channelID, limit,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
