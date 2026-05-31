@@ -152,6 +152,12 @@ func (m *Manager) Start(id, command string, args, env []string, opts process.Sta
 	// Build environment variables for the sandbox pod.
 	containerEnv := []corev1.EnvVar{{Name: "TERM", Value: "xterm-256color"}}
 
+	// Base URL for sim endpoints (cobrança lookup, etc.). Sandbox pods reach agentserver
+	// on the cluster service. Per-workspace override is a later PR.
+	containerEnv = append(containerEnv, corev1.EnvVar{
+		Name: "SIM_API_BASE_URL", Value: "http://agentserver:8080",
+	})
+
 	// Inject LLM provider credentials via OPENCODE_CONFIG_CONTENT (provider.anthropic.options).
 	if opts.BYOKBaseURL != "" {
 		opcodeConfig := BuildOpencodeConfig(m.cfg.OpencodeConfigContent, opts.BYOKAPIKey, opts.BYOKBaseURL)
@@ -338,6 +344,12 @@ func (m *Manager) StartContainerWithIP(id string, opts process.StartOptions) (st
 
 	// Build environment variables for the sandbox pod.
 	containerEnv := []corev1.EnvVar{{Name: "TERM", Value: "xterm-256color"}}
+
+	// Base URL for sim endpoints (cobrança lookup, etc.). Sandbox pods reach agentserver
+	// on the cluster service. Per-workspace override is a later PR.
+	containerEnv = append(containerEnv, corev1.EnvVar{
+		Name: "SIM_API_BASE_URL", Value: "http://agentserver:8080",
+	})
 
 	// Inject LLM provider credentials.
 	proxyBaseURL := ExtractProxyBaseURL(m.cfg.OpencodeConfigContent)
