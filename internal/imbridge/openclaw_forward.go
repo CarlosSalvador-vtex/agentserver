@@ -100,7 +100,7 @@ func (b *Bridge) forwardToOpenclaw(ctx context.Context, binding BridgeBinding, m
 		req.Header.Set("X-Internal-Secret", secret)
 	}
 
-	hctx, cancel := context.WithTimeout(ctx, forwardTimeout)
+	hctx, cancel := context.WithTimeout(ctx, openclawForwardTimeout)
 	defer cancel()
 	resp, err := http.DefaultClient.Do(req.WithContext(hctx))
 	if err != nil {
