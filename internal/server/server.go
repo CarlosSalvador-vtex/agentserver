@@ -223,6 +223,9 @@ func (s *Server) Router() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	// Sim endpoints for sandbox skills (synthetic LGPD-safe data, no auth).
+	r.Get("/api/sim/cobranca/lookup", s.handleSimCobrancaLookup)
+
 	// Prometheus scrape endpoint (no auth). Exposes default Go runtime
 	// metrics plus playground + composition counters/histograms registered
 	// in playground_metrics.go and sandbox/metrics.go via promauto against
