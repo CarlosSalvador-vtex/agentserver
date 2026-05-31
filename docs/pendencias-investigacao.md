@@ -147,6 +147,92 @@ conformidade.
 
 ---
 
+## Grupo D — Bot Proativo (bot inicia contato com usuário)
+
+### D1 — Como configurar um bot para entrar em contato ativamente ✅ INVESTIGADO
+
+**Investigado 2026-05-31 via subagent.**
+
+**Resposta:** o sistema já tem o mecanismo pronto — **Automations** (PR1+PR2 deployed em dev).
+Bot proativo = Automation com cron schedule que dispara um turn no sandbox e entrega via imbridge.
+
+---
+
+#### Como fazer (passo a passo)
+
+**Pré-requisitos:**
+- Canal IM configurado no workspace (Telegram, WhatsApp, WeChat, Matrix)
+- Para Telegram: o usuário DEVE ter mandado ao menos uma msg ao bot primeiro (limitação da API do Telegram — veja abaixo)
+- Para WhatsApp/WeChat: sem restrição de iniciativa
+
+**Passos:**
+1. Workspace → aba **Automations**
+2. Clicar "New Automation" (ou usar template do catálogo)
+3. Preencher:
+   - **Name:** ex. "Cobrança diária"
+   - **Skill:** skill de cobrança/vendas (draft ID)
+   - **Cron:** ex. `0 9 * * 1-5` (9h manhã dias úteis) ou `@daily` ou `@every 1h`
+   - **Channel:** canal IM vinculado ao bot
+   - **Prompt:** instrução que o agente recebe (ex. "Contacte o cliente sobre a dívida em aberto")
+4. Salvar → `next_run_at` é calculado automaticamente
+5. Na hora configurada: scheduler dispara → skill roda no sandbox → reply enviado via imbridge ao usuário
+
+**Verificação:** Automations tab mostra `last_run_at`, `last_error`, `next_run_at` por automation.
+
+---
+
+#### Limitação crítica — Telegram
+
+**Telegram NÃO permite que bots iniciem conversa com usuários que nunca interagiram antes.**
+Erro retornado pela API: `403 Forbidden: bot was blocked by the user`.
+
+Workarounds:
+- **Grupos:** bot pode mandar msg em grupos onde é membro (automation funciona direto)
+- **Indivíduos:** usuário precisa enviar `/start` ao bot primeiro — depois automation funciona
+- **Alternativa:** usar WhatsApp ou WeChat (sem restrição de iniciativa)
+
+---
+
+#### Endpoint de envio manual (interno)
+
+```bash
+POST /api/internal/imbridge/send
+X-Internal-Secret: <INTERNAL_API_SECRET>
+Content-Type: application/json
+
+{
+  "channel_id": "<uuid-do-canal>",
+  "to_user_id": "<telegram-user-id>",
+  "text": "Olá! Lembrete sobre sua dívida..."
+}
+```
+
+Resposta: `{"status": "sent"}` ou `{"status": "blocked", "message": "..."}` (guardrail).
+
+---
+
+#### Arquivos relevantes
+
+| Arquivo | Descrição |
+|---|---|
+| `internal/server/automation_scheduler.go` | Ticker 1min + fireAutomation() |
+| `internal/server/automation_handlers.go` | CRUD HTTP handlers |
+| `internal/db/automations.go` | DB ops + ComputeNextRun() |
+| `internal/db/migrations/046_automations.sql` | Schema da tabela |
+| `web/src/components/WorkspaceAutomationsTab.tsx` | UI React |
+| `internal/imbridgesvc/handlers.go` | handleImbridgeDirectSend() |
+| `docs/productized-automations-spec.md` | Spec completo |
+
+---
+
+#### O que ainda não existe
+
+- Trigger por evento (só cron time-based por enquanto)
+- Runs manuais via UI (só agendados)
+- Multi-réplica segura (PR3 pendente) → usar `replicaCount: 1` no Helm
+
+---
+
 ## Tabela Resumo
 
 | ID | Título | Grupo | Prioridade |
@@ -156,7 +242,8 @@ conformidade.
 | A3 | Persistência de memória após pause/kill | Sandbox | ✅ Confirmado (PVC sobrevive, ver A1) |
 | A4 | Capacidade paralela por sandbox | Sandbox | ✅ Resolvido (fila por canal, session-id isola) |
 | B1 | Skills com endpoints reais | Integração | Pendente |
-| C1 | Salvar conversas no DB (+ LGPD) | Dados | Pendente |
+| C1 | Salvar conversas no DB (+ LGPD TTL) | Dados | Parcial (C1 impl PR #170; TTL pendente) |
+| D1 | Bot proativo — como configurar | Automations | ✅ Investigado (usar Automations tab) |
 
 **Ordem recomendada de investigação:**
 A1 → A2 (depende de A1) → A3 (depende de A1) → A4 (independente) → B1 → C1
