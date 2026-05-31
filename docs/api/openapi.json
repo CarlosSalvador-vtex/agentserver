@@ -11151,6 +11151,11 @@
           "skill_ref": {
             "type": "string",
             "example": "standup-skill"
+          },
+          "to_user_id": {
+            "description": "ToUserID is the platform user/chat ID to deliver the reply to.\nFor WeChat defaults to the channel's bound UserID. For Telegram and\nother providers, pass the Telegram chat/user ID explicitly.",
+            "type": "string",
+            "example": "123456789"
           }
         }
       },
