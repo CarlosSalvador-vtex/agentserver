@@ -222,10 +222,10 @@ func (h *codexInboundHandler) runTurnSync(ctx context.Context, req codexInboundR
 			switch *turn.Error.CodexErrorInfo {
 			case "contextWindowExceeded":
 				_ = h.sessions.SetSessionCodexThreadID(ctx, sess.ID, nil)
-				h.sendError(ctx, req, "⚠️ 上下文已满，请新开会话")
+				h.sendError(ctx, req, "⚠️ Limite de contexto atingido. Inicie uma nova conversa.")
 				return fmt.Errorf("codex context window exceeded")
 			case "usageLimitExceeded":
-				h.sendError(ctx, req, "⚠️ Codex 配额已用尽")
+				h.sendError(ctx, req, "⚠️ Limite de uso atingido. Tente mais tarde.")
 				return fmt.Errorf("codex usage limit exceeded")
 			case "serverOverloaded":
 				h.sendError(ctx, req, "⚠️ Serviço ocupado. Tente novamente em instantes.")

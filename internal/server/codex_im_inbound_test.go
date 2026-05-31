@@ -164,7 +164,7 @@ func TestCodexInboundFailedWithUsageLimit(t *testing.T) {
 	h.ServeHTTP(w, r)
 	waitFor(t, func() bool { return len(sends.Load().([]*capturedSend)) == 1 })
 	got := sends.Load().([]*capturedSend)[0]
-	if !strings.Contains(got.text, "配额") {
+	if !strings.Contains(got.text, "Limite de uso") {
 		t.Errorf("text=%q want quota message", got.text)
 	}
 }
@@ -203,7 +203,7 @@ func TestCodexInboundContextWindowClearsThread(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	waitFor(t, func() bool { return atomic.LoadInt32(&cleared) > 0 && len(sends.Load().([]*capturedSend)) == 1 })
-	if !strings.Contains(sends.Load().([]*capturedSend)[0].text, "上下文") {
+	if !strings.Contains(sends.Load().([]*capturedSend)[0].text, "Limite de contexto") {
 		t.Errorf("want context-window message")
 	}
 }
