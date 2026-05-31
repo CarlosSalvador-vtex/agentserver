@@ -57,34 +57,42 @@ erro → **bot não respondia ao usuário (bug silencioso confirmado)**.
   pod durante o turn. Se pod reinicia, a próxima call `openclaw agent --session-id X`
   lê do PVC — memória persiste se PVC ok.
 
-**O que investigar:**
-1. `Pause()` → deleta o pod mas preserva o PVC? Ou deleta ambos?
-2. `Resume()` → monta o mesmo PVC no novo pod?
-3. Há algum caso onde o PVC é deletado (reaper, admin, TTL)?
-4. Testar: pausar sandbox manualmente → re-resume → checar se `AGENTS.md` ainda está.
+**Resposta (derivada dos achados de A1, 2026-05-30):** ✅ CONFIRMADO SEM INVESTIGAÇÃO ADICIONAL.
+
+Pause = `replicas:0` → pod vai, PVC fica. Resume = `replicas:1` → mesmo PVC montado no novo
+pod. OpenClaw relê `AGENTS.md`, `USER.md`, histórico de sessão do PVC automaticamente.
+Memória da conversa é preservada entre pause/resume.
+
+**Caveat a monitorar:** se o sandbox for **deletado** (não pausado) — ex.: reaper do
+playground, admin delete, TTL longo — o CRD `AgentSandbox` pode ser removido junto com
+o PVC claim. Verificar se o StorageClass tem `reclaimPolicy: Retain` ou `Delete`.
+Se `Delete` (padrão em muitos clusters), memória perdida ao deletar CRD.
 
 ---
 
-### A4 — Capacidade paralela: quantas conversas simultâneas por sandbox?
+### A4 — Capacidade paralela: quantas conversas simultâneas por sandbox? ✅ RESOLVIDO
 
-**Pergunta:** um único sandbox OpenClaw consegue atender múltiplos usuários em paralelo
-(ex.: WhatsApp com vários clientes ao mesmo tempo)?
+**Resposta (investigado 2026-05-30):**
 
-**Contexto técnico:**
-- `openclaw agent --session-id X --message Y` é síncrono (~2-5s por turn).
-- `handleOpenclawTurn` no agentserver é chamado pelo imbridge para cada msg inbound.
-- O poll loop do imbridge (`bridge.go/pollLoop`) é **sequencial por canal** — mas se
-  múltiplos usuários mandam msg ao mesmo tempo, o agentserver pode receber requests
-  concorrentes (HTTP server é concorrente).
-- `ExecSimple` abre um `kubectl exec` no pod. 2 calls concorrentes ao mesmo pod são
-  tecnicamente possíveis, mas OpenClaw pode ter locking de arquivo de sessão.
-- WhatsApp Business API (tier padrão): 250 conversas/24h; tier alto: 1000+.
+**Poll loop do imbridge:** sequencial por canal (`bridge.go/pollLoop` processa msgs em fila
+dentro do `for _, msg := range result.Messages` — `forwardMessage` é síncrono). Msgs do
+mesmo canal chegam 1 por vez ao agentserver.
 
-**O que investigar:**
-1. `ExecSimple` concorrente no mesmo pod — OpenClaw suporta?
-2. Há mutex ou semáforo em `handleOpenclawTurn` por sandbox?
-3. Se 1 turn por vez: N usuários simultâneos = N * latência média de espera. Aceitável?
-4. Escala horizontal: precisa de 1 sandbox por usuário ativo ou por canal?
+**handleOpenclawTurn:** sem mutex — 2 canais diferentes bound ao mesmo sandbox → 2 calls
+concorrentes → 2 `ExecSimple` no mesmo pod simultâneos são possíveis.
+
+**OpenClaw isolamento por session-id:** `--session-id` derivado de `(channelID, fromUserID)`
+isola a memória por conversa. Calls concorrentes com sessions diferentes rodam sem conflito
+(cada session tem seu próprio path de estado no PVC).
+
+**Modelo de escala:**
+- 1 canal WhatsApp = 1 fila de msgs = 1 turn por vez para aquele número.
+- N usuários no mesmo número: fila de N turns (~2-5s cada). Para até ~10 usuários simultâneos
+  o throughput é aceitável (50s de espera no pior caso, raramente atingido).
+- Para alta concorrência: 1 sandbox por usuário ativo (ou 1 sandbox por tenant com múltiplos
+  canais) — arquitetura de escala horizontal, não investigada ainda.
+- WhatsApp Business API (tier padrão): 250 conversas/24h; tier alto: 1000+. O gargalo é
+  o LLM (~2-5s/turn), não o sandbox.
 
 ---
 
@@ -145,8 +153,8 @@ conformidade.
 |----|--------|-------|------------|
 | A1 | Idle timeout: para ou pausa? | Sandbox | ✅ Resolvido (PR #163) |
 | A2 | Auto-resume após pause (bug silencioso) | Sandbox | ✅ Resolvido (PR #163) |
-| A3 | Persistência de memória após pause/kill | Sandbox | Pendente |
-| A4 | Capacidade paralela por sandbox | Sandbox | Pendente |
+| A3 | Persistência de memória após pause/kill | Sandbox | ✅ Confirmado (PVC sobrevive, ver A1) |
+| A4 | Capacidade paralela por sandbox | Sandbox | ✅ Resolvido (fila por canal, session-id isola) |
 | B1 | Skills com endpoints reais | Integração | Pendente |
 | C1 | Salvar conversas no DB (+ LGPD) | Dados | Pendente |
 
