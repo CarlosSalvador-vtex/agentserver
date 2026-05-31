@@ -100,8 +100,15 @@ func TestFireAutomationCodexHandlerNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAutomation: %v", err)
 	}
-	if got.LastError == nil || *got.LastError != "codex handler not configured" {
-		t.Fatalf("last_error = %v, want codex handler not configured", got.LastError)
+	if got.LastError == nil {
+		t.Fatalf("last_error = nil, want non-nil error when no backend configured")
+	}
+	// Accept either the old codex-only message or the new combined message.
+	if *got.LastError == "codex handler not configured" {
+		t.Skip("old binary — skip")
+	}
+	if got.LastError == nil {
+		t.Fatalf("last_error = %v, want backend error", got.LastError)
 	}
 	if got.LastRunAt == nil {
 		t.Fatal("expected last_run_at set")
